@@ -1,0 +1,40 @@
+{
+  "name": "@centris/connector-slack",
+  "version": "1.0.0",
+  "description": "Slack connector for Centris AI",
+  "keywords": [
+    "centris-connector",
+    "communication",
+    "messaging",
+    "slack"
+  ],
+  "license": "MIT",
+  "author": "Centris AI",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.32.0",
+    "@slack/web-api": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "peerDependencies": {
+    "@centris/sdk": "^1.0.0"
+  },
+  "centrisConnector": {
+    "id": "slack",
+    "categories": [
+      "messaging",
+      "communication",
+      "collaboration"
+    ],
+    "icon": "./assets/slack-icon.png"
+  }
+}

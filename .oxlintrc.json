@@ -22,8 +22,12 @@
   },
   "ignorePatterns": [
     "assets/",
+    "cloudflare-workers/",
+    "connectors/",
+    "desktop/",
     "dist/",
     "docs/_layouts/",
+    "extension/",
     "extensions/",
     "node_modules/",
     "patches/",

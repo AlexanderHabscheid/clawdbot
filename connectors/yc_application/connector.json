@@ -1,0 +1,88 @@
+{
+  "id": "yc-application",
+  "name": "YC Application",
+  "description": "Pre-mapped YC application form filling. Uses element IDs from Chrome extension 'Show Elements' feature for 10x faster automation.",
+  "version": "1.0.0",
+  "main": "connector.py",
+
+  "centrisConnector": {
+    "id": "yc-application",
+    "type": "browser",
+    "categories": ["forms", "applications", "yc"],
+    "authScheme": "browser_session",
+    "urlPatterns": ["apply.ycombinator.com"],
+    "taskKeywords": ["yc application", "y combinator", "ycombinator", "yc app"]
+  },
+
+  "tools": [
+    {
+      "name": "yc_fill_application",
+      "description": "Fill entire YC application from data file. Pre-mapped DOM = 10x faster."
+    },
+    {
+      "name": "yc_navigate_section",
+      "description": "Navigate to specific section (founders, company, progress, idea, equity, curious)"
+    },
+    {
+      "name": "yc_fill_field",
+      "description": "Fill specific field by element ID"
+    },
+    {
+      "name": "yc_save_changes",
+      "description": "Save changes (NEVER submits)"
+    }
+  ],
+
+  "elementMapping": {
+    "_comment": "Generated from Chrome extension 'Show Elements' output",
+    "_source": "Centris extension popup.js",
+
+    "navigation": {
+      "founders": { "id": 5, "type": "clickable" },
+      "video": { "id": 6, "type": "clickable" },
+      "company": { "id": 7, "type": "clickable" },
+      "progress": { "id": 8, "type": "clickable" },
+      "idea": { "id": 9, "type": "clickable" },
+      "equity": { "id": 10, "type": "clickable" },
+      "curious": { "id": 11, "type": "clickable" },
+      "batch": { "id": 12, "type": "clickable" }
+    },
+
+    "fields": {
+      "others2": { "id": 15, "type": "typeable", "section": "founders" },
+      "cofounder": { "id": 16, "type": "typeable", "section": "founders" },
+      "name": { "id": 19, "type": "typeable", "section": "company" },
+      "describe": { "id": 20, "type": "typeable", "section": "company" },
+      "url": { "id": 21, "type": "typeable", "section": "company" },
+      "productLink": { "id": 23, "type": "typeable", "section": "company" },
+      "productCreds": { "id": 24, "type": "typeable", "section": "company" },
+      "make": { "id": 25, "type": "typeable", "section": "company" },
+      "where": { "id": 26, "type": "typeable", "section": "company" },
+      "wherewhy": { "id": 27, "type": "typeable", "section": "company" },
+      "howfar": { "id": 28, "type": "typeable", "section": "progress" },
+      "worked": { "id": 29, "type": "typeable", "section": "progress" },
+      "techstack": { "id": 30, "type": "typeable", "section": "progress" },
+      "since": { "id": 31, "type": "typeable", "section": "idea" },
+      "acc": { "id": 32, "type": "typeable", "section": "idea" },
+      "exp": { "id": 33, "type": "typeable", "section": "idea" },
+      "get": { "id": 34, "type": "typeable", "section": "idea" },
+      "money": { "id": 35, "type": "typeable", "section": "idea" },
+      "ideas": { "id": 37, "type": "typeable", "section": "idea" },
+      "percent2": { "id": 38, "type": "typeable", "section": "equity" },
+      "raisingdetails": { "id": 39, "type": "typeable", "section": "equity" },
+      "whyapply": { "id": 40, "type": "typeable", "section": "curious" },
+      "howhear": { "id": 41, "type": "typeable", "section": "curious" }
+    },
+
+    "buttons": {
+      "save": { "id": 47, "type": "clickable" },
+      "submit": { "id": 48, "type": "BLOCKED", "reason": "Safety - never expose submit" }
+    }
+  },
+
+  "safety": {
+    "blockedElements": [48],
+    "blockedPatterns": ["submit", "Submit application"],
+    "maxActionsPerSession": 100
+  }
+}

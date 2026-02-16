@@ -1,0 +1,75 @@
+{
+	"folders": [
+		{
+			"name": "centris-ai",
+			"path": "."
+		},
+		{
+			"name": "Agent-S-main",
+			"path": "../Agent-S-main"
+		},
+		{
+			"name": "FaceTimeOS-main",
+			"path": "../FaceTimeOS-main"
+		},
+		{
+			"name": "BrowserOS-main",
+			"path": "../BrowserOS-main"
+		},
+		{
+			"path": "../../Nextcloud/dev/sentrisai-1"
+		},
+		{
+			"path": "../system-prompts-and-models-of-ai-tools-main"
+		},
+		{
+			"path": "../open-whispr-main"
+		},
+		{
+			"path": "../glass-ai-main"
+		},
+		{
+			"path": "../contextual-engineering-guide-main"
+		},
+		{
+			"path": "../free-cluely-master"
+		},
+		{
+			"path": "../planning-with-files-master"
+		},
+		{
+			"path": "../android-action-kernel-research"
+		},
+		{
+			"path": "../ralph-main"
+		},
+		{
+			"path": "../Sentris-AI-Agent-Orchestration-Platform-5691-main"
+		},
+		{
+			"path": "../clawdbot-main"
+		},
+		{
+			"path": "../deepgram-python-sdk-main"
+		},
+		{
+			"path": "../Agentic_Design_Patterns-main"
+		},
+		{
+			"path": "../../MinecraftDatapacks"
+		},
+		{
+			"path": "../../Desktop/normaai"
+		},
+		{
+			"path": "../awesome-cheatsheets-master"
+		},
+		{
+			"path": "../frontend-dev-bookmarks-master"
+		},
+		{
+			"path": "../css-protips-master"
+		}
+	],
+	"settings": {}
+}

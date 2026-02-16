@@ -1,0 +1,46 @@
+{
+  "name": "centris-native-audio",
+  "version": "1.0.0",
+  "description": "Native audio capture module for Centris AI - Wispr Flow-level performance",
+  "keywords": [
+    "audio",
+    "capture",
+    "coreaudio",
+    "low-latency",
+    "native",
+    "transcription",
+    "voice",
+    "wasapi"
+  ],
+  "license": "MIT",
+  "author": "Centris AI",
+  "os": [
+    "darwin",
+    "win32",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "benchmark": "node test/benchmark.js",
+    "build": "node-gyp rebuild",
+    "build:debug": "node-gyp rebuild --debug",
+    "clean": "node-gyp clean",
+    "install": "node-gyp rebuild",
+    "test": "node test/test.js"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.0.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^10.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "gypfile": true
+}

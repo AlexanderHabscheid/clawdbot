@@ -1,0 +1,122 @@
+{
+  "id": "google-workspace",
+  "name": "Google Workspace",
+  "description": "Complete Google Workspace API access - Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Meet, Classroom, Tasks, Contacts. 10-100x faster than browser automation.",
+  "version": "1.0.0",
+  "author": "Centris AI",
+  "license": "MIT",
+  "main": "__init__.py",
+  "centrisConnector": {
+    "id": "google-workspace",
+    "type": "api",
+    "categories": ["productivity", "email", "calendar", "files", "education"],
+    "authScheme": "oauth",
+    "oauthProvider": "google"
+  },
+  "services": [
+    {
+      "id": "gmail",
+      "name": "Gmail",
+      "description": "Email automation - send, read, search, batch operations",
+      "module": "gmail_api",
+      "tools": ["gmail_api_send", "gmail_api_search", "gmail_api_archive_batch"]
+    },
+    {
+      "id": "calendar",
+      "name": "Google Calendar",
+      "description": "Scheduling - create events, check availability, manage attendees",
+      "module": "calendar_api",
+      "tools": [
+        "calendar_api_create_event",
+        "calendar_api_list_events",
+        "calendar_api_delete_event"
+      ]
+    },
+    {
+      "id": "drive",
+      "name": "Google Drive",
+      "description": "File management - upload, search, share, organize",
+      "module": "drive_api",
+      "tools": ["drive_api_search", "drive_api_create_folder", "drive_api_share"]
+    },
+    {
+      "id": "docs",
+      "name": "Google Docs",
+      "description": "Document creation - create, read, edit documents",
+      "module": "docs_api",
+      "tools": ["docs_api_create", "docs_api_read", "docs_api_append"]
+    },
+    {
+      "id": "sheets",
+      "name": "Google Sheets",
+      "description": "Spreadsheet automation - create, read, write, batch updates",
+      "module": "sheets_api",
+      "tools": ["sheets_api_create", "sheets_api_read", "sheets_api_write"]
+    },
+    {
+      "id": "slides",
+      "name": "Google Slides",
+      "description": "Presentation creation - create, add slides, modify content",
+      "module": "slides_api",
+      "tools": ["slides_api_create", "slides_api_add_slide"]
+    },
+    {
+      "id": "forms",
+      "name": "Google Forms",
+      "description": "Form creation - create forms, read responses",
+      "module": "forms_api",
+      "tools": ["forms_api_create", "forms_api_responses"]
+    },
+    {
+      "id": "meet",
+      "name": "Google Meet",
+      "description": "Meeting management - create meeting links instantly",
+      "module": "meet_api",
+      "tools": ["meet_api_create"]
+    },
+    {
+      "id": "classroom",
+      "name": "Google Classroom",
+      "description": "Education automation - courses, assignments, announcements",
+      "module": "classroom_api",
+      "tools": ["classroom_api_courses", "classroom_api_assignments", "classroom_api_announce"]
+    },
+    {
+      "id": "tasks",
+      "name": "Google Tasks",
+      "description": "Todo management - create, list, complete tasks",
+      "module": "tasks_api",
+      "tools": ["tasks_api_list", "tasks_api_create", "tasks_api_complete"]
+    },
+    {
+      "id": "contacts",
+      "name": "Google Contacts",
+      "description": "Contact management - list, search, create contacts",
+      "module": "contacts_api",
+      "tools": ["contacts_api_list", "contacts_api_search", "contacts_api_create"]
+    }
+  ],
+  "requiredScopes": [
+    "email",
+    "profile",
+    "openid",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.compose",
+    "https://www.googleapis.com/auth/gmail.labels",
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/presentations",
+    "https://www.googleapis.com/auth/forms.body",
+    "https://www.googleapis.com/auth/forms.responses.readonly",
+    "https://www.googleapis.com/auth/meetings.space.created",
+    "https://www.googleapis.com/auth/classroom.courses",
+    "https://www.googleapis.com/auth/classroom.coursework.me",
+    "https://www.googleapis.com/auth/tasks",
+    "https://www.googleapis.com/auth/contacts"
+  ]
+}

@@ -1,0 +1,159 @@
+# Centris AI Gateway Worker Configuration
+# ========================================
+# Routes LLM, transcription, and TTS requests through Cloudflare
+# for caching, analytics, failover, and cost reduction.
+#
+# Setup:
+#   1. npm install -g wrangler
+#   2. wrangler login
+#   3. Get your account_id from: dash.cloudflare.com
+#   4. Create KV namespaces: wrangler kv:namespace create CACHE
+#   5. Create AI Gateway: dash.cloudflare.com/ai-gateway
+#   6. Update the IDs below and deploy: wrangler deploy
+
+name = "centris-gateway"
+main = "src/index.js"
+compatibility_date = "2026-01-11"
+
+# ========================================
+# REQUIRED: Update these with your values
+# ========================================
+# Get from: dash.cloudflare.com (click on any worker)
+account_id = "7cd2b493d94c63bba7fb6b1813984ce0"
+
+# ========================================
+# Workers AI (for Whisper fallback)
+# ========================================
+# Enables @cf/openai/whisper for transcription if Deepgram fails
+[ai]
+binding = "AI"
+
+# ========================================
+# KV Namespaces for Caching
+# ========================================
+# Create with: wrangler kv:namespace create CACHE
+# Then update the id below
+[[kv_namespaces]]
+binding = "CACHE"
+id = "0f200facae084ae2a7568dd191a0de77"
+preview_id = "d4f05091504044afb8440fe993064773"
+
+# ========================================
+# Vectorize for Semantic Search
+# ========================================
+# Create with: wrangler vectorize create centris-patterns --dimensions 768 --metric cosine
+# Note: Uses bge-base-en-v1.5 which outputs 768-dimensional vectors
+# Enables semantic similarity search for:
+#   - Complex task patterns (20 vectorized workflows)
+#   - Past command patterns (find similar commands)
+#   - User learnings (find relevant learnings)
+#   - Action cache lookup by meaning
+[[vectorize]]
+binding = "PATTERNS"
+index_name = "centris-patterns"
+
+# ========================================
+# Context Vectorize - Instant Context Detection
+# ========================================
+# Create with: wrangler vectorize create centris-contexts --dimensions 768 --metric cosine
+# Enables instant context detection:
+#   - Blank desktop → launch app capabilities
+#   - Chrome on Gmail → email capabilities  
+#   - Finder window → file operations
+#   - VS Code → coding capabilities
+# Pre-vectorizes app states for <5ms context matching
+[[vectorize]]
+binding = "CONTEXTS"
+index_name = "centris-contexts"
+
+# ========================================
+# Tool Vectorize - Semantic Tool Selection (BigTool/Tool-RAG)
+# ========================================
+# Create with: wrangler vectorize create centris-tools --dimensions 768 --metric cosine
+# Implements Gulli's BigTool pattern - semantic tool selection:
+#   - 3x improvement in tool selection accuracy
+#   - ~40% token reduction by only sending relevant tools
+#   - Works even with smaller models (Qwen-14b success reported)
+# Pre-vectorizes tool descriptions for <10ms semantic matching
+[[vectorize]]
+binding = "TOOLS"
+index_name = "centris-tools"
+
+# ========================================
+# Rate Limiting
+# ========================================
+# Prevents abuse and controls costs
+# Configure in the Cloudflare dashboard under Workers > Rate Limiting
+
+# ========================================
+# Environment Variables
+# ========================================
+[vars]
+ENVIRONMENT = "production"
+
+# Cloudflare AI Gateway Configuration
+# ===================================
+# AI Gateway provides semantic caching, analytics, and rate limiting for LLM calls
+# Create your gateway at: https://dash.cloudflare.com/ai/ai-gateway
+CLOUDFLARE_ACCOUNT_ID = "7cd2b493d94c63bba7fb6b1813984ce0"
+AI_GATEWAY_SLUG = "centris-ai-gateway"
+USE_AI_GATEWAY = "true"  # Set to "false" to bypass AI Gateway
+
+# Cache TTLs (in seconds)
+LLM_CACHE_TTL = "86400"           # 24 hours for LLM responses
+TRANSCRIPTION_CACHE_TTL = "3600"  # 1 hour for transcription
+COMMAND_CACHE_TTL = "604800"      # 7 days for command cache
+
+# Feature flags
+ENABLE_LLM_CACHING = "true"
+ENABLE_TRANSCRIPTION_CACHING = "true"
+ENABLE_COMMAND_CACHE = "true"
+ENABLE_DEEPGRAM_FALLBACK = "true" # Fall back to Workers AI Whisper if Deepgram fails
+
+# AGGRESSIVE CACHING MODE
+# When enabled, caches ALL LLM responses including non-deterministic (temperature > 0)
+# Uses variable TTLs based on temperature:
+#   - temp = 0: 24 hours
+#   - temp <= 0.3: 4 hours  
+#   - temp <= 0.7: 1 hour
+#   - temp > 0.7: 15 minutes
+# This can increase cache hit rates from ~20% to ~60%+
+ENABLE_AGGRESSIVE_CACHING = "true"
+
+# Supabase URL (public, safe in vars)
+SUPABASE_URL = "https://ygjihbumpqwmflhojapm.supabase.co"
+
+# ========================================
+# Secrets (set via wrangler secret put)
+# ========================================
+# wrangler secret put OPENAI_API_KEY
+# wrangler secret put ANTHROPIC_API_KEY
+# wrangler secret put DEEPSEEK_API_KEY
+# wrangler secret put GEMINI_API_KEY
+# wrangler secret put DEEPGRAM_API_KEY
+# wrangler secret put SUPABASE_ANON_KEY
+# wrangler secret put SUPABASE_SERVICE_KEY
+
+# ========================================
+# AI Gateway Configuration
+# ========================================
+# Create at: dash.cloudflare.com/ai-gateway
+# This enables caching, logging, and analytics for all LLM requests
+#
+# Gateway URL format:
+# https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_name}/{provider}/chat/completions
+#
+# Example: https://gateway.ai.cloudflare.com/v1/abc123/centris-ai-gateway/openai/chat/completions
+
+# ========================================
+# Deployment Environments
+# ========================================
+[env.staging]
+name = "centris-gateway-staging"
+[env.staging.vars]
+ENVIRONMENT = "staging"
+
+[env.production]
+name = "centris-gateway"
+[env.production.vars]
+ENVIRONMENT = "production"

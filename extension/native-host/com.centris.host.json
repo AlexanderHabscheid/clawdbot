@@ -1,0 +1,7 @@
+{
+  "name": "com.centris.host",
+  "description": "Centris AI Native Messaging Host - Enables fast communication between Chrome extension and desktop app",
+  "path": "/usr/local/bin/centris_host.py",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://EXTENSION_ID_PLACEHOLDER/"]
+}

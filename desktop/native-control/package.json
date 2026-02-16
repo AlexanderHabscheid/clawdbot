@@ -1,0 +1,46 @@
+{
+  "name": "centris-native-control",
+  "version": "0.1.0",
+  "description": "Native system control module for Centris - provides DOM-like access to desktop UI via Accessibility APIs",
+  "keywords": [
+    "accessibility",
+    "automation",
+    "axuielement",
+    "cgevent",
+    "desktop",
+    "macos",
+    "native",
+    "uiautomation",
+    "windows"
+  ],
+  "license": "MIT",
+  "author": "Centris AI",
+  "os": [
+    "darwin",
+    "win32",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "node-gyp build",
+    "clean": "node-gyp clean",
+    "install": "node-gyp rebuild",
+    "rebuild": "node-gyp rebuild",
+    "test": "node test/test.js"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.0.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^10.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "gypfile": true
+}

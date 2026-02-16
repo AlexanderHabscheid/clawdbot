@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Centris AI</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      width: 300px;
+      height: 360px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #000;
+      color: #fff;
+      overflow: hidden;
+    }
+    
+    #galaxy {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+    }
+    
+    .content {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+    }
+    
+    .logo {
+      width: 72px;
+      height: 72px;
+      margin-bottom: 16px;
+    }
+    
+    .title {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      margin-bottom: 40px;
+    }
+    
+    .btn {
+      padding: 10px 24px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.05);
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-bottom: 32px;
+    }
+    
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+    
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    
+    .btn-primary {
+      background: rgba(59, 130, 246, 0.3);
+      border-color: rgba(59, 130, 246, 0.5);
+    }
+    
+    .btn-primary:hover {
+      background: rgba(59, 130, 246, 0.4);
+      border-color: rgba(59, 130, 246, 0.7);
+    }
+    
+    .btn-small {
+      padding: 6px 12px;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+    
+    .btn-accent {
+      background: rgba(252, 102, 26, 0.3);
+      border-color: rgba(252, 102, 26, 0.5);
+    }
+    
+    .btn-accent:hover {
+      background: rgba(252, 102, 26, 0.4);
+      border-color: rgba(252, 102, 26, 0.7);
+    }
+    
+    .sdk-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(34, 197, 94, 0.9);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      z-index: 100;
+      animation: fadeInOut 2s ease;
+    }
+    
+    .toast.error {
+      background: rgba(239, 68, 68, 0.9);
+    }
+    
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: translateX(-50%) translateY(10px); }
+      15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+      85% { opacity: 1; transform: translateX(-50%) translateY(0); }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+    }
+    
+    .elements-panel {
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.95);
+      z-index: 10;
+      overflow: hidden;
+      flex-direction: column;
+    }
+    
+    .elements-panel.visible {
+      display: flex;
+    }
+    
+    .elements-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .elements-header h2 {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    
+    .elements-header .count {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+    
+    .close-btn {
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    
+    .close-btn:hover {
+      color: #fff;
+    }
+    
+    .elements-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+    
+    .element-item {
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 11px;
+    }
+    
+    .element-item:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    
+    .element-label {
+      font-weight: 500;
+      color: #fff;
+      margin-bottom: 4px;
+      word-break: break-word;
+    }
+    
+    .element-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 10px;
+    }
+    
+    .element-meta span {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    
+    .element-meta .type-clickable { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+    .element-meta .type-typeable { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+    .element-meta .type-selectable { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+    
+    .element-bounds {
+      margin-top: 4px;
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 10px;
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+    
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ef4444;
+      transition: background 0.3s ease;
+    }
+    
+    .dot.connected {
+      background: #22c55e;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="galaxy"></canvas>
+  
+  <div class="content">
+    <img src="icon128.png" alt="Centris" class="logo">
+    <h1 class="title">Centris AI</h1>
+    
+    <button id="showElements" class="btn btn-primary">Show Elements on Page</button>
+    <button id="reconnect" class="btn">Reconnect</button>
+    
+    <!-- SDK Export buttons (hidden until elements are loaded) -->
+    <div id="sdkButtons" class="sdk-buttons" style="display: none;">
+      <button id="copyJson" class="btn btn-small">Copy as JSON</button>
+      <button id="exportSdk" class="btn btn-small btn-accent">Export for SDK</button>
+    </div>
+    
+    <div id="dot" class="dot"></div>
+  </div>
+  
+  <!-- Elements Panel -->
+  <div id="elementsPanel" class="elements-panel">
+    <div class="elements-header">
+      <div>
+        <h2>Interactive Elements</h2>
+        <span id="elementCount" class="count"></span>
+      </div>
+      <button id="closeElements" class="close-btn">×</button>
+    </div>
+    <div id="elementsList" class="elements-list">
+      <div class="loading">Loading elements...</div>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
