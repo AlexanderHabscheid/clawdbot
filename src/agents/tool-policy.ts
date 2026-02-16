@@ -1,6 +1,6 @@
 import type { AnyAgentTool } from "./tools/common.js";
 
-export type ToolProfileId = "minimal" | "coding" | "messaging" | "full";
+export type ToolProfileId = "minimal" | "coding" | "messaging" | "centris" | "full";
 
 type ToolProfilePolicy = {
   allow?: string[];
@@ -37,9 +37,28 @@ export const TOOL_GROUPS: Record<string, string[]> = {
   "group:messaging": ["message"],
   // Nodes + device tools
   "group:nodes": ["nodes"],
+  // Centris: voice-controlled computer + personal assistant (lean token budget)
+  // Mirrors OG Centris agents: BrowserAgent, ComputerAgent, SystemAgent, FileAgent, VoiceAgent
+  "group:centris": [
+    "centris_browser", // BrowserAgent: real Chrome via extension
+    "centris_computer", // ComputerAgent + SystemAgent: native desktop via Accessibility APIs
+    "browser", // Playwright fallback when extension not connected
+    "read", // FileAgent: read files
+    "write", // FileAgent: write/create files
+    "edit", // FileAgent: edit files (str_replace)
+    "apply_patch", // FileAgent: apply patches
+    "exec", // SystemAgent: terminal/shell commands
+    "web_search", // Web lookup
+    "web_fetch", // Fetch web page content
+    "tts", // VoiceAgent: text-to-speech output
+    "cron", // Proactive: reminders, scheduled tasks
+    "session_status", // Time/date queries, usage info
+  ],
   // All OpenClaw native tools (excludes provider plugins).
   "group:openclaw": [
     "browser",
+    "centris_browser",
+    "centris_computer",
     "canvas",
     "nodes",
     "cron",
@@ -77,6 +96,9 @@ const TOOL_PROFILES: Record<ToolProfileId, ToolProfilePolicy> = {
       "sessions_send",
       "session_status",
     ],
+  },
+  centris: {
+    allow: ["group:centris"],
   },
   full: {},
 };

@@ -27,6 +27,12 @@ import { resolveSessionAgentIds } from "../../agent-scope.js";
 import { createAnthropicPayloadLogger } from "../../anthropic-payload-log.js";
 import { makeBootstrapWarn, resolveBootstrapContextForRun } from "../../bootstrap-files.js";
 import { createCacheTrace } from "../../cache-trace.js";
+import { buildCentrisSystemPrompt } from "../../centris-prompts.js";
+import {
+  applyCentrisRouting,
+  classifyCentrisIntent,
+  compactStaleSnapshots,
+} from "../../centris-router.js";
 import {
   listChannelSupportedActions,
   resolveChannelMessageToolHints,
@@ -320,7 +326,15 @@ export async function runEmbeddedAttempt(
             params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
           disableMessageTool: params.disableMessageTool,
         });
-    const tools = sanitizeToolsForGoogle({ tools: toolsRaw, provider: params.provider });
+    // Centris: route to domain-specific tool subset based on user message.
+    // This mirrors the OG Centris orchestrator pattern — the LLM only sees tools
+    // relevant to the current task domain (browser, computer, file, or general).
+    const toolsRouted = applyCentrisRouting(
+      toolsRaw,
+      [{ role: "user", content: params.prompt }],
+      params.config?.tools?.profile,
+    );
+    const tools = sanitizeToolsForGoogle({ tools: toolsRouted, provider: params.provider });
     logToolSchemasForGoogle({ tools, provider: params.provider });
 
     const machineName = await getMachineDisplayName();
@@ -477,8 +491,45 @@ export async function runEmbeddedAttempt(
       skillsPrompt,
       tools,
     });
-    const systemPromptOverride = createSystemPromptOverride(appendPrompt);
+    // Centris: when the centris profile is active, build a lean modular prompt
+    // (~2,000 tokens) instead of the full OpenClaw prompt (~6,000+ tokens).
+    // Cherry-picks valuable OpenClaw sections (Safety, Skills, Heartbeats, Runtime)
+    // while replacing massive workspace context files with a focused Centris identity.
+    const centrisProfile = params.config?.tools?.profile;
+    const centrisDomain =
+      centrisProfile === "centris" ? classifyCentrisIntent(params.prompt) : undefined;
+    const centrisPrompt = centrisDomain
+      ? buildCentrisSystemPrompt({
+          domain: centrisDomain,
+          profileName: centrisProfile,
+          workspaceDir: effectiveWorkspace,
+          skillsPrompt,
+          ttsHint,
+          heartbeatPrompt: isDefaultAgent
+            ? resolveHeartbeatPrompt(params.config?.agents?.defaults?.heartbeat?.prompt)
+            : undefined,
+          runtimeInfo,
+          defaultThinkLevel: params.thinkLevel,
+        })
+      : undefined;
+    const effectivePrompt = centrisPrompt ?? appendPrompt;
+    const systemPromptOverride = createSystemPromptOverride(effectivePrompt);
     const systemPromptText = systemPromptOverride();
+
+    // Token budget instrumentation: log prompt + tool schema size so we can
+    // track real-world costs and catch regressions (e.g. centris profile not active).
+    if (centrisProfile === "centris") {
+      const promptTokens = Math.ceil(systemPromptText.length / 4);
+      const toolSchemaChars = toolsRouted.reduce((sum, t) => {
+        const descLen = typeof t.description === "string" ? t.description.length : 0;
+        const schemaLen = t.parameters ? JSON.stringify(t.parameters).length : 0;
+        return sum + descLen + schemaLen;
+      }, 0);
+      const toolSchemaTokens = Math.ceil(toolSchemaChars / 4);
+      log.info(
+        `[centris-budget] domain=${centrisDomain} prompt=~${promptTokens}tok tools=${toolsRouted.length}×~${toolSchemaTokens}tok total=~${promptTokens + toolSchemaTokens}tok`,
+      );
+    }
 
     const sessionLock = await acquireSessionWriteLock({
       sessionFile: params.sessionFile,
@@ -672,6 +723,12 @@ export async function runEmbeddedAttempt(
         if (limited.length > 0) {
           activeSession.agent.replaceMessages(limited);
         }
+
+        // Centris: compact stale snapshot tool results to prevent token bloat.
+        // Multi-step browser/computer tasks accumulate old snapshots with stale
+        // nodeIds that waste tokens and confuse the LLM. Keep only the most
+        // recent snapshot per tool; replace older ones with a short marker.
+        compactStaleSnapshots(activeSession.messages, params.config?.tools?.profile);
       } catch (err) {
         await flushPendingToolResultsAfterIdle({
           agent: activeSession?.agent,
