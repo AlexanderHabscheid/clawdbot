@@ -21,7 +21,7 @@ export type CentrisDomain = "browser" | "computer" | "file" | "general";
 
 /** Tools allowed per domain. Tool names are canonical (lowercase). */
 const DOMAIN_TOOLS: Record<CentrisDomain, Set<string>> = {
-  browser: new Set(["centris_browser", "browser", "web_search", "web_fetch", "tts"]),
+  browser: new Set(["centris_browser", "web_search", "web_fetch", "tts"]),
   computer: new Set(["centris_computer", "tts"]),
   file: new Set(["read", "write", "edit", "apply_patch", "exec", "tts"]),
   // "general" = full centris profile, no additional filtering
@@ -105,6 +105,9 @@ const FILE_KEYWORDS: WeightedKeyword[] = [
   ...w1(["save file", "save to file", "save as"]),
   ...w1(["edit file", "edit the file", "modify file", "update file"]),
   ...w1(["delete file", "remove file"]),
+  // Organization — common voice patterns
+  ...w1(["organize", "sort files", "move files", "clean up files"]),
+  ...w1(["into folders", "into folder", "into directory"]),
   // Directory operations
   ...w1(["list directory", "list folder", "list files", "show files"]),
   ...w1(["create directory", "create folder", "make directory"]),
@@ -112,8 +115,11 @@ const FILE_KEYWORDS: WeightedKeyword[] = [
   ...w1([".txt", ".json", ".csv", ".yaml", ".yml", ".md"]),
   ...w1([".py", ".js", ".ts", ".html", ".css"]),
   ...w1([".pdf", ".doc", ".docx", ".xls", ".xlsx"]),
-  // File paths
+  // File paths — "desktop" without slash for voice (users say "my desktop files")
   ...w1(["~/", "/users/", "documents/", "desktop/", "downloads/"]),
+  ...w1(["my desktop", "my documents", "my downloads"]),
+  // File nouns — voice users say "my files", "the files"
+  ...w1(["my files", "the files", "these files"]),
   // Content
   ...w1(["file contents", "file content", "what's in the file"]),
   // Terminal / shell (file-adjacent)
@@ -220,118 +226,208 @@ export function applyCentrisRouting<T extends { name: string }>(
 const MAX_TOOL_RESULT_CHARS = 4000;
 
 /**
- * Remove old tool turns from conversation history entirely.
+ * Remove old messages from conversation history between commands.
  *
- * Old Centris: each agent had its own short context. 3 turns, 10K tokens.
- * New system: single conversation where ALL turns accumulate.
+ * Centris is a voice assistant: each command is independent.
+ * Old conversation history is pure waste. This function runs BEFORE prompt()
+ * adds the new user message, so everything currently in the array is from
+ * previous commands. Nuke it all.
  *
- * Stale tool results contain old nodeIds, old page state, old content —
- * completely useless. Worse: they confuse the LLM if it tries to reuse
- * old nodeIds that no longer exist.
- *
- * Strategy: identify "tool turns" (assistant tool_use + its toolResults),
- * splice out ALL except the latest one. The LLM only needs:
- *   - The user's original request
- *   - The most recent tool result (current page state)
- *
- * Also caps the latest tool result at MAX_TOOL_RESULT_CHARS.
- *
- * Only active when the centris profile is in use.
  * Mutates messages array in place.
  */
 export function compactStaleSnapshots<
   T extends {
     role: string;
     toolName?: string;
-    content?: Array<{ type: string; text?: string }>;
+    content?:
+      | string
+      | Array<{ type: string; text?: string; thinking?: string; thinkingSignature?: string }>;
   },
 >(messages: T[], profileName?: string): number {
   if (profileName !== "centris") {
     return 0;
   }
 
-  // Identify tool turns: each turn = one assistant message + its following toolResult(s).
-  // A turn ends when we hit another assistant, user, or end of array.
-  const turns: Array<{ start: number; end: number }> = [];
-  for (let i = 0; i < messages.length; i++) {
-    if (messages[i].role !== "assistant") {
-      continue;
-    }
-    // Check if this assistant message has tool calls (look ahead for toolResult)
-    let hasToolResults = false;
-    let turnEnd = i;
-    for (let j = i + 1; j < messages.length; j++) {
-      if (messages[j].role === "toolResult") {
-        hasToolResults = true;
-        turnEnd = j;
-      } else {
-        break;
-      }
-    }
-    if (hasToolResults) {
-      turns.push({ start: i, end: turnEnd });
-    }
+  const totalOld = messages.length;
+  if (totalOld > 0) {
+    messages.splice(0, totalOld);
+    logInfo(`[centris-router] cleared ${totalOld} old messages (clean slate for new command)`);
+    return totalOld;
   }
 
-  // Keep only the last tool turn; splice out everything older.
-  const KEEP_LATEST = 1;
-  if (turns.length <= KEEP_LATEST) {
-    // Nothing to prune — but still cap the latest result size
-    capLatestToolResults(messages);
-    return 0;
-  }
-
-  // Mark old turn indices for removal
-  const removeSet = new Set<number>();
-  const removeTurns = turns.slice(0, turns.length - KEEP_LATEST);
-  for (const turn of removeTurns) {
-    for (let i = turn.start; i <= turn.end; i++) {
-      removeSet.add(i);
-    }
-  }
-
-  // Splice out old turns (reverse order to preserve indices)
-  let removed = 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (removeSet.has(i)) {
-      messages.splice(i, 1);
-      removed++;
-    }
-  }
-
-  // Cap the latest tool result sizes
-  capLatestToolResults(messages);
-
-  if (removed > 0) {
-    logInfo(`[centris-router] pruned ${removed} stale messages (${removeTurns.length} old turns)`);
-  }
-  return removed;
+  return 0;
 }
 
-/** Cap oversized tool result text in the latest turn. */
-function capLatestToolResults<
-  T extends {
-    role: string;
-    content?: Array<{ type: string; text?: string }>;
-  },
->(messages: T[]): void {
+// ─── Intra-command context compaction (transformContext hook) ────────────────
+//
+// ROOT CAUSE OF TOKEN RUNAWAY:
+//   pi-agent-core's agentLoop creates its OWN copy of the messages array
+//   (agent-loop.js line 16: `messages: [...context.messages, ...prompts]`).
+//   All tool results are pushed to this local copy, NOT agent._state.messages.
+//   The old mid-loop compaction code (in pi-embedded-subscribe.handlers.tools.ts)
+//   modified agent._state.messages — a COMPLETELY DIFFERENT array. No-op.
+//
+// FIX:
+//   Use the `transformContext` hook, which runs on the agentLoop's local
+//   messages array BEFORE every LLM call (agent-loop.js line 136-138).
+//   This is the only hook that touches the actual messages the LLM receives.
+//
+// STRATEGY:
+//   For a multi-step browser flow (navigate → click → type), each step returns
+//   a DOM snapshot. The LLM only needs the LATEST snapshot — old ones contain
+//   stale nodeIds and content. We:
+//     1. Keep user messages (the original command)
+//     2. Strip thinking content from assistant messages
+//     3. Compress ALL tool results except the most recent to a 1-line summary
+//     4. Cap the latest tool result at MAX_TOOL_RESULT_CHARS
+//
+//   This keeps context flat: ~2300 base + ~100 compressed + ~2000 latest ≈ ~4400
+//   instead of linear growth per step.
+
+interface CompactableMessage {
+  role: string;
+  toolName?: string;
+  content?:
+    | string
+    | Array<{ type: string; text?: string; thinking?: string; thinkingSignature?: string }>;
+}
+
+/**
+ * Compact context for Centris before each LLM call.
+ *
+ * Called via agent.transformContext — runs on the agentLoop's OWN messages
+ * array, which is the actual array sent to the LLM. This is the ONLY hook
+ * that can affect intra-command token usage.
+ *
+ * Returns a new array (does not mutate input).
+ */
+export function compactCentrisContext<T extends CompactableMessage>(messages: T[]): T[] {
+  if (messages.length === 0) {
+    return messages;
+  }
+
+  // Find the index of the LAST toolResult message
+  let lastToolResultIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.role !== "toolResult" || !msg.content?.length) {
-      continue;
-    }
-    for (const part of msg.content) {
-      if (part.type === "text" && part.text && part.text.length > MAX_TOOL_RESULT_CHARS) {
-        part.text = part.text.slice(0, MAX_TOOL_RESULT_CHARS) + "...[truncated]";
-      }
-    }
-    // Only cap the latest turn's results, then stop
-    if (msg.role === "toolResult") {
-      // Keep going backwards through consecutive toolResults (same turn)
-      if (i > 0 && messages[i - 1]?.role === "toolResult") {
-        continue;
-      }
+    if (messages[i].role === "toolResult") {
+      lastToolResultIdx = i;
       break;
     }
   }
+
+  // No tool results yet (first LLM call) — nothing to compact
+  if (lastToolResultIdx === -1) {
+    return messages;
+  }
+
+  const result: T[] = [];
+  let compressedCount = 0;
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
+    // Keep user messages as-is (the original command)
+    if (msg.role === "user") {
+      result.push(msg);
+      continue;
+    }
+
+    // Assistant messages: strip thinking, keep tool calls lean
+    if (msg.role === "assistant") {
+      if (Array.isArray(msg.content)) {
+        const leanContent = msg.content.map((part) => {
+          if (part.type === "thinking") {
+            return { ...part, thinking: "", thinkingSignature: undefined };
+          }
+          // Strip verbose text from old assistant turns (before latest tool result)
+          if (
+            part.type === "text" &&
+            i < lastToolResultIdx &&
+            typeof part.text === "string" &&
+            part.text.length > 80
+          ) {
+            return { ...part, text: part.text.slice(0, 80) + "..." };
+          }
+          return part;
+        });
+        result.push({ ...msg, content: leanContent } as T);
+      } else {
+        result.push(msg);
+      }
+      continue;
+    }
+
+    // Tool results: compress all except the latest one
+    if (msg.role === "toolResult") {
+      if (i === lastToolResultIdx) {
+        // Latest tool result: keep full but cap size
+        if (Array.isArray(msg.content)) {
+          const cappedContent = msg.content.map((part) => {
+            if (
+              part.type === "text" &&
+              typeof part.text === "string" &&
+              part.text.length > MAX_TOOL_RESULT_CHARS
+            ) {
+              return {
+                ...part,
+                text: part.text.slice(0, MAX_TOOL_RESULT_CHARS) + "...[truncated]",
+              };
+            }
+            return part;
+          });
+          result.push({ ...msg, content: cappedContent } as T);
+        } else {
+          result.push(msg);
+        }
+      } else {
+        // Old tool result: compress to tiny summary
+        compressedCount++;
+        const summary = compressToolResult(msg);
+        result.push({ ...msg, content: [{ type: "text", text: summary }] } as T);
+      }
+      continue;
+    }
+
+    // Other message types: pass through
+    result.push(msg);
+  }
+
+  if (compressedCount > 0) {
+    logInfo(
+      `[centris-context] compressed ${compressedCount} old tool results, kept latest at idx ${lastToolResultIdx}`,
+    );
+  }
+
+  return result;
+}
+
+/** Extract a tiny summary from a tool result message. */
+function compressToolResult<T extends CompactableMessage>(msg: T): string {
+  if (!Array.isArray(msg.content)) {
+    return '{"status":"ok"}';
+  }
+
+  for (const part of msg.content) {
+    if (part.type !== "text" || typeof part.text !== "string") {
+      continue;
+    }
+    try {
+      const data = JSON.parse(part.text) as Record<string, unknown>;
+      const summary: Record<string, unknown> = { status: data.success !== false ? "ok" : "error" };
+      if (data.url) {
+        summary.url = data.url;
+      }
+      if (data.action) {
+        summary.action = data.action;
+      }
+      if (typeof data.clickedText === "string") {
+        summary.clicked = data.clickedText.slice(0, 40);
+      }
+      return JSON.stringify(summary);
+    } catch {
+      return `${part.text.slice(0, 40)}...[compressed]`;
+    }
+  }
+
+  return '{"status":"ok"}';
 }

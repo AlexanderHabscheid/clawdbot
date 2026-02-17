@@ -214,6 +214,13 @@ async function connectWebSocket() {
           return;
         }
 
+        // Handle server-side ping — respond with pong to keep connection alive.
+        // This also keeps the MV3 service worker awake (message activity resets the 30s timer).
+        if (messageType === "ping") {
+          sendViaWebSocket({ type: "pong", timestamp: Date.now() });
+          return;
+        }
+
         // Forward command to handler
         if (onWebSocketMessageCallback) {
           await onWebSocketMessageCallback(message);

@@ -79,18 +79,20 @@ async function initialize() {
   setMessageCallback(handleDesktopAppMessage);
 
   // Start local backend monitor with debounce to prevent spam
-  let lastReconnectTime = 0;
-  startLocalBackendMonitor(() => {
-    const now = Date.now();
-    // Debounce: only reconnect if at least 5 seconds since last reconnect
-    if (now - lastReconnectTime < 5000) {
-      logWithTimestamp("debug", "🔄 Skipping reconnect (debounced)");
-      return;
-    }
-    lastReconnectTime = now;
-    logWithTimestamp("info", "🔄 Local backend available - forcing reconnection");
-    forceReconnect();
-  });
+  // (connection_manager.js already handles keep-alive and reconnection)
+  if (typeof startLocalBackendMonitor === "function") {
+    let lastReconnectTime = 0;
+    startLocalBackendMonitor(() => {
+      const now = Date.now();
+      if (now - lastReconnectTime < 5000) {
+        logWithTimestamp("debug", "🔄 Skipping reconnect (debounced)");
+        return;
+      }
+      lastReconnectTime = now;
+      logWithTimestamp("info", "🔄 Local backend available - forcing reconnection");
+      forceReconnect();
+    });
+  }
 
   // Initialize tab context manager if available
   if (typeof tabContextManager !== "undefined" && tabContextManager.init) {
@@ -146,9 +148,14 @@ setTimeout(() => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function handleDesktopAppMessage(message) {
-  const startTime = Date.now();
-
   const { type, id, data } = message;
+
+  // Protocol messages from the gateway — not commands, don't process
+  if (type === "handshake_ack" || type === "pong") {
+    return;
+  }
+
+  const startTime = Date.now();
 
   // For navigate commands, ensure URL is found (check standard + backup locations)
   let effectiveData = data;

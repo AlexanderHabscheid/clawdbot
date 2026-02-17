@@ -53,9 +53,7 @@ async function getActiveTab(options = {}) {
 
     // FEB 2026 FIX: For navigation commands, also accept newtab pages
     const isValidTabForNavigation = (t) =>
-      t &&
-      t.id &&
-      (isValidTab(t) || (allowNewTab && t.url && isNewTabUrl(t.url))); // Accept newtab if allowed
+      t && t.id && (isValidTab(t) || (allowNewTab && t.url && isNewTabUrl(t.url))); // Accept newtab if allowed
 
     const checkFn = allowNewTab ? isValidTabForNavigation : isValidTab;
 

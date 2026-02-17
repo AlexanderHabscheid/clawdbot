@@ -46,9 +46,8 @@ let _lastInitTime = 0;
 async function initializeCommunication() {
   const now = Date.now();
 
-  // Debounce: don't init more than once every 30 seconds
-  // Multiple contexts (tabs, popups) may try to init - only one should succeed
-  if (now - _lastInitTime < 30000) {
+  // Debounce: don't init more than once every 5 seconds
+  if (now - _lastInitTime < 5000) {
     return;
   }
 
@@ -438,19 +437,26 @@ function initializeKeepAlive() {
   let _lastKeepAliveReconnect = 0;
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === "keep_alive") {
-      // Wake up service worker - this prevents suspension
-      // Don't log every time - too noisy
-
-      // FEB 2026 FIX: Use isConnectionBusy() to avoid reconnecting during CONNECTING state
+      // Wake up service worker — this prevents MV3 suspension.
+      // If disconnected, reconnect immediately (no 60s debounce).
       if (!isConnectionBusy()) {
         const now = Date.now();
-        if (now - _lastKeepAliveReconnect > 60000) {
-          // At most once per 60 seconds
+        if (now - _lastKeepAliveReconnect > 5000) {
           _lastKeepAliveReconnect = now;
-          if (typeof logWithTimestamp === "function") {
-            logWithTimestamp("info", "🔄 Keep-alive: Connection idle, reconnecting");
-          }
           initializeCommunication();
+        }
+      } else if (typeof isWebSocketConnected === "function" && isWebSocketConnected()) {
+        // Connection alive — send a ping to keep the WebSocket from idling
+        if (
+          typeof globalThis.wsConnection !== "undefined" &&
+          globalThis.wsConnection &&
+          globalThis.wsConnection.readyState === WebSocket.OPEN
+        ) {
+          try {
+            globalThis.wsConnection.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
+          } catch (e) {
+            /* ignore */
+          }
         }
       }
     } else if (alarm.name === "command_keep_alive") {
@@ -481,10 +487,10 @@ function initializeKeepAlive() {
     }
   });
 
-  // Create main keep-alive alarm (every 60 seconds)
-  // Chrome Manifest V3 suspends service workers after 30s of inactivity
-  // But we don't need aggressive keep-alive - the service worker will wake when needed
-  chrome.alarms.create("keep_alive", { periodInMinutes: 1.0 }); // 60 seconds
+  // Create main keep-alive alarm (every 25 seconds)
+  // Chrome Manifest V3 suspends service workers after 30s of inactivity.
+  // 25s keeps us under the threshold so the WebSocket stays alive.
+  chrome.alarms.create("keep_alive", { periodInMinutes: 25 / 60 }); // 25 seconds
 
   if (typeof logWithTimestamp === "function") {
     logWithTimestamp("info", "⏰ Keep-alive alarms initialized (60s interval)");
@@ -498,12 +504,8 @@ function initializeKeepAlive() {
 let _lastPeriodicReconnect = 0;
 function startPeriodicReconnectionCheck() {
   setInterval(() => {
-    // Check if extension is still enabled (Chrome crash detection)
     try {
       if (!chrome.runtime || !chrome.runtime.id) {
-        if (typeof logWithTimestamp === "function") {
-          logWithTimestamp("error", "⚠️ Extension may be disabled or Chrome crashed");
-        }
         initializeCommunication();
         return;
       }
@@ -512,20 +514,14 @@ function startPeriodicReconnectionCheck() {
       return;
     }
 
-    // FEB 2026 FIX: Use isConnectionBusy() to avoid reconnecting during CONNECTING state
     if (!isConnectionBusy()) {
       const now = Date.now();
-      // Debounce: at most once per 60 seconds
-      if (now - _lastPeriodicReconnect > 60000) {
+      if (now - _lastPeriodicReconnect > 10000) {
         _lastPeriodicReconnect = now;
-        if (typeof logWithTimestamp === "function") {
-          logWithTimestamp("info", "🔄 Periodic check: connection idle, reconnecting");
-        }
         initializeCommunication();
       }
     }
-    // Don't log when connected - too noisy
-  }, 120000); // Check every 2 minutes
+  }, 25000); // Check every 25 seconds (under MV3 30s threshold)
 }
 
 // Initialize keep-alive system when module loads

@@ -27,10 +27,12 @@ import { resolveSessionAgentIds } from "../../agent-scope.js";
 import { createAnthropicPayloadLogger } from "../../anthropic-payload-log.js";
 import { makeBootstrapWarn, resolveBootstrapContextForRun } from "../../bootstrap-files.js";
 import { createCacheTrace } from "../../cache-trace.js";
+import { isCentrisExtensionConnected, waitForExtension } from "../../centris-ext-preflight.js";
 import { buildCentrisSystemPrompt } from "../../centris-prompts.js";
 import {
   applyCentrisRouting,
   classifyCentrisIntent,
+  compactCentrisContext,
   compactStaleSnapshots,
 } from "../../centris-router.js";
 import {
@@ -334,6 +336,19 @@ export async function runEmbeddedAttempt(
       [{ role: "user", content: params.prompt }],
       params.config?.tools?.profile,
     );
+
+    // Centris pre-flight: if domain is browser, wait for extension to reconnect
+    // BEFORE sending anything to the LLM. This avoids burning tokens on a call
+    // that will just result in "extension not connected".
+    if (params.config?.tools?.profile === "centris") {
+      const domain = classifyCentrisIntent(params.prompt);
+      if (domain === "browser" && !isCentrisExtensionConnected()) {
+        await waitForExtension(10_000);
+        // If still not connected, the browser tool's own wait will catch it.
+        // Either way we don't block the LLM call — just gave the extension time.
+      }
+    }
+
     const tools = sanitizeToolsForGoogle({ tools: toolsRouted, provider: params.provider });
     logToolSchemasForGoogle({ tools, provider: params.provider });
 
@@ -615,13 +630,19 @@ export async function runEmbeddedAttempt(
 
       const allCustomTools = [...customTools, ...clientToolDefs];
 
+      // Centris profile: force thinking off to eliminate narration waste.
+      // Flash Lite's thinkingBudget: 2048 causes massive internal monologue
+      // ("I'm currently focused on the initial step...") that burns tokens
+      // without improving tool-call accuracy. The system prompt already says
+      // "NEVER apologize or narrate. Just act."
+      const effectiveThinkLevel = centrisProfile === "centris" ? "off" : params.thinkLevel;
       ({ session } = await createAgentSession({
         cwd: resolvedWorkspace,
         agentDir,
         authStorage: params.authStorage,
         modelRegistry: params.modelRegistry,
         model: params.model,
-        thinkingLevel: mapThinkingLevel(params.thinkLevel),
+        thinkingLevel: mapThinkingLevel(effectiveThinkLevel),
         tools: builtInTools,
         customTools: allCustomTools,
         sessionManager,
@@ -690,6 +711,35 @@ export async function runEmbeddedAttempt(
         activeSession.agent.streamFn = anthropicPayloadLogger.wrapStreamFn(
           activeSession.agent.streamFn,
         );
+      }
+
+      // Centris: inject transformContext hook for intra-command context compaction.
+      // pi-agent-core's agentLoop copies messages into its own local array —
+      // only transformContext can modify what the LLM actually sees between
+      // tool calls within a single command execution.
+      if (centrisProfile === "centris") {
+        const agent = activeSession.agent as unknown as Record<string, unknown>;
+        const originalTransform = agent.transformContext as
+          | ((msgs: unknown[], signal?: AbortSignal) => Promise<unknown[]>)
+          | undefined;
+        agent.transformContext = async (msgs: unknown[], signal?: AbortSignal) => {
+          let transformed = originalTransform ? await originalTransform(msgs, signal) : msgs;
+          transformed = compactCentrisContext(
+            transformed as Array<{
+              role: string;
+              toolName?: string;
+              content?:
+                | string
+                | Array<{
+                    type: string;
+                    text?: string;
+                    thinking?: string;
+                    thinkingSignature?: string;
+                  }>;
+            }>,
+          );
+          return transformed;
+        };
       }
 
       try {

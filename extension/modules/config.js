@@ -26,6 +26,10 @@ const CONFIG = {
   LOCAL_COMMAND_WS_URL: "ws://127.0.0.1:18789/ws/centris/extension",
   LOCAL_VOICE_WS_URL: "ws://127.0.0.1:18789/ws/centris/voice",
 
+  // Dev gateway port (gateway:dev runs on 19001)
+  LOCAL_DEV_COMMAND_WS_URL: "ws://127.0.0.1:19001/ws/centris/extension",
+  LOCAL_DEV_VOICE_WS_URL: "ws://127.0.0.1:19001/ws/centris/voice",
+
   // Track which backend we're using
   _currentBackend: null,
 
@@ -64,21 +68,26 @@ const CONFIG = {
       // Storage not available (e.g. in tests) — fall through
     }
 
-    // Try local gateway first (instant response if running)
-    try {
-      const localCheck = await Promise.race([
-        fetch("http://127.0.0.1:18789/health"),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 1500)),
-      ]);
-      if (localCheck.ok) {
-        console.log("[CONFIG] Local gateway detected — using local connection");
-        CONFIG._currentBackend = "local";
-        CONFIG._cachedUrl = CONFIG.LOCAL_COMMAND_WS_URL;
-        CONFIG._cacheTime = now;
-        return CONFIG.LOCAL_COMMAND_WS_URL;
+    // Try local gateway first — check both production port (18789) and dev port (19001)
+    for (const [port, wsUrl] of [
+      ["18789", CONFIG.LOCAL_COMMAND_WS_URL],
+      ["19001", CONFIG.LOCAL_DEV_COMMAND_WS_URL],
+    ]) {
+      try {
+        const localCheck = await Promise.race([
+          fetch(`http://127.0.0.1:${port}/health`),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 1500)),
+        ]);
+        if (localCheck.ok) {
+          console.log(`[CONFIG] Local gateway detected on port ${port}`);
+          CONFIG._currentBackend = "local";
+          CONFIG._cachedUrl = wsUrl;
+          CONFIG._cacheTime = now;
+          return wsUrl;
+        }
+      } catch {
+        // Not running on this port — try next
       }
-    } catch {
-      // Local gateway not running — fall through to production
     }
 
     // Default: production gateway (Railway)

@@ -35,6 +35,13 @@ let nextId = 1;
 /** Default timeout for a command round-trip (30s). */
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 
+/** Server-side ping interval to keep the WebSocket alive. */
+let pingInterval: NodeJS.Timeout | null = null;
+const PING_INTERVAL_MS = 20_000; // 20s — under MV3's 30s suspension threshold
+
+/** Callbacks waiting for the extension to reconnect. */
+const reconnectWaiters: Array<() => void> = [];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,6 +49,30 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 /** Returns true if an extension is currently connected. */
 export function isCentrisExtensionConnected(): boolean {
   return extensionWs !== null && extensionWs.readyState === extensionWs.OPEN;
+}
+
+/**
+ * Wait for the extension to connect (or return immediately if already connected).
+ * Returns true if connected within the timeout, false otherwise.
+ */
+export function waitForExtension(timeoutMs = 10_000): Promise<boolean> {
+  if (isCentrisExtensionConnected()) {
+    return Promise.resolve(true);
+  }
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      const idx = reconnectWaiters.indexOf(cb);
+      if (idx >= 0) {
+        reconnectWaiters.splice(idx, 1);
+      }
+      resolve(false);
+    }, timeoutMs);
+    const cb = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    reconnectWaiters.push(cb);
+  });
 }
 
 /**
@@ -57,12 +88,18 @@ export async function sendExtensionCommand(
   data: Record<string, unknown> = {},
   timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS,
 ): Promise<unknown> {
-  const ws = extensionWs;
-  if (!ws || ws.readyState !== ws.OPEN) {
-    throw new Error(
-      "Centris Chrome extension is not connected. Make sure the extension is installed and connected to the gateway.",
-    );
+  // If extension is temporarily disconnected (MV3 suspension), wait up to 10s for reconnect
+  if (!extensionWs || extensionWs.readyState !== extensionWs.OPEN) {
+    logInfo(`[centris-ext-bridge] extension not connected, waiting up to 10s for reconnect...`);
+    const reconnected = await waitForExtension(10_000);
+    if (!reconnected) {
+      throw new Error(
+        "Centris Chrome extension is not connected. Make sure the extension is installed and connected to the gateway.",
+      );
+    }
+    logInfo(`[centris-ext-bridge] extension reconnected, proceeding with command: ${type}`);
   }
+  const ws = extensionWs!;
 
   const id = `cmd-${nextId++}`;
   const message = { type, id, data };
@@ -104,8 +141,27 @@ export function handleCentrisExtensionConnection(ws: WebSocket, _req: IncomingMe
   extensionWs = ws;
   logInfo("[centris-ext-bridge] extension connected");
 
+  // Notify anyone waiting for reconnection
+  for (const cb of reconnectWaiters.splice(0)) {
+    cb();
+  }
+
   // Send handshake acknowledgment so the extension knows we're ready
   ws.send(JSON.stringify({ type: "handshake_ack" }));
+
+  // Start server-side ping to keep the WebSocket (and MV3 service worker) alive
+  if (pingInterval) {
+    clearInterval(pingInterval);
+  }
+  pingInterval = setInterval(() => {
+    if (extensionWs && extensionWs.readyState === extensionWs.OPEN) {
+      try {
+        extensionWs.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
+      } catch {
+        // ignore — will be caught by close/error handlers
+      }
+    }
+  }, PING_INTERVAL_MS);
 
   ws.on("message", (raw) => {
     try {
@@ -166,6 +222,10 @@ export function handleCentrisExtensionConnection(ws: WebSocket, _req: IncomingMe
   ws.on("close", () => {
     logInfo("[centris-ext-bridge] extension disconnected");
     extensionWs = null;
+    if (pingInterval) {
+      clearInterval(pingInterval);
+      pingInterval = null;
+    }
     rejectAllPending("extension disconnected");
   });
 

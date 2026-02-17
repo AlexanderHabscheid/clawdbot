@@ -97,12 +97,12 @@ ENVIRONMENT = "production"
 # Create your gateway at: https://dash.cloudflare.com/ai/ai-gateway
 CLOUDFLARE_ACCOUNT_ID = "7cd2b493d94c63bba7fb6b1813984ce0"
 AI_GATEWAY_SLUG = "centris-ai-gateway"
-USE_AI_GATEWAY = "true"  # Set to "false" to bypass AI Gateway
+USE_AI_GATEWAY = "true" # Set to "false" to bypass AI Gateway
 
 # Cache TTLs (in seconds)
-LLM_CACHE_TTL = "86400"           # 24 hours for LLM responses
-TRANSCRIPTION_CACHE_TTL = "3600"  # 1 hour for transcription
-COMMAND_CACHE_TTL = "604800"      # 7 days for command cache
+LLM_CACHE_TTL = "86400" # 24 hours for LLM responses
+TRANSCRIPTION_CACHE_TTL = "3600" # 1 hour for transcription
+COMMAND_CACHE_TTL = "604800" # 7 days for command cache
 
 # Feature flags
 ENABLE_LLM_CACHING = "true"

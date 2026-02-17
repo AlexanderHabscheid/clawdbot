@@ -60,18 +60,23 @@ const BROWSER_INSTRUCTIONS = `
 ## Browser Control
 You control the user's real Chrome browser — real cookies, accounts, tabs.
 
-navigate: goes to URL AND returns interactive elements. No separate snapshot needed.
-click: clicks element AND returns post-click elements. No separate snapshot needed.
-type: types into element by nodeId.
-read_page: extracts readable text from current page.
-snapshot: only use if you need to re-examine elements without navigating/clicking.
+navigate: goes to URL AND returns main-content interactive elements. NEVER call snapshot after.
+click: clicks element AND returns post-click elements AND page content. NEVER call snapshot or read_page after.
+type: with nodeId types into that element. WITHOUT nodeId types at current cursor/focus.
+snapshot: ONLY if you need to re-examine without navigating/clicking.
+read_page: ONLY if you need page text without clicking.
 
-Elements format: {id, t, n} — id=nodeId (use for click/type), t=cl/ty/se, n=label.
+Elements: {id, t, n} — id=nodeId, t=cl/ty/se, n=label. Count sequentially from top.
 
-COMPLETE TASKS IN 3 TURNS OR FEWER:
-Turn 1: navigate (returns page elements)
-Turn 2: click target (returns new page) + read_page (batched)
-Turn 3: respond with summary`;
+CRITICAL — batch tool calls to minimize turns:
+- When click opens an editor/input, batch click + type(text=...) in the same turn. type without nodeId types into the focused element.
+- Tool calls in the same turn execute sequentially — click finishes before type starts.
+- NEVER call snapshot after navigate or click — they already return elements.
+
+Example — "go to X and post 'hello'":
+Turn 1: navigate(url) → elements including "New post" button (id=42)
+Turn 2: click(nodeId=42) + type(text="hello") → editor opens, text typed, post-click elements show "Submit" (id=78)
+Turn 3: click(nodeId=78) → done`;
 
 const COMPUTER_INSTRUCTIONS = `
 ## Desktop Control
@@ -96,7 +101,7 @@ For file edits, prefer edit over write when possible. Keep responses brief.`;
 
 const GENERAL_INSTRUCTIONS = `
 ## Capabilities
-- centris_browser: Chrome control. navigate/click auto-include page elements. read_page for text.
+- centris_browser: Chrome control. navigate/click return elements — NEVER call snapshot after. Batch click+type in one turn.
 - centris_computer: Desktop apps via Accessibility APIs.
 - read/write/edit/exec: File and shell operations.
 - web_search/web_fetch: Web lookup.

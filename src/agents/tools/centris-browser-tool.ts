@@ -22,6 +22,7 @@ import { Type } from "@sinclair/typebox";
 import {
   isCentrisExtensionConnected,
   sendExtensionCommand,
+  waitForExtension,
 } from "../../gateway/centris-extension-bridge.js";
 import { stringEnum, optionalStringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readStringParam } from "./common.js";
@@ -70,23 +71,26 @@ export function createCentrisBrowserTool(): AnyAgentTool {
       "Control the user's real Chrome browser.",
       "",
       "navigate: goes to URL AND returns interactive elements. No separate snapshot needed.",
-      "click: clicks nodeId AND returns post-click page elements. No separate snapshot needed.",
-      "type: types text into nodeId.",
-      "snapshot: get current page elements (only if you need to re-examine without navigating/clicking).",
-      "read_page: get readable text content of current page.",
-      "scroll/press_key/tabs: other actions.",
+      "click: clicks nodeId AND returns post-click elements + page content. No separate snapshot or read_page needed.",
+      "type: with nodeId types into that element. WITHOUT nodeId types at current cursor/focus — batch click+type in one turn.",
+      "snapshot: only if you need to re-examine elements without navigating/clicking.",
+      "read_page: only if you need page text without clicking.",
       "",
-      "Elements: {id, t, n} — id=nodeId for click/type, t=cl/ty/se, n=label.",
-      "Typical 3-turn flow: navigate → click → read_page+respond.",
+      "Elements: {id, t, n} — id=nodeId, t=cl/ty/se, n=label.",
+      "BATCH tool calls: click + type(no nodeId) in same turn when click opens an editor.",
     ].join("\n"),
     parameters: CentrisBrowserToolSchema,
     execute: async (_toolCallId, args) => {
+      // Wait up to 10s for extension reconnect (MV3 service worker may be waking)
       if (!isCentrisExtensionConnected()) {
-        return jsonResult({
-          error:
-            "Chrome extension not connected. The user needs to have the Centris Chrome extension installed and their browser open.",
-          connected: false,
-        });
+        const reconnected = await waitForExtension(10_000);
+        if (!reconnected) {
+          return jsonResult({
+            error:
+              "Chrome extension not connected. The user needs to have the Centris Chrome extension installed and their browser open.",
+            connected: false,
+          });
+        }
       }
 
       const params = args as Record<string, unknown>;
@@ -172,18 +176,27 @@ export function createCentrisBrowserTool(): AnyAgentTool {
             unknown
           >;
 
-          // If click succeeded, grab a quick post-click snapshot so the LLM
-          // sees the new page state without needing another turn.
+          // After click: grab post-click elements AND page content so the LLM
+          // can respond immediately without a separate read_page turn.
+          // This collapses the flow from 4 turns to 3:
+          //   Turn 1: navigate → elements
+          //   Turn 2: click → elements + page content (this)
+          //   Turn 3: text summary
           if (clickResult.success !== false) {
             try {
-              // Small delay for DOM to settle after click
-              await new Promise((r) => setTimeout(r, 300));
-              const snap = (await sendExtensionCommand("get_interactive_snapshot", {
-                maxChars: 4000,
-              })) as Record<string, unknown>;
+              await new Promise((r) => setTimeout(r, 500));
+              // Fetch snapshot and readable content in parallel
+              const [snap, readable] = await Promise.all([
+                sendExtensionCommand("get_interactive_snapshot", {
+                  maxChars: 4000,
+                }) as Promise<Record<string, unknown>>,
+                sendExtensionCommand("get_readable_content", {}) as Promise<
+                  Record<string, unknown>
+                >,
+              ]);
               const nodes = snap?.interactiveNodes;
               if (Array.isArray(nodes)) {
-                const slim = nodes.slice(0, 30).map((node: Record<string, unknown>) => ({
+                const slim = nodes.slice(0, 20).map((node: Record<string, unknown>) => ({
                   id: node.id ?? node.nodeId,
                   t: node.t ?? node.type,
                   n: typeof node.n === "string" ? node.n.slice(0, 60) : (node.name ?? ""),
@@ -191,30 +204,46 @@ export function createCentrisBrowserTool(): AnyAgentTool {
                 clickResult.postClickElements = slim;
                 clickResult.url = (snap.metadata as Record<string, unknown>)?.url;
               }
-              delete snap._internalNodes;
+              // Include page content so model doesn't need a separate read_page call
+              let content =
+                typeof readable.content === "string"
+                  ? readable.content
+                  : typeof readable.text === "string"
+                    ? readable.text
+                    : undefined;
+              if (typeof content === "string") {
+                if (content.length > 3000) {
+                  content = content.slice(0, 3000) + "\n...[truncated]";
+                }
+                clickResult.pageContent = content;
+              }
             } catch {
-              /* snapshot failure shouldn't break click */
+              /* snapshot/content failure shouldn't break click */
             }
           }
           return jsonResult(clickResult);
         }
 
-        // ─── Type into element by nodeId ───────────────────────────────
+        // ─── Type text ────────────────────────────────────────────────
+        // With nodeId: types into a specific element (standard flow).
+        // Without nodeId: types at current cursor/focus position via global_type.
+        // This enables batching click + type in one turn — click opens the
+        // editor, type fires immediately into it without needing the editor's nodeId.
         case "type": {
           const nodeId = params.nodeId;
           const text = typeof params.text === "string" ? params.text : "";
-          if (typeof nodeId !== "number") {
-            throw new Error(
-              "nodeId (number) is required for type action. Get nodeIds from a snapshot first.",
-            );
-          }
           if (!text) {
             throw new Error("text is required for type action.");
           }
-          const result = await sendExtensionCommand("type_into_node", {
-            nodeId,
-            text,
-          });
+          if (typeof nodeId === "number") {
+            const result = await sendExtensionCommand("type_into_node", {
+              nodeId,
+              text,
+            });
+            return jsonResult(result);
+          }
+          // No nodeId: type into the currently focused element
+          const result = await sendExtensionCommand("global_type", { text });
           return jsonResult(result);
         }
 
@@ -234,24 +263,113 @@ export function createCentrisBrowserTool(): AnyAgentTool {
           // This saves a full round-trip (old system: 7 turns → 3 turns).
           if (navResult.success !== false) {
             try {
-              // Wait for page load before snapshotting
-              await new Promise((r) => setTimeout(r, 500));
+              // Wait for page load before snapshotting.
+              // 500ms was too short for heavy SPAs (Gmail, etc.) — returned 1 element
+              // and forced extra read_page + snapshot calls (6 turns instead of 3).
+              await new Promise((r) => setTimeout(r, 1500));
               const snap = (await sendExtensionCommand("get_interactive_snapshot", {
                 instruction:
                   typeof params.instruction === "string" ? params.instruction : undefined,
                 maxChars: 4000,
               })) as Record<string, unknown>;
+              // Build landmark lookup from _internalNodes before stripping.
+              // The extension tags each element with its closest semantic container
+              // (main, nav, form, search). This lets us filter generically —
+              // no hardcoded site-specific names.
+              const internalNodes = snap._internalNodes as
+                | Array<Record<string, unknown>>
+                | undefined;
+              const landmarkByNodeId = new Map<number, string>();
+              const boundsByNodeId = new Map<
+                number,
+                { x: number; y: number; w: number; h: number }
+              >();
+              if (Array.isArray(internalNodes)) {
+                for (const inode of internalNodes) {
+                  const nid = (inode.nodeId as number) ?? (inode.id as number);
+                  if (typeof inode.landmarkRole === "string" && inode.landmarkRole) {
+                    landmarkByNodeId.set(nid, inode.landmarkRole);
+                  }
+                  const b = inode.bounds as
+                    | { x: number; y: number; width: number; height: number }
+                    | undefined;
+                  if (b) {
+                    boundsByNodeId.set(nid, {
+                      x: b.x,
+                      y: b.y,
+                      w: b.width,
+                      h: b.height,
+                    });
+                  }
+                }
+              }
               delete snap._internalNodes;
+
               const nodes = snap?.interactiveNodes;
               if (Array.isArray(nodes)) {
                 const totalCount = nodes.length;
+
+                // Generic content-vs-chrome classification using landmarks + position.
+                // Works on any website — no hardcoded names.
+                // Strategy: prefer elements in <main> / role="main". Exclude elements
+                // in <nav> / role="navigation". For pages without landmarks, use
+                // position heuristic (sidebar items tend to be x < 200px).
+                const mainContent: Array<Record<string, unknown>> = [];
+                const other: Array<Record<string, unknown>> = [];
+                const GENERIC_NAMES = new Set(["div", "span", "a"]);
+
+                for (const node of nodes) {
+                  const nid = (node.id ?? node.nodeId) as number;
+                  const type = node.t ?? node.type;
+                  const name: string =
+                    typeof node.n === "string"
+                      ? node.n
+                      : typeof node.name === "string"
+                        ? node.name
+                        : "";
+                  // Always skip checkboxes and very short/generic names
+                  if (type === "se") {
+                    continue;
+                  }
+                  if (name.length < 3) {
+                    continue;
+                  }
+                  if (GENERIC_NAMES.has(name)) {
+                    continue;
+                  }
+
+                  const landmark = landmarkByNodeId.get(nid) ?? "";
+                  const bounds = boundsByNodeId.get(nid);
+
+                  // Classify: main content vs chrome
+                  const isNav = landmark === "navigation" || landmark === "nav";
+                  const isMain = landmark === "main";
+                  // Position heuristic: sidebar items typically x < 200
+                  const isSidebarPosition = bounds && bounds.x < 200;
+
+                  if (isNav || (isSidebarPosition && !isMain)) {
+                    other.push(node);
+                  } else {
+                    mainContent.push(node);
+                  }
+                }
+
+                // Prefer main content elements; fall back to all if no landmark data
+                const source = mainContent.length > 0 ? mainContent : [...mainContent, ...other];
                 const slim: Array<Record<string, unknown>> = [];
                 let charCount = 0;
-                for (const node of nodes) {
+                for (const node of source) {
+                  const type = node.t ?? node.type;
+                  const name: string =
+                    typeof node.n === "string"
+                      ? node.n
+                      : typeof node.name === "string"
+                        ? node.name
+                        : "";
                   const el: Record<string, unknown> = {
                     id: node.id ?? node.nodeId,
-                    t: node.t ?? node.type,
-                    n: typeof node.n === "string" ? node.n.slice(0, 60) : (node.name ?? ""),
+                    t: type,
+                    n: name.slice(0, 60),
                   };
                   if (node.r && node.r !== "link" && node.r !== "button") {
                     el.r = node.r;
@@ -265,7 +383,7 @@ export function createCentrisBrowserTool(): AnyAgentTool {
                 }
                 navResult.interactiveNodes = slim;
                 if (slim.length < totalCount) {
-                  navResult._note = `${slim.length}/${totalCount} elements. Use snapshot with instruction to filter.`;
+                  navResult._note = `${slim.length}/${totalCount} shown`;
                 }
               }
               navResult.url = (snap.metadata as Record<string, unknown>)?.url ?? url;
@@ -273,6 +391,12 @@ export function createCentrisBrowserTool(): AnyAgentTool {
               /* snapshot failure shouldn't break navigate */
             }
           }
+          // Strip verbose fields the LLM doesn't need
+          delete navResult.requestedUrl;
+          delete navResult.navigated;
+          delete navResult.tabId;
+          delete navResult.loadTime;
+          delete navResult.duration_ms;
           return jsonResult(navResult);
         }
 
@@ -315,12 +439,25 @@ export function createCentrisBrowserTool(): AnyAgentTool {
             string,
             unknown
           >;
-          // Cap readable content to prevent token bloat on long pages
-          const MAX_CONTENT_CHARS = 6000;
+          // Cap readable content to prevent token bloat on long pages.
+          // The extension may return both `content` and `text` with identical data —
+          // delete the duplicate and cap the survivor aggressively.
+          const MAX_CONTENT_CHARS = 4000;
+          // Prefer `content`; drop `text` if it's a duplicate
+          if (typeof result.text === "string" && typeof result.content === "string") {
+            delete result.text;
+          } else if (typeof result.text === "string" && !result.content) {
+            result.content = result.text;
+            delete result.text;
+          }
           if (typeof result.content === "string" && result.content.length > MAX_CONTENT_CHARS) {
             result.content =
               result.content.slice(0, MAX_CONTENT_CHARS) + "\n...[content truncated]";
           }
+          // Strip verbose metadata the LLM doesn't need
+          delete result.contentLength;
+          delete result.method;
+          delete result.truncated;
           return jsonResult(result);
         }
 

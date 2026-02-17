@@ -303,17 +303,53 @@ async function typeIntoNode(tabId, nodeId, text) {
         window.centrisShowTyping(rect.left + rect.width / 2, rect.top, text);
       }
 
-      // Type text
-      if (element.value !== undefined) {
-        element.value = text;
-      } else if (element.isContentEditable) {
-        element.textContent = text;
+      // Contenteditable elements (rich text editors like LinkedIn, Notion, etc.)
+      // MUST use execCommand/insertText — setting textContent destroys framework state.
+      if (element.isContentEditable) {
+        // Clear any placeholder text by selecting all first
+        const sel = window.getSelection();
+        if (sel) {
+          sel.selectAllChildren(element);
+          sel.collapseToEnd();
+        }
+
+        // insertText via execCommand — the only reliable way for contenteditable
+        const inserted = document.execCommand("insertText", false, text);
+        if (!inserted) {
+          // Fallback: character-by-character keyboard simulation
+          for (const char of text) {
+            element.dispatchEvent(
+              new InputEvent("beforeinput", {
+                data: char,
+                inputType: "insertText",
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+            element.dispatchEvent(
+              new InputEvent("input", {
+                data: char,
+                inputType: "insertText",
+                bubbles: true,
+              }),
+            );
+          }
+        }
+        return { success: true, typed: text, method: "contenteditable" };
       }
 
-      element.dispatchEvent(new InputEvent("input", { data: text, bubbles: true }));
-      element.dispatchEvent(new Event("change", { bubbles: true }));
+      // Standard form inputs (input, textarea, select)
+      if (element.value !== undefined) {
+        element.value = text;
+        element.dispatchEvent(new InputEvent("input", { data: text, bubbles: true }));
+        element.dispatchEvent(new Event("change", { bubbles: true }));
+        return { success: true, typed: text, method: "value" };
+      }
 
-      return { success: true, typed: text };
+      return {
+        success: false,
+        error: "Element is not editable (no value property, not contentEditable)",
+      };
     },
     args: [nodeInfo, text],
   });

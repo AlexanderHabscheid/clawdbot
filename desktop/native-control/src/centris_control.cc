@@ -22,7 +22,10 @@ namespace centris {
 CentrisSystemControl::CentrisSystemControl() = default;
 
 CentrisSystemControl::~CentrisSystemControl() {
-    Shutdown();
+    // Skip cleanup during process teardown — OS reclaims all resources.
+    // Calling Shutdown() here triggers mutex operations on potentially
+    // destroyed mutexes (static destruction order).
+    initialized_ = false;
 }
 
 bool CentrisSystemControl::Initialize(const SystemControlConfig& config) {
@@ -609,6 +612,9 @@ Napi::Value GetInteractiveSnapshot(const Napi::CallbackInfo& info) {
         }
         if (opts.Has("maxDepth")) {
             options.maxDepth = opts.Get("maxDepth").As<Napi::Number>().Int32Value();
+        }
+        if (opts.Has("maxElements")) {
+            options.maxElements = opts.Get("maxElements").As<Napi::Number>().Int32Value();
         }
     }
     

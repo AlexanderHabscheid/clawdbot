@@ -245,7 +245,8 @@ struct SnapshotOptions {
     std::string appName;       // Filter by app name (empty = frontmost)
     std::string windowTitle;   // Filter by window title
     bool includeHidden = false;   // Include hidden/offscreen elements
-    int maxDepth = -1;            // Max tree depth (-1 = unlimited)
+    int maxDepth = 10;            // Max tree depth (default 10, -1 = unlimited)
+    int maxElements = 80;         // Stop collecting after this many elements (perf cap)
     std::vector<std::string> includeRoles;  // Only include these roles (empty = all)
     std::vector<std::string> excludeRoles;  // Exclude these roles
 };

@@ -1,5 +1,5 @@
 import type { TlsOptions } from "node:tls";
-import type { WebSocketServer } from "ws";
+import type { WebSocket, WebSocketServer } from "ws";
 import {
   createServer as createHttpServer,
   type Server as HttpServer,
@@ -27,6 +27,11 @@ import {
   type GatewayAuthResult,
   type ResolvedGatewayAuth,
 } from "./auth.js";
+import {
+  isCentrisExtensionPath,
+  handleCentrisExtensionConnection,
+} from "./centris-extension-bridge.js";
+import { isCentrisVoicePath, handleCentrisVoiceConnection } from "./centris-voice.js";
 import {
   handleControlUiAvatarRequest,
   handleControlUiHttpRequest,
@@ -483,6 +488,14 @@ export function createGatewayHttpServer(opts: {
       const configSnapshot = loadConfig();
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
       const requestPath = new URL(req.url ?? "/", "http://localhost").pathname;
+
+      // Health check for Centris extension local gateway detection
+      if (requestPath === "/health" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, gateway: "centris" }));
+        return;
+      }
+
       if (await handleHooksRequest(req, res)) {
         return;
       }
@@ -609,9 +622,26 @@ export function attachGatewayUpgradeHandler(opts: {
   const { httpServer, wss, canvasHost, clients, resolvedAuth, rateLimiter } = opts;
   httpServer.on("upgrade", (req, socket, head) => {
     void (async () => {
+      const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+
+      // Centris Chrome extension WebSocket — no auth required (local gateway)
+      if (isCentrisExtensionPath(pathname)) {
+        wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+          handleCentrisExtensionConnection(ws, req);
+        });
+        return;
+      }
+
+      // Centris voice WebSocket — no auth required (local gateway)
+      if (isCentrisVoicePath(pathname)) {
+        wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+          void handleCentrisVoiceConnection(ws, req);
+        });
+        return;
+      }
+
       if (canvasHost) {
-        const url = new URL(req.url ?? "/", "http://localhost");
-        if (url.pathname === CANVAS_WS_PATH) {
+        if (pathname === CANVAS_WS_PATH) {
           const configSnapshot = loadConfig();
           const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
           const ok = await authorizeCanvasRequest({

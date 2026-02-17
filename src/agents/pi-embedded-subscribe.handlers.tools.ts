@@ -315,6 +315,11 @@ export async function handleToolExecutionEnd(
     }
   }
 
+  // NOTE: Centris intra-command compaction is handled via agent.transformContext
+  // hook (injected in attempt.ts), which operates on the agentLoop's local
+  // messages array. Modifying session.messages here was a no-op because the
+  // agentLoop uses its own copy — see centris-router.ts for details.
+
   // Run after_tool_call plugin hook (fire-and-forget)
   const hookRunnerAfter = ctx.hookRunner ?? getGlobalHookRunner();
   if (hookRunnerAfter?.hasHooks("after_tool_call")) {
