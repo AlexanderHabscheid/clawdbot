@@ -195,7 +195,7 @@ describe("applyCentrisRouting", () => {
     expect(names).toContain("web_search");
     expect(names).toContain("web_fetch");
     expect(names).toContain("tts");
-    expect(names).toContain("browser");
+    // "browser" (playwright fallback) is not in DOMAIN_TOOLS.browser — only centris_browser is
     expect(names).not.toContain("centris_computer");
     expect(names).not.toContain("read");
     expect(names).not.toContain("exec");
@@ -267,133 +267,45 @@ describe("compactStaleSnapshots", () => {
     expect(removed).toBe(0);
   });
 
-  it("does nothing with zero tool turns", () => {
+  // Current behavior: compactStaleSnapshots clears ALL messages (clean slate)
+  // because Centris is a voice assistant — each command is independent.
+  // Old conversation history is pure waste, so everything gets nuked.
+
+  it("clears all messages for centris profile (clean slate)", () => {
     const messages = [{ role: "user" }, { role: "assistant" }];
     const removed = compactStaleSnapshots(messages, "centris");
-    expect(removed).toBe(0);
-    expect(messages).toHaveLength(2);
+    expect(removed).toBe(2);
+    expect(messages).toHaveLength(0);
   });
 
-  it("does nothing with only one tool turn", () => {
+  it("clears messages including tool turns", () => {
     const messages = [
       { role: "user" },
       { role: "assistant" },
       { role: "toolResult", content: [{ type: "text", text: "result" }] },
     ];
     const removed = compactStaleSnapshots(messages, "centris");
-    expect(removed).toBe(0);
-    expect(messages).toHaveLength(3);
+    expect(removed).toBe(3);
+    expect(messages).toHaveLength(0);
   });
 
-  it("removes old tool turns, keeps the latest one", () => {
+  it("clears all turns, including multiple tool turns", () => {
     const messages = [
       { role: "user" },
-      // Turn 1 (old — should be removed)
       { role: "assistant" },
       { role: "toolResult", content: [{ type: "text", text: "old snapshot" }] },
-      // Turn 2 (latest — should be kept)
       { role: "assistant" },
       { role: "toolResult", content: [{ type: "text", text: "new snapshot" }] },
     ];
     const removed = compactStaleSnapshots(messages, "centris");
-    expect(removed).toBe(2); // old assistant + old toolResult
-    expect(messages).toHaveLength(3); // user + latest assistant + latest toolResult
-    expect(messages[0].role).toBe("user");
-    expect(messages[1].role).toBe("assistant");
-    expect(messages[2].role).toBe("toolResult");
-    expect(messages[2].content?.[0]?.text).toBe("new snapshot");
+    expect(removed).toBe(5);
+    expect(messages).toHaveLength(0);
   });
 
-  it("removes multiple old tool turns", () => {
-    const messages = [
-      { role: "user" },
-      // Turn 1 (old)
-      { role: "assistant" },
-      { role: "toolResult", content: [{ type: "text", text: "snap1" }] },
-      // Turn 2 (old)
-      { role: "assistant" },
-      { role: "toolResult", content: [{ type: "text", text: "snap2" }] },
-      // Turn 3 (latest — kept)
-      { role: "assistant" },
-      { role: "toolResult", content: [{ type: "text", text: "snap3" }] },
-    ];
+  it("returns 0 for empty messages array", () => {
+    const messages: Array<{ role: string }> = [];
     const removed = compactStaleSnapshots(messages, "centris");
-    expect(removed).toBe(4); // 2 old turns × 2 messages each
-    expect(messages).toHaveLength(3); // user + latest turn
-    expect(messages[2].content?.[0]?.text).toBe("snap3");
-  });
-
-  it("handles tool turns with multiple consecutive toolResults", () => {
-    const messages = [
-      { role: "user" },
-      // Turn 1 (old — assistant + 2 toolResults)
-      { role: "assistant" },
-      { role: "toolResult", content: [{ type: "text", text: "result1a" }] },
-      { role: "toolResult", content: [{ type: "text", text: "result1b" }] },
-      // Turn 2 (latest)
-      { role: "assistant" },
-      { role: "toolResult", content: [{ type: "text", text: "result2" }] },
-    ];
-    const removed = compactStaleSnapshots(messages, "centris");
-    expect(removed).toBe(3); // old assistant + 2 old toolResults
-    expect(messages).toHaveLength(3); // user + latest assistant + latest toolResult
-  });
-
-  it("preserves user messages between tool turns", () => {
-    const messages = [
-      { role: "user" },
-      // Turn 1 (old)
-      { role: "assistant" },
-      { role: "toolResult", content: [{ type: "text", text: "snap1" }] },
-      // User speaks again
-      { role: "user" },
-      // Turn 2 (latest)
-      { role: "assistant" },
-      { role: "toolResult", content: [{ type: "text", text: "snap2" }] },
-    ];
-    const removed = compactStaleSnapshots(messages, "centris");
-    expect(removed).toBe(2); // only the old tool turn
-    expect(messages).toHaveLength(4); // user + user + latest turn
-    // Both user messages should be preserved
-    expect(messages.filter((m) => m.role === "user")).toHaveLength(2);
-  });
-
-  // ── Text capping ──────────────────────────────────────────────────────
-  it("caps oversized tool result text in the latest turn", () => {
-    const bigText = "x".repeat(5000);
-    const messages = [
-      { role: "user" },
-      { role: "assistant" },
-      { role: "toolResult", content: [{ type: "text", text: bigText }] },
-    ];
-    compactStaleSnapshots(messages, "centris");
-    const text = messages[2].content?.[0]?.text ?? "";
-    expect(text.length).toBeLessThan(bigText.length);
-    expect(text).toContain("...[truncated]");
-    // 4000 chars + "...[truncated]" suffix
-    expect(text.length).toBe(4000 + "...[truncated]".length);
-  });
-
-  it("does not cap text that fits within limit", () => {
-    const shortText = "x".repeat(3000);
-    const messages = [
-      { role: "user" },
-      { role: "assistant" },
-      { role: "toolResult", content: [{ type: "text", text: shortText }] },
-    ];
-    compactStaleSnapshots(messages, "centris");
-    expect(messages[2].content?.[0]?.text).toBe(shortText);
-  });
-
-  it("caps text even when there is only one tool turn", () => {
-    const bigText = "x".repeat(8000);
-    const messages = [
-      { role: "user" },
-      { role: "assistant" },
-      { role: "toolResult", content: [{ type: "text", text: bigText }] },
-    ];
-    const removed = compactStaleSnapshots(messages, "centris");
-    expect(removed).toBe(0); // no turns removed (only one)
-    expect(messages[2].content?.[0]?.text?.length).toBeLessThan(bigText.length);
+    expect(removed).toBe(0);
+    expect(messages).toHaveLength(0);
   });
 });

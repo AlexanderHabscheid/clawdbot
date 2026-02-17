@@ -58,7 +58,7 @@ describe("buildCentrisSystemPrompt", () => {
     expect(prompt).toContain("## Browser Control");
     expect(prompt).toContain("navigate:");
     expect(prompt).toContain("click:");
-    expect(prompt).toContain("COMPLETE TASKS IN 3 TURNS OR FEWER");
+    expect(prompt).toContain("CRITICAL");
     // Should NOT contain other domain instructions
     expect(prompt).not.toContain("## Desktop Control");
     expect(prompt).not.toContain("## File & System Operations");

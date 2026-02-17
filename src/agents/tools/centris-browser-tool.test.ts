@@ -2,14 +2,18 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // Mock the extension bridge BEFORE importing the tool.
 // vi.mock is hoisted — references to outer variables fail. Use vi.hoisted().
-const { mockConnected, mockSendCommand } = vi.hoisted(() => ({
+const { mockConnected, mockSendCommand, mockWaitForExtension } = vi.hoisted(() => ({
   mockConnected: vi.fn<() => boolean>(() => true),
   mockSendCommand: vi.fn<(type: string, data?: Record<string, unknown>) => Promise<unknown>>(),
+  mockWaitForExtension: vi.fn<(timeoutMs?: number) => Promise<boolean>>(() =>
+    Promise.resolve(true),
+  ),
 }));
 
 vi.mock("../../gateway/centris-extension-bridge.js", () => ({
   isCentrisExtensionConnected: mockConnected,
   sendExtensionCommand: mockSendCommand,
+  waitForExtension: mockWaitForExtension,
 }));
 
 import { createCentrisBrowserTool } from "./centris-browser-tool.js";
@@ -30,6 +34,7 @@ describe("centris_browser tool", () => {
 
   it("returns error when extension is not connected", async () => {
     mockConnected.mockReturnValue(false);
+    mockWaitForExtension.mockResolvedValue(false);
     const tool = createCentrisBrowserTool();
     const result = (await tool.execute("call-1", { action: "snapshot" })) as {
       content: Array<{ text?: string }>;
@@ -148,11 +153,13 @@ describe("centris_browser tool", () => {
 
   // ─── Type action ──────────────────────────────────────────────────────
 
-  it("type: requires nodeId and text", async () => {
+  it("type: requires text (nodeId is optional for global_type)", async () => {
     const tool = createCentrisBrowserTool();
-    await expect(tool.execute("call-1", { action: "type", text: "hello" })).rejects.toThrow(
-      "nodeId",
-    );
+    // type without nodeId should use global_type (not reject)
+    mockSendCommand.mockResolvedValue({ success: true });
+    await tool.execute("call-1", { action: "type", text: "hello" });
+    expect(mockSendCommand).toHaveBeenCalledWith("global_type", { text: "hello" });
+    // type without text should throw
     await expect(tool.execute("call-1", { action: "type", nodeId: 1 })).rejects.toThrow("text");
   });
 
@@ -197,7 +204,7 @@ describe("centris_browser tool", () => {
 
   // ─── Read page action ─────────────────────────────────────────────────
 
-  it("read_page: caps content at 6000 chars", async () => {
+  it("read_page: caps content at 4000 chars", async () => {
     const bigContent = "x".repeat(10000);
     mockSendCommand.mockResolvedValue({ content: bigContent });
     const tool = createCentrisBrowserTool();
@@ -208,7 +215,7 @@ describe("centris_browser tool", () => {
     const content = payload.content as string;
     expect(content.length).toBeLessThan(bigContent.length);
     expect(content).toContain("...[content truncated]");
-    expect(content.length).toBe(6000 + "\n...[content truncated]".length);
+    expect(content.length).toBe(4000 + "\n...[content truncated]".length);
   });
 
   it("read_page: does not cap short content", async () => {
