@@ -48,19 +48,19 @@ RUN pnpm ui:build
 
 ENV NODE_ENV=production
 
-# Allow non-root user to write temp files during runtime/tests.
-RUN chown -R node:node /app
-
-# Security hardening: Run as non-root user
-# The node:22-bookworm image includes a 'node' user (uid 1000)
-# This reduces the attack surface by preventing container escape via root privileges
-USER node
-
 # Centris defaults: bake model + profile into the image so they survive redeployments.
 # The init script runs before the gateway starts (via docker-entrypoint.sh).
 RUN mkdir -p /openclaw-init.d
 COPY scripts/centris-init.sh /openclaw-init.d/centris-init.sh
 RUN chmod +x /openclaw-init.d/centris-init.sh
+
+# Allow non-root user to write temp files during runtime/tests.
+RUN chown -R node:node /app /openclaw-init.d
+
+# Security hardening: Run as non-root user
+# The node:22-bookworm image includes a 'node' user (uid 1000)
+# This reduces the attack surface by preventing container escape via root privileges
+USER node
 
 # Support custom init scripts mounted at /openclaw-init.d/
 # Scripts must be executable. They run before the gateway starts.
