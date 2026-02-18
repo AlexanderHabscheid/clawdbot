@@ -23,7 +23,7 @@ const CONFIG = {
 
   // Production gateway (custom domain preferred, Railway fallback)
   PRODUCTION_HOST: "gateway.sentris.io",
-  PRODUCTION_HOSTS: ["gateway.sentris.io", "web-production-3b6a5.up.railway.app"],
+  PRODUCTION_HOSTS: ["gateway.sentris.io", "centris-ai-production.up.railway.app"],
   PRODUCTION_HTTP_URL: "https://gateway.sentris.io",
 
   // Local gateway ports to auto-detect (dev)
