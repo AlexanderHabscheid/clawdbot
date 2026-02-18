@@ -37,10 +37,13 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 
 /** Server-side ping interval to keep the WebSocket alive. */
 let pingInterval: NodeJS.Timeout | null = null;
-const PING_INTERVAL_MS = 20_000; // 20s — under MV3's 30s suspension threshold
+const PING_INTERVAL_MS = 15_000; // 15s — safe margin under MV3's 30s and proxy idle timeouts
 
 /** Callbacks waiting for the extension to reconnect. */
 const reconnectWaiters: Array<() => void> = [];
+
+/** Last pong timestamp from the extension (0 = never). */
+let lastPongAt = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -116,6 +119,19 @@ export async function sendExtensionCommand(
   });
 }
 
+/** Returns bridge health info for status endpoints. */
+export function getCentrisExtensionStatus(): {
+  connected: boolean;
+  lastPongAgoMs: number;
+  pendingCommands: number;
+} {
+  return {
+    connected: isCentrisExtensionConnected(),
+    lastPongAgoMs: lastPongAt > 0 ? Date.now() - lastPongAt : -1,
+    pendingCommands: pending.size,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // WebSocket handler (called from server-http.ts upgrade handler)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,6 +139,36 @@ export async function sendExtensionCommand(
 /** Check if a WebSocket upgrade path is for the Centris extension bridge. */
 export function isCentrisExtensionPath(pathname: string): boolean {
   return pathname === "/ws/centris/extension";
+}
+
+/**
+ * Validate the extension connection token from the URL query string.
+ * If CENTRIS_EXTENSION_TOKEN is set, the `?token=` param must match.
+ * If not set, all connections are accepted (local dev / unconfigured).
+ */
+export function validateExtensionToken(url: string | undefined): boolean {
+  const requiredToken = process.env.CENTRIS_EXTENSION_TOKEN?.trim();
+  if (!requiredToken) {
+    return true;
+  } // no token configured — open access (dev mode)
+  try {
+    const parsed = new URL(url ?? "/", "http://localhost");
+    const provided = parsed.searchParams.get("token")?.trim();
+    if (!provided) {
+      return false;
+    }
+    // Constant-time comparison to prevent timing attacks
+    if (provided.length !== requiredToken.length) {
+      return false;
+    }
+    let mismatch = 0;
+    for (let i = 0; i < requiredToken.length; i++) {
+      mismatch |= provided.charCodeAt(i) ^ requiredToken.charCodeAt(i);
+    }
+    return mismatch === 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Handle a new extension WebSocket connection. */
@@ -153,8 +199,22 @@ export function handleCentrisExtensionConnection(ws: WebSocket, _req: IncomingMe
   if (pingInterval) {
     clearInterval(pingInterval);
   }
+  lastPongAt = Date.now(); // assume alive on connect
   pingInterval = setInterval(() => {
     if (extensionWs && extensionWs.readyState === extensionWs.OPEN) {
+      // Detect stale connections: no pong in 3 ping cycles means the extension is gone
+      const pongAge = Date.now() - lastPongAt;
+      if (pongAge > PING_INTERVAL_MS * 3) {
+        logWarn(
+          `[centris-ext-bridge] extension pong stale (${Math.round(pongAge / 1000)}s), closing`,
+        );
+        try {
+          extensionWs.close(1000, "pong timeout");
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       try {
         extensionWs.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
       } catch {
@@ -183,6 +243,10 @@ export function handleCentrisExtensionConnection(ws: WebSocket, _req: IncomingMe
       // Handle ping/pong keep-alive
       if (msg.type === "ping") {
         ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
+        return;
+      }
+      if (msg.type === "pong") {
+        lastPongAt = Date.now();
         return;
       }
 

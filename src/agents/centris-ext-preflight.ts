@@ -5,4 +5,6 @@
 export {
   isCentrisExtensionConnected,
   waitForExtension,
+  getCentrisExtensionStatus,
+  validateExtensionToken,
 } from "../gateway/centris-extension-bridge.js";

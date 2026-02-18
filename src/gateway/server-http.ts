@@ -30,6 +30,8 @@ import {
 import {
   isCentrisExtensionPath,
   handleCentrisExtensionConnection,
+  getCentrisExtensionStatus,
+  validateExtensionToken,
 } from "./centris-extension-bridge.js";
 import { isCentrisVoicePath, handleCentrisVoiceConnection } from "./centris-voice.js";
 import {
@@ -496,6 +498,20 @@ export function createGatewayHttpServer(opts: {
         return;
       }
 
+      // Centris extension bridge status — loopback or token-gated
+      if (requestPath === "/api/centris/status" && req.method === "GET") {
+        const clientIp = resolveGatewayClientIp(req, []);
+        const isLocal = isPrivateOrLoopbackAddress(clientIp);
+        if (!isLocal && !validateExtensionToken(req.url)) {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "forbidden" }));
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(getCentrisExtensionStatus()));
+        return;
+      }
+
       if (await handleHooksRequest(req, res)) {
         return;
       }
@@ -624,16 +640,26 @@ export function attachGatewayUpgradeHandler(opts: {
     void (async () => {
       const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
 
-      // Centris Chrome extension WebSocket — no auth required (local gateway)
+      // Centris Chrome extension WebSocket — token-gated when CENTRIS_EXTENSION_TOKEN is set
       if (isCentrisExtensionPath(pathname)) {
+        if (!validateExtensionToken(req.url)) {
+          socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           handleCentrisExtensionConnection(ws, req);
         });
         return;
       }
 
-      // Centris voice WebSocket — no auth required (local gateway)
+      // Centris voice WebSocket — token-gated (same as extension bridge)
       if (isCentrisVoicePath(pathname)) {
+        if (!validateExtensionToken(req.url)) {
+          socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           void handleCentrisVoiceConnection(ws, req);
         });
