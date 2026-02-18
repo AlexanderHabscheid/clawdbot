@@ -291,6 +291,18 @@ const ipcHandlers = new IPCHandlers({
 // Import backend manager for auto-startup
 const { backendManager } = require("./src/helpers/backendManager");
 
+// Persistent CentrisBackendService singleton for the desktop bridge connection.
+// The bridge must stay connected for the cloud gateway to send desktop commands.
+let centrisService = null;
+async function getOrCreateCentrisService() {
+  if (!centrisService) {
+    const mod = await import("./src/services/centrisBackendService.js");
+    const CentrisBackendService = mod.default || mod.CentrisBackendService;
+    centrisService = new CentrisBackendService();
+  }
+  return centrisService;
+}
+
 // Main application startup
 async function startApp() {
   // CRITICAL: Handle permission requests for microphone access FIRST
@@ -382,6 +394,23 @@ async function startApp() {
   );
 
   logger.log("[main.js] ✅ Session permission handlers configured");
+
+  // Connect the desktop bridge to the cloud gateway on startup.
+  // This persistent WebSocket lets the gateway send desktop control commands
+  // (snapshot, click, type, etc.) to this Electron app for local execution.
+  try {
+    const svc = await getOrCreateCentrisService();
+    const gatewayHealthy = await svc.checkHealth();
+    if (gatewayHealthy) {
+      logger.log("[main.js] ✅ Cloud gateway reachable, desktop bridge connecting");
+    } else {
+      logger.log(
+        "[main.js] ⚠️ Cloud gateway not reachable, desktop bridge will retry on next health check",
+      );
+    }
+  } catch (err) {
+    logger.warn("[main.js] Desktop bridge startup error (non-critical):", err.message);
+  }
 
   // CRITICAL: Check if backend is running on port 5001 (just check, don't auto-start)
   // The backend will be started automatically when needed (when dictation starts)
@@ -1221,6 +1250,11 @@ app.on("will-quit", () => {
   // Stop Windows hotkey manager if running
   if (windowsHotkeyManager) {
     windowsHotkeyManager.stop();
+  }
+
+  // Disconnect desktop bridge
+  if (centrisService) {
+    centrisService.disconnectDesktopBridge();
   }
 
   // Stop backend if we started it
