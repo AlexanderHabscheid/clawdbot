@@ -31,6 +31,7 @@ async function withHeartbeatFixture(
   }) => Promise<unknown>,
 ): Promise<unknown> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-hb-model-"));
+  await fs.writeFile(path.join(tmpDir, "HEARTBEAT.md"), "- Check status\n", "utf-8");
   const storePath = path.join(tmpDir, "sessions.json");
 
   const seedSession = async (sessionKey: string, input: SeedSessionInput) => {
@@ -122,7 +123,7 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
   });
 
   it("passes per-agent heartbeat model override (merged with defaults)", async () => {
-    await withHeartbeatFixture(async ({ storePath, seedSession }) => {
+    await withHeartbeatFixture(async ({ tmpDir, storePath, seedSession }) => {
       const cfg: OpenClawConfig = {
         agents: {
           defaults: {
@@ -135,6 +136,7 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
             { id: "main", default: true },
             {
               id: "ops",
+              workspace: tmpDir,
               heartbeat: {
                 every: "5m",
                 target: "whatsapp",

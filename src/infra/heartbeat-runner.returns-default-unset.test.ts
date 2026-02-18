@@ -41,6 +41,11 @@ const createCaseDir = async (prefix: string) => {
   return dir;
 };
 
+/** Create HEARTBEAT.md with actionable content so heartbeat doesn't skip. */
+const seedHeartbeatFile = async (dir: string) => {
+  await fs.writeFile(path.join(dir, "HEARTBEAT.md"), "- Check status\n", "utf-8");
+};
+
 beforeAll(async () => {
   previousRegistry = getActivePluginRegistry();
 
@@ -437,6 +442,7 @@ describe("runHeartbeatOnce", () => {
 
   it("uses the last non-empty payload for delivery", async () => {
     const tmpDir = await createCaseDir("hb-last-payload");
+    await seedHeartbeatFile(tmpDir);
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
@@ -490,6 +496,9 @@ describe("runHeartbeatOnce", () => {
 
   it("uses per-agent heartbeat overrides and session keys", async () => {
     const tmpDir = await createCaseDir("hb-agent-overrides");
+    const opsWorkspace = path.join(tmpDir, "workspace-ops");
+    await fs.mkdir(opsWorkspace, { recursive: true });
+    await seedHeartbeatFile(opsWorkspace);
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
@@ -502,6 +511,7 @@ describe("runHeartbeatOnce", () => {
             { id: "main", default: true },
             {
               id: "ops",
+              workspace: opsWorkspace,
               heartbeat: { every: "5m", target: "whatsapp", prompt: "Ops check" },
             },
           ],
@@ -558,6 +568,9 @@ describe("runHeartbeatOnce", () => {
 
   it("reuses non-default agent sessionFile from templated stores", async () => {
     const tmpDir = await createCaseDir("hb-templated-store");
+    const opsWorkspace = path.join(tmpDir, "workspace-ops");
+    await fs.mkdir(opsWorkspace, { recursive: true });
+    await seedHeartbeatFile(opsWorkspace);
     const storeTemplate = path.join(tmpDir, "agents", "{agentId}", "sessions", "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     const agentId = "ops";
@@ -571,6 +584,7 @@ describe("runHeartbeatOnce", () => {
             { id: "main", default: true },
             {
               id: agentId,
+              workspace: opsWorkspace,
               heartbeat: { every: "5m", target: "whatsapp", prompt: "Ops check" },
             },
           ],
@@ -640,6 +654,7 @@ describe("runHeartbeatOnce", () => {
 
   it("runs heartbeats in the explicit session key when configured", async () => {
     const tmpDir = await createCaseDir("hb-explicit-session");
+    await seedHeartbeatFile(tmpDir);
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
@@ -774,6 +789,7 @@ describe("runHeartbeatOnce", () => {
 
   it("can include reasoning payloads when enabled", async () => {
     const tmpDir = await createCaseDir("hb-reasoning");
+    await seedHeartbeatFile(tmpDir);
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
@@ -841,6 +857,7 @@ describe("runHeartbeatOnce", () => {
 
   it("delivers reasoning even when the main heartbeat reply is HEARTBEAT_OK", async () => {
     const tmpDir = await createCaseDir("hb-reasoning-heartbeat-ok");
+    await seedHeartbeatFile(tmpDir);
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
@@ -907,6 +924,7 @@ describe("runHeartbeatOnce", () => {
 
   it("loads the default agent session from templated stores", async () => {
     const tmpDir = await createCaseDir("openclaw-hb");
+    await seedHeartbeatFile(tmpDir);
     const storeTemplate = path.join(tmpDir, "agents", "{agentId}", "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
@@ -1175,7 +1193,7 @@ describe("runHeartbeatOnce", () => {
     }
   });
 
-  it("runs heartbeat when HEARTBEAT.md does not exist (lets LLM decide)", async () => {
+  it("skips heartbeat when HEARTBEAT.md does not exist (no file = no API call)", async () => {
     const tmpDir = await createCaseDir("openclaw-hb");
     const storePath = path.join(tmpDir, "sessions.json");
     const workspaceDir = path.join(tmpDir, "workspace");
@@ -1229,9 +1247,13 @@ describe("runHeartbeatOnce", () => {
         },
       });
 
-      // Should run (not skip) - let LLM decide since file doesn't exist
-      expect(res.status).toBe("ran");
-      expect(replySpy).toHaveBeenCalled();
+      // Should skip without making API call — no HEARTBEAT.md means nothing to check
+      expect(res.status).toBe("skipped");
+      if (res.status === "skipped") {
+        expect(res.reason).toBe("no-heartbeat-file");
+      }
+      expect(replySpy).not.toHaveBeenCalled();
+      expect(sendWhatsApp).not.toHaveBeenCalled();
     } finally {
       replySpy.mockRestore();
     }
