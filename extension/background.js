@@ -240,6 +240,7 @@ async function handleDesktopAppMessage(message) {
       // ═══════════════════════════════════════════════════════════════════════
       case "type":
       case "type_text":
+      case "type_into_node":
         result = await handleType(data);
         break;
 

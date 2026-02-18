@@ -1,9 +1,13 @@
 /**
  * Configuration Module for Centris Chrome Extension
  *
- * Cloud-first: always connects to the production Railway gateway.
- * Developers can override via chrome.storage.sync `backend_url` setting.
- * No auto-detection — the production URL is reliable and invisible to users.
+ * Connection priority:
+ *   1) User override (chrome.storage.sync `backend_url`)
+ *   2) Local gateway auto-detect (ports 18789, 19001) — for developers
+ *   3) Production gateway (Railway) — for end users
+ *
+ * End users just install the extension and it connects to production.
+ * Developers running a local gateway get auto-detected seamlessly.
  */
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -17,31 +21,29 @@ const CONFIG = {
   // Whether to prefer Native Messaging over WebSocket
   PREFER_NATIVE_MESSAGING: true,
 
-  // Production gateway URLs (Railway deployment — default for all users)
-  PRODUCTION_COMMAND_WS_URL: "wss://centris-gateway.up.railway.app/ws/centris/extension",
-  PRODUCTION_VOICE_WS_URL: "wss://centris-gateway.up.railway.app/ws/centris/voice",
-  PRODUCTION_HTTP_URL: "https://centris-gateway.up.railway.app",
+  // Production gateway (custom domain preferred, Railway fallback)
+  PRODUCTION_HOST: "gateway.sentris.io",
+  PRODUCTION_HOSTS: ["gateway.sentris.io", "web-production-3b6a5.up.railway.app"],
+  PRODUCTION_HTTP_URL: "https://gateway.sentris.io",
 
-  // Local dev gateway (for developers only, via storage override)
-  LOCAL_COMMAND_WS_URL: "ws://127.0.0.1:18789/ws/centris/extension",
-  LOCAL_VOICE_WS_URL: "ws://127.0.0.1:18789/ws/centris/voice",
+  // Local gateway ports to auto-detect (dev)
+  LOCAL_PORTS: [18789, 19001],
 
-  // Dev gateway port (gateway:dev runs on 19001)
-  LOCAL_DEV_COMMAND_WS_URL: "ws://127.0.0.1:19001/ws/centris/extension",
-  LOCAL_DEV_VOICE_WS_URL: "ws://127.0.0.1:19001/ws/centris/voice",
+  // WebSocket paths (shared between local and production URLs)
+  WS_PATH: "/ws/centris/extension",
+  VOICE_WS_PATH: "/ws/centris/voice",
 
   // Track which backend we're using
   _currentBackend: null,
 
-  // Cache for URL (prevents redundant storage reads)
+  // Cache for URL (prevents redundant storage reads + health checks)
   _cachedUrl: null,
   _cacheTime: 0,
   _cacheTTL: 10000, // 10 second cache
 
   /**
    * Get WebSocket URL for browser command channel.
-   * Tries local gateway first (for seamless dev), then falls back to production.
-   * Users can also set a custom URL via chrome.storage.sync `backend_url`.
+   * Priority: 1) storage override  2) local gateway  3) production (Railway)
    * @returns {Promise<string>}
    */
   getExtensionWebSocketUrl: async function () {
@@ -68,17 +70,15 @@ const CONFIG = {
       // Storage not available (e.g. in tests) — fall through
     }
 
-    // Try local gateway first — check both production port (18789) and dev port (19001)
-    for (const [port, wsUrl] of [
-      ["18789", CONFIG.LOCAL_COMMAND_WS_URL],
-      ["19001", CONFIG.LOCAL_DEV_COMMAND_WS_URL],
-    ]) {
+    // Try local gateway first (for developers running gateway locally)
+    for (const port of CONFIG.LOCAL_PORTS) {
       try {
         const localCheck = await Promise.race([
           fetch(`http://127.0.0.1:${port}/health`),
           new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 1500)),
         ]);
         if (localCheck.ok) {
+          const wsUrl = `ws://127.0.0.1:${port}${CONFIG.WS_PATH}`;
           console.log(`[CONFIG] Local gateway detected on port ${port}`);
           CONFIG._currentBackend = "local";
           CONFIG._cachedUrl = wsUrl;
@@ -90,23 +90,60 @@ const CONFIG = {
       }
     }
 
-    // Default: production gateway (Railway)
-    console.log("[CONFIG] Using production gateway (command channel)");
+    // Fall back to production gateway — probe custom domain first, then Railway
+    let token = "";
+    try {
+      const tokenResult = await new Promise((resolve) => {
+        chrome.storage.sync.get(["extension_token"], resolve);
+      });
+      if (tokenResult.extension_token) {
+        token = tokenResult.extension_token;
+      }
+    } catch {
+      // Storage not available
+    }
+
+    for (const host of CONFIG.PRODUCTION_HOSTS) {
+      try {
+        const check = await Promise.race([
+          fetch(`https://${host}/health`),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+        ]);
+        if (check.ok) {
+          let wsUrl = `wss://${host}${CONFIG.WS_PATH}`;
+          if (token) wsUrl += `?token=${encodeURIComponent(token)}`;
+          console.log(`[CONFIG] Production gateway: ${host}`);
+          CONFIG._currentBackend = "production";
+          CONFIG._cachedUrl = wsUrl;
+          CONFIG._cacheTime = now;
+          return wsUrl;
+        }
+      } catch {
+        // Host not reachable — try next
+      }
+    }
+
+    // All production hosts unreachable — return first as best-effort
+    const fallbackHost = CONFIG.PRODUCTION_HOSTS[0];
+    let wsUrl = `wss://${fallbackHost}${CONFIG.WS_PATH}`;
+    if (token) wsUrl += `?token=${encodeURIComponent(token)}`;
+    console.warn("[CONFIG] No production host reachable — using fallback:", fallbackHost);
     CONFIG._currentBackend = "production";
-    CONFIG._cachedUrl = CONFIG.PRODUCTION_COMMAND_WS_URL;
+    CONFIG._cachedUrl = wsUrl;
     CONFIG._cacheTime = now;
-    return CONFIG.PRODUCTION_COMMAND_WS_URL;
+    return wsUrl;
   },
 
   /**
    * Get current backend status
-   * @returns {{current: string|null, commandUrl: string, voiceUrl: string}}
+   * @returns {{current: string|null, commandUrl: string|null, voiceUrl: string|null}}
    */
   getBackendStatus: function () {
+    const commandUrl = CONFIG._cachedUrl || `wss://${CONFIG.PRODUCTION_HOSTS[0]}${CONFIG.WS_PATH}`;
     return {
-      current: CONFIG._currentBackend,
-      commandUrl: CONFIG.PRODUCTION_COMMAND_WS_URL,
-      voiceUrl: CONFIG.PRODUCTION_VOICE_WS_URL,
+      current: CONFIG._currentBackend || "production",
+      commandUrl,
+      voiceUrl: commandUrl.replace(CONFIG.WS_PATH, CONFIG.VOICE_WS_PATH),
     };
   },
 
@@ -131,6 +168,17 @@ const CONFIG = {
       CONFIG._cachedUrl = null;
       CONFIG._cacheTime = 0;
       CONFIG._currentBackend = null;
+    });
+  },
+
+  /**
+   * Set the extension auth token (stored in sync storage, survives reinstalls)
+   * @param {string} token - Token from Centris dashboard or onboarding
+   */
+  setExtensionToken: function (token) {
+    chrome.storage.sync.set({ extension_token: token }, () => {
+      console.log("[CONFIG] Extension token set");
+      CONFIG.clearCache();
     });
   },
 

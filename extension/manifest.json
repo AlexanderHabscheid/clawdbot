@@ -53,6 +53,6 @@
   },
 
   "externally_connectable": {
-    "matches": ["http://localhost:*/*", "https://*.sentris.io/*"]
+    "matches": ["http://localhost:*/*", "https://*.sentris.io/*", "wss://*.sentris.io/*"]
   }
 }

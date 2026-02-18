@@ -166,7 +166,21 @@ async function connectWebSocket() {
     if (typeof CONFIG !== "undefined" && CONFIG.getExtensionWebSocketUrl) {
       wsUrl = await CONFIG.getExtensionWebSocketUrl();
     } else {
-      wsUrl = "ws://localhost:8765"; // Default fallback
+      wsUrl = null;
+    }
+
+    if (!wsUrl) {
+      _connectionInProgress = false;
+      if (typeof logWithTimestamp === "function") {
+        logWithTimestamp("warn", "⚠️ No gateway URL available — is the OpenClaw gateway running?");
+      }
+      // Schedule retry (gateway may start later)
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        reconnectAttempts++;
+        const delay = Math.min(2000 * reconnectAttempts, 10000);
+        setTimeout(connectWebSocket, delay);
+      }
+      return;
     }
 
     if (typeof logWithTimestamp === "function") {
