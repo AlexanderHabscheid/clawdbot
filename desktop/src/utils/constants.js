@@ -29,8 +29,8 @@ export const PILL_EXPANDED_HEIGHT = 36;
 export const PILL_IDLE_HEIGHT = 6;
 
 // Gateway Constants — Centris Gateway (cloud-first, Railway deployment)
-export const PRODUCTION_GATEWAY_URL = "https://centris-gateway.up.railway.app";
-export const PRODUCTION_GATEWAY_WS_URL = "wss://centris-gateway.up.railway.app";
+export const PRODUCTION_GATEWAY_URL = "https://centris-ai-production.up.railway.app";
+export const PRODUCTION_GATEWAY_WS_URL = "wss://centris-ai-production.up.railway.app";
 export const LOCAL_GATEWAY_PORT = 18789;
 
 // Packaged builds hit production; dev builds can override via env

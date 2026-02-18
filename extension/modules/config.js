@@ -26,6 +26,9 @@ const CONFIG = {
   PRODUCTION_HOSTS: ["gateway.sentris.io", "centris-ai-production.up.railway.app"],
   PRODUCTION_HTTP_URL: "https://gateway.sentris.io",
 
+  // Default token for production gateway auth (used when no user override is stored)
+  DEFAULT_EXTENSION_TOKEN: "770d3dd81270f86cdb2ec3ead5251c2a1dc8c2c1bf890481fe746622769ebbfd",
+
   // Local gateway ports to auto-detect (dev)
   LOCAL_PORTS: [18789, 19001],
 
@@ -91,7 +94,7 @@ const CONFIG = {
     }
 
     // Fall back to production gateway — probe custom domain first, then Railway
-    let token = "";
+    let token = CONFIG.DEFAULT_EXTENSION_TOKEN;
     try {
       const tokenResult = await new Promise((resolve) => {
         chrome.storage.sync.get(["extension_token"], resolve);
@@ -100,7 +103,7 @@ const CONFIG = {
         token = tokenResult.extension_token;
       }
     } catch {
-      // Storage not available
+      // Storage not available — default token still applies
     }
 
     for (const host of CONFIG.PRODUCTION_HOSTS) {

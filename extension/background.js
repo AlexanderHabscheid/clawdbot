@@ -1580,7 +1580,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
 
       case "reconnect":
-        // Force reconnection to backend
+        // Clear stale overrides, ensure auth token is set, then reconnect fresh
+        try {
+          await new Promise((resolve) => {
+            chrome.storage.sync.remove(["backend_url"], resolve);
+          });
+          await new Promise((resolve) => {
+            chrome.storage.sync.get(["extension_token"], (result) => {
+              if (
+                !result.extension_token &&
+                typeof CONFIG !== "undefined" &&
+                CONFIG.DEFAULT_EXTENSION_TOKEN
+              ) {
+                chrome.storage.sync.set(
+                  { extension_token: CONFIG.DEFAULT_EXTENSION_TOKEN },
+                  resolve,
+                );
+              } else {
+                resolve();
+              }
+            });
+          });
+        } catch (e) {
+          // Storage errors non-fatal — proceed with reconnect
+        }
+        if (typeof CONFIG !== "undefined" && CONFIG.clearCache) {
+          CONFIG.clearCache();
+        }
         forceReconnect();
         response = { success: true, message: "Reconnection initiated" };
         break;

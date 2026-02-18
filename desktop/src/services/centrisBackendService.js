@@ -13,8 +13,8 @@
 // Developers can override with CENTRIS_GATEWAY_URL for local dev.
 // There is no auto-detect toggle — packaged app → cloud, dev build → override.
 
-const PRODUCTION_GATEWAY_URL = "https://centris-gateway.up.railway.app";
-const PRODUCTION_GATEWAY_WS_URL = "wss://centris-gateway.up.railway.app";
+const PRODUCTION_GATEWAY_URL = "https://centris-ai-production.up.railway.app";
+const PRODUCTION_GATEWAY_WS_URL = "wss://centris-ai-production.up.railway.app";
 
 const GATEWAY_URL =
   (typeof process !== "undefined" && process.env?.CENTRIS_GATEWAY_URL) ||
@@ -30,6 +30,13 @@ const BACKEND_TIMEOUT_MS = 30000;
 const BACKEND_HEALTH_CHECK_TIMEOUT_MS = 3000;
 const MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 const AGENT_TASK_TIMEOUT_MS = 300000; // 5 min for complex multi-tool tasks
+
+let DesktopBridgeClient = null;
+try {
+  ({ DesktopBridgeClient } = require("./desktopBridgeClient.js"));
+} catch {
+  // Renderer process — bridge client only works in main process
+}
 
 // Simple logger fallback (avoid importing complex loggers in renderer)
 const logger = {
@@ -51,6 +58,7 @@ class CentrisBackendService {
       (typeof process !== "undefined" && process.env?.OPENCLAW_GATEWAY_TOKEN) ||
       (typeof process !== "undefined" && process.env?.CENTRIS_GATEWAY_TOKEN) ||
       null;
+    this.desktopBridge = null;
   }
 
   /** Get auth headers for gateway requests */
@@ -78,6 +86,9 @@ class CentrisBackendService {
           });
           clearTimeout(timeoutId);
           this.connected = response.ok;
+          if (this.connected && !this.desktopBridge) {
+            this.connectDesktopBridge();
+          }
           this.healthCheckPromise = null;
           return this.connected;
         } catch (error) {
@@ -171,6 +182,54 @@ class CentrisBackendService {
         }
       };
     }
+  }
+
+  // =========================================================================
+  // Desktop Bridge (native desktop control via WebSocket)
+  // =========================================================================
+
+  /**
+   * Connect the desktop bridge to the gateway. This lets the cloud gateway
+   * send desktop control commands (snapshot, click, type, etc.) to this
+   * Electron app, which executes them via the native accessibility module.
+   * Should be called from the main process only.
+   */
+  connectDesktopBridge() {
+    if (!DesktopBridgeClient) {
+      logger.debug("Desktop bridge not available (renderer process or module not found)");
+      return;
+    }
+    if (this.desktopBridge && this.desktopBridge.connected) {
+      logger.debug("Desktop bridge already connected");
+      return;
+    }
+
+    // Use extension token for desktop bridge auth (same token, same validation)
+    const extensionToken =
+      (typeof process !== "undefined" && process.env?.CENTRIS_EXTENSION_TOKEN) ||
+      this.gatewayToken ||
+      null;
+
+    this.desktopBridge = new DesktopBridgeClient({
+      wsURL: this.wsURL,
+      token: extensionToken,
+    });
+    this.desktopBridge.connect();
+    logger.log("Desktop bridge connecting to", this.wsURL);
+  }
+
+  /** Disconnect the desktop bridge */
+  disconnectDesktopBridge() {
+    if (this.desktopBridge) {
+      this.desktopBridge.destroy();
+      this.desktopBridge = null;
+      logger.log("Desktop bridge disconnected");
+    }
+  }
+
+  /** Check if the desktop bridge is connected */
+  isDesktopBridgeConnected() {
+    return this.desktopBridge?.connected ?? false;
   }
 
   // =========================================================================

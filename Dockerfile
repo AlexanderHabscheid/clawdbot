@@ -56,6 +56,12 @@ RUN chown -R node:node /app
 # This reduces the attack surface by preventing container escape via root privileges
 USER node
 
+# Centris defaults: bake model + profile into the image so they survive redeployments.
+# The init script runs before the gateway starts (via docker-entrypoint.sh).
+RUN mkdir -p /openclaw-init.d
+COPY scripts/centris-init.sh /openclaw-init.d/centris-init.sh
+RUN chmod +x /openclaw-init.d/centris-init.sh
+
 # Support custom init scripts mounted at /openclaw-init.d/
 # Scripts must be executable. They run before the gateway starts.
 # Example: docker run -v ./my-scripts:/openclaw-init.d:ro openclaw

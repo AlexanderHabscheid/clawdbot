@@ -28,6 +28,11 @@ import {
   type ResolvedGatewayAuth,
 } from "./auth.js";
 import {
+  isCentrisDesktopPath,
+  handleCentrisDesktopConnection,
+  getCentrisDesktopStatus,
+} from "./centris-desktop-bridge.js";
+import {
   isCentrisExtensionPath,
   handleCentrisExtensionConnection,
   getCentrisExtensionStatus,
@@ -512,6 +517,20 @@ export function createGatewayHttpServer(opts: {
         return;
       }
 
+      // Centris desktop bridge status — loopback or token-gated
+      if (requestPath === "/api/centris/desktop-status" && req.method === "GET") {
+        const clientIp = resolveGatewayClientIp(req, []);
+        const isLocal = isPrivateOrLoopbackAddress(clientIp);
+        if (!isLocal && !validateExtensionToken(req.url)) {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "forbidden" }));
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(getCentrisDesktopStatus()));
+        return;
+      }
+
       if (await handleHooksRequest(req, res)) {
         return;
       }
@@ -649,6 +668,19 @@ export function attachGatewayUpgradeHandler(opts: {
         }
         wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           handleCentrisExtensionConnection(ws, req);
+        });
+        return;
+      }
+
+      // Centris desktop app WebSocket — token-gated (same as extension bridge)
+      if (isCentrisDesktopPath(pathname)) {
+        if (!validateExtensionToken(req.url)) {
+          socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+          handleCentrisDesktopConnection(ws, req);
         });
         return;
       }
