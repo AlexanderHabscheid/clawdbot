@@ -1,21 +1,46 @@
 #!/bin/sh
 # Centris gateway defaults — runs on every container start via docker-entrypoint.sh.
-# Sets the Centris tool profile and Gemini Flash Lite model if not already configured.
+# Writes config JSON directly to avoid booting the full CLI (saves ~30s startup).
 
-set -e
+CONFIG_DIR="$HOME/.openclaw"
+CONFIG_FILE="$CONFIG_DIR/openclaw.json"
 
-CONFIG_CMD="node /app/openclaw.mjs config"
+mkdir -p "$CONFIG_DIR"
 
-# Activate the Centris tool profile (lean prompts, domain routing, context pruning)
-current_profile=$($CONFIG_CMD get tools.profile 2>/dev/null || echo "")
-if [ -z "$current_profile" ] || [ "$current_profile" = "full" ]; then
-  $CONFIG_CMD set tools.profile centris
-  echo "[centris-init] Set tools.profile=centris"
-fi
-
-# Default model: Gemini 2.5 Flash Lite (fast + cheap for voice-first UX)
-current_model=$($CONFIG_CMD get agents.defaults.model.primary 2>/dev/null || echo "")
-if [ -z "$current_model" ] || echo "$current_model" | grep -q "anthropic/claude-opus"; then
-  $CONFIG_CMD set agents.defaults.model.primary google/gemini-2.5-flash-lite
-  echo "[centris-init] Set model=google/gemini-2.5-flash-lite"
+if [ -f "$CONFIG_FILE" ]; then
+  # Config exists — patch in Centris defaults only if not already set
+  if ! grep -q '"centris"' "$CONFIG_FILE" 2>/dev/null; then
+    echo "[centris-init] Existing config found but missing centris profile, patching"
+    # Use node one-liner to merge without full CLI boot
+    node -e "
+      const fs = require('fs');
+      const f = '$CONFIG_FILE';
+      const c = JSON.parse(fs.readFileSync(f, 'utf8'));
+      if (!c.tools) c.tools = {};
+      if (!c.tools.profile || c.tools.profile === 'full') c.tools.profile = 'centris';
+      if (!c.agents) c.agents = {};
+      if (!c.agents.defaults) c.agents.defaults = {};
+      if (!c.agents.defaults.model) c.agents.defaults.model = {};
+      const m = c.agents.defaults.model.primary || '';
+      if (!m || m.includes('claude-opus')) c.agents.defaults.model.primary = 'google/gemini-2.5-flash-lite';
+      fs.writeFileSync(f, JSON.stringify(c, null, 2));
+    "
+  fi
+else
+  # Fresh container — write minimal Centris config
+  cat > "$CONFIG_FILE" << 'CONF'
+{
+  "tools": {
+    "profile": "centris"
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "google/gemini-2.5-flash-lite"
+      }
+    }
+  }
+}
+CONF
+  echo "[centris-init] Created config with tools.profile=centris, model=google/gemini-2.5-flash-lite"
 fi
