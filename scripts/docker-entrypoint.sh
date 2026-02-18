@@ -27,4 +27,24 @@ if [ -d "$INIT_DIR" ] && [ "$(ls -A "$INIT_DIR" 2>/dev/null)" ]; then
   echo "[openclaw-init] Done."
 fi
 
+# Cloud platform auto-detection: Railway/Render/Heroku set $PORT.
+# When detected, bridge to OPENCLAW_GATEWAY_PORT and inject --bind lan
+# so the gateway is reachable through the platform's reverse proxy.
+if [ -n "$PORT" ] && [ -z "$OPENCLAW_GATEWAY_PORT" ]; then
+  export OPENCLAW_GATEWAY_PORT="$PORT"
+  echo "[openclaw-init] Cloud platform detected (PORT=$PORT) → OPENCLAW_GATEWAY_PORT=$PORT"
+fi
+
+if [ -n "$PORT" ]; then
+  # Rewrite CMD to include --bind lan when running on a cloud platform.
+  # Only injects if the original CMD doesn't already contain --bind.
+  case "$*" in
+    *--bind*) ;;
+    *"gateway"*)
+      set -- "$@" --bind lan
+      echo "[openclaw-init] Injected --bind lan for cloud platform"
+      ;;
+  esac
+fi
+
 exec "$@"
