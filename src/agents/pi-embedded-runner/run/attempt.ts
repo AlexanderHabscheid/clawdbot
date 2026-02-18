@@ -34,6 +34,7 @@ import {
   classifyCentrisIntent,
   compactCentrisContext,
   compactStaleSnapshots,
+  detectSingleToolDone,
 } from "../../centris-router.js";
 import {
   listChannelSupportedActions,
@@ -739,6 +740,64 @@ export async function runEmbeddedAttempt(
             }>,
           );
           return transformed;
+        };
+
+        // Centris Call 2 elimination: wrap streamFn to intercept the second
+        // LLM call in the agent loop. When a single tool succeeded with a
+        // self-explanatory result, return a synthetic "done" response instead
+        // of calling the API. This prevents ~2400 wasted input tokens per
+        // simple task.
+        const { createAssistantMessageEventStream } =
+          await import("@mariozechner/pi-ai/dist/utils/event-stream.js");
+        const originalStreamFn = activeSession.agent.streamFn;
+        let _centrisCall2SkipText: string | null = null;
+        activeSession.agent.streamFn = (
+          model: unknown,
+          context: {
+            messages?: Array<{
+              role: string;
+              toolName?: string;
+              isError?: boolean;
+              content?: unknown;
+            }>;
+          },
+          options: unknown,
+        ) => {
+          // Check if the LLM messages contain a completed single-tool result
+          const msgs = context.messages ?? [];
+          const skipText = detectSingleToolDone(msgs);
+          if (skipText) {
+            _centrisCall2SkipText = skipText;
+            // Return a synthetic stream that yields "done" with an empty
+            // assistant message — no API call, zero tokens.
+            const syntheticStream = createAssistantMessageEventStream();
+            const syntheticMessage = {
+              role: "assistant" as const,
+              content: [{ type: "text" as const, text: skipText }],
+              api: "google-generative-ai",
+              provider: "google",
+              model:
+                typeof model === "object" && model !== null && "id" in model
+                  ? String((model as { id: string }).id)
+                  : "synthetic",
+              usage: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 0,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+              },
+              stopReason: "stop" as const,
+              timestamp: Date.now(),
+            };
+            // Push start + done events, then end the stream
+            syntheticStream.push({ type: "done", reason: "stop", message: syntheticMessage });
+            syntheticStream.end(syntheticMessage);
+            return syntheticStream;
+          }
+          // Normal path: call the real LLM
+          return (originalStreamFn as Function).call(null, model, context, options);
         };
       }
 

@@ -21,13 +21,25 @@ import type { WebSocket } from "ws";
 import { logDebug, logError, logInfo, logWarn } from "../logger.js";
 
 // Audio modules are loaded dynamically — they may not exist yet.
-// Placeholder type for the Deepgram adapter until audio modules are implemented
-interface DeepgramAdapter {
-  startStreaming(opts: { sampleRate: number; channels: number }): Promise<void>;
-  stopStreaming(): Promise<{ text: string }>;
-  sendAudio(data: Buffer): void;
-  onPartialTranscript(cb: (text: string) => void): void;
+// Interface matches the actual usage pattern in handleCentrisVoiceConnection below.
+interface DeepgramStreamingSession {
+  connection: {
+    onTranscript(cb: (text: string, isFinal: boolean) => void): void;
+  } | null;
 }
+
+interface DeepgramAdapter {
+  createSession(
+    sessionId: string,
+    sampleRate: number,
+    channels: number,
+  ): Promise<DeepgramStreamingSession>;
+  sendAudio(sessionId: string, data: Buffer): void;
+  finalizeSession(sessionId: string): Promise<string>;
+  resetSession(sessionId: string): void;
+  closeSession(sessionId: string): void;
+}
+
 let DeepgramStreamingAdapter: (new (opts: { apiKey: string }) => DeepgramAdapter) | null = null;
 let cleanupDictationText: ((text: string) => string) | null = null;
 try {

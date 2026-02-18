@@ -17,8 +17,8 @@ export const DEFAULT_HEARTBEAT_ACK_MAX_CHARS = 300;
  * - Comment lines (lines starting with #)
  * - Empty lines
  *
- * Note: A missing file returns false (not effectively empty) so the LLM can still
- * decide what to do. This function is only for when the file exists but has no content.
+ * Note: undefined/null returns false (defensive). The heartbeat runner handles
+ * file-not-found separately in its catch block (skips the API call entirely).
  */
 export function isHeartbeatContentEffectivelyEmpty(content: string | undefined | null): boolean {
   if (content === undefined || content === null) {

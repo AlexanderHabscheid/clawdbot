@@ -88,14 +88,23 @@ const COMPUTER_KEYWORDS: WeightedKeyword[] = [
   // Window management
   ...w1(["minimize", "maximize", "resize window", "move window"]),
   ...w1(["full screen", "split screen", "arrange windows"]),
+  ...w1(["frontmost", "active window", "focused window", "focused app"]),
+  // Desktop/window snapshots — weight 2 to beat file's "my desktop"
+  ["frontmost window", 2],
+  ["window snapshot", 2],
+  ["desktop snapshot", 2],
+  ["on my desktop", 2],
   // Desktop interaction
   ...w1(["click button", "press button", "keyboard shortcut"]),
   ...w1(["cmd+", "ctrl+", "alt+", "command+", "control+"]),
   ...w1(["copy paste", "select all"]),
   // System
-  ...w1(["running apps", "what apps", "what's running"]),
+  ...w1(["running apps", "running applications", "what apps", "what's running"]),
+  ...w1(["list apps", "list applications", "open applications"]),
   ...w1(["display", "screen", "monitor", "resolution"]),
   ...w1(["volume", "brightness", "wifi", "bluetooth"]),
+  // AX / accessibility
+  ...w1(["accessibility", "ui elements", "ax tree"]),
 ];
 
 const FILE_KEYWORDS: WeightedKeyword[] = [
@@ -399,6 +408,59 @@ export function compactCentrisContext<T extends CompactableMessage>(messages: T[
   }
 
   return result;
+}
+
+// ─── Single-tool short-circuit (skip Call 2 at streamFn level) ───────────────
+//
+// pi-agent-core's agentLoop always makes a second LLM call after tool execution
+// to check if the LLM wants more tools. For simple single-tool tasks (write, exec),
+// the LLM returns 0 output tokens — a wasted API call that burns ~2400 input tokens.
+//
+// Fix: wrap `streamFn` to intercept Call 2. When the LLM context contains exactly
+// one successful tool result, return a synthetic "done" response instead of calling
+// the API. The loop sees no tool calls → exits. Zero tokens burned for Call 2.
+//
+// Detection: check the LLM-formatted messages (Message[]) passed to streamFn.
+// These have the final shape the API would see: user, assistant (with tool call),
+// and toolResult messages.
+
+/** Tools whose single-tool results don't need LLM interpretation. */
+const SKIP_CALL2_TOOLS = new Set(["write", "edit", "apply_patch", "exec", "centris_computer"]);
+
+/**
+ * Check if LLM messages represent a completed single-tool task.
+ * Returns formatted text if Call 2 can be skipped, null otherwise.
+ */
+export function detectSingleToolDone(
+  messages: Array<{ role: string; toolName?: string; isError?: boolean; content?: unknown }>,
+): string | null {
+  const toolResults = messages.filter((m) => m.role === "toolResult");
+  if (toolResults.length !== 1) {
+    return null;
+  }
+
+  const result = toolResults[0];
+  if (result.isError) {
+    return null;
+  }
+  if (!result.toolName || !SKIP_CALL2_TOOLS.has(result.toolName)) {
+    return null;
+  }
+
+  // Check assistant had exactly 1 tool call
+  const assistants = messages.filter((m) => m.role === "assistant");
+  const lastAssistant = assistants[assistants.length - 1];
+  if (lastAssistant && Array.isArray(lastAssistant.content)) {
+    const toolCalls = (lastAssistant.content as Array<{ type?: string }>).filter(
+      (p) => p.type === "toolCall",
+    );
+    if (toolCalls.length > 1) {
+      return null;
+    }
+  }
+
+  logInfo(`[centris-call2-skip] single-tool done: ${result.toolName} → skipping Call 2`);
+  return "Done.";
 }
 
 /** Extract a tiny summary from a tool result message. */

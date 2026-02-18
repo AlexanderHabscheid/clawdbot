@@ -464,23 +464,21 @@ export async function runHeartbeatOnce(opts: {
     return { status: "skipped", reason: "requests-in-flight" };
   }
 
-  // Skip heartbeat if HEARTBEAT.md exists but has no actionable content.
-  // This saves API calls/costs when the file is effectively empty (only comments/headers).
+  // Skip heartbeat if HEARTBEAT.md is missing or has no actionable content.
+  // This saves API calls/costs when the file doesn't exist or is effectively
+  // empty (only comments/headers). Without this guard, every heartbeat interval
+  // burns ~2300 input tokens on a Gemini call that returns "HEARTBEAT_OK".
   // EXCEPTION: Don't skip for exec events, cron events, or explicit wake requests -
   // they have pending system events to process regardless of HEARTBEAT.md content.
   const isExecEventReason = opts.reason === "exec-event";
   const isCronEventReason = Boolean(opts.reason?.startsWith("cron:"));
   const isWakeReason = opts.reason === "wake" || Boolean(opts.reason?.startsWith("hook:"));
+  const hasEventOverride = isExecEventReason || isCronEventReason || isWakeReason;
   const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
   const heartbeatFilePath = path.join(workspaceDir, DEFAULT_HEARTBEAT_FILENAME);
   try {
     const heartbeatFileContent = await fs.readFile(heartbeatFilePath, "utf-8");
-    if (
-      isHeartbeatContentEffectivelyEmpty(heartbeatFileContent) &&
-      !isExecEventReason &&
-      !isCronEventReason &&
-      !isWakeReason
-    ) {
+    if (isHeartbeatContentEffectivelyEmpty(heartbeatFileContent) && !hasEventOverride) {
       emitHeartbeatEvent({
         status: "skipped",
         reason: "empty-heartbeat-file",
@@ -489,8 +487,17 @@ export async function runHeartbeatOnce(opts: {
       return { status: "skipped", reason: "empty-heartbeat-file" };
     }
   } catch {
-    // File doesn't exist or can't be read - proceed with heartbeat.
-    // The LLM prompt says "if it exists" so this is expected behavior.
+    // File doesn't exist or can't be read. If there's no event override
+    // (exec/cron/wake), skip the heartbeat entirely — there's nothing for
+    // the LLM to check and calling the API would just burn tokens.
+    if (!hasEventOverride) {
+      emitHeartbeatEvent({
+        status: "skipped",
+        reason: "no-heartbeat-file",
+        durationMs: Date.now() - startedAt,
+      });
+      return { status: "skipped", reason: "no-heartbeat-file" };
+    }
   }
 
   const { entry, sessionKey, storePath } = resolveHeartbeatSession(cfg, agentId, heartbeat);
