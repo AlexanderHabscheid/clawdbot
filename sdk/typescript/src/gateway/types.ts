@@ -2,6 +2,11 @@
  * @centris/sdk - MCP Gateway Types
  */
 
+import type {
+  ActionApiMethod,
+  ActionApiRequestEnvelope,
+  ActionApiResponseEnvelope,
+} from "../action-api/index.js";
 import type { CentrisTool, ConnectorToolContext } from "../plugin/types.js";
 
 /**
@@ -34,7 +39,13 @@ export interface MCPServerOptions {
   cors?: boolean;
   /** Gateway instance to use */
   gateway: CentrisMCPGateway;
+  /** Optional action API handler used by /api/v1/action */
+  actionApiHandler?: ActionApiHandler;
 }
+
+export type ActionApiHandler = <M extends ActionApiMethod>(
+  request: ActionApiRequestEnvelope<M>,
+) => Promise<ActionApiResponseEnvelope<M>>;
 
 /**
  * Logger interface for gateway.

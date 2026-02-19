@@ -43,7 +43,7 @@ export async function initManifest(options: ManifestInitOptions, ctx: CLIContext
       ? options.urlPatterns
       : [`${toSlug(app)}.com/*`];
   const manifest = {
-    centris: "1.0",
+    centris: "2.0",
     app: toSlug(app),
     description: options.description ?? `${app} site map for Centris automation`,
     url_patterns: urlPatterns,

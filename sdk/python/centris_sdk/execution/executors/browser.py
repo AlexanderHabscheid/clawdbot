@@ -140,6 +140,20 @@ class BrowserExecutor:
         """
         start_time = time.time()
 
+        browser_bridge = request.context.get("browser_bridge")
+        if browser_bridge is not None:
+            try:
+                return await self._execute_with_bridge(request, browser_bridge, start_time)
+            except Exception as e:
+                logger.error(f"Bridge browser execution error: {e}")
+                return ExecutionResponse(
+                    success=False,
+                    error=str(e),
+                    error_code="BROWSER_BRIDGE_ERROR",
+                    method_used=self.method,
+                    latency_ms=(time.time() - start_time) * 1000,
+                )
+
         if not self._legacy_enabled:
             return ExecutionResponse(
                 success=False,
@@ -241,6 +255,76 @@ class BrowserExecutor:
         finally:
             if page:
                 await page.close()
+
+    async def _execute_with_bridge(
+        self,
+        request: ExecutionRequest,
+        bridge: Any,
+        start_time: float,
+    ) -> ExecutionResponse:
+        """Execute browser actions against the runtime browser bridge.
+
+        This is the default non-legacy path used by Centris runtime.
+        """
+        capability = request.capability
+        browser_config: dict[str, Any] = {}
+        if capability and hasattr(capability, "browser_config"):
+            browser_config = capability.browser_config or {}
+
+        url = request.params.get("url") or browser_config.get("url")
+        steps = request.params.get("steps") or browser_config.get("steps", [])
+
+        if url:
+            await bridge.navigate_browser(str(url))
+
+        for step in steps:
+            await self._execute_bridge_step(bridge, step, request.params)
+
+        result_data: dict[str, Any] = {}
+        extract = request.params.get("extract") or browser_config.get("extract")
+        if extract:
+            # Runtime bridge exposes content, not arbitrary JS extraction.
+            result_data["content"] = await bridge.get_page_content()
+
+        return ExecutionResponse(
+            success=True,
+            data=result_data,
+            method_used=self.method,
+            latency_ms=(time.time() - start_time) * 1000,
+        )
+
+    async def _execute_bridge_step(
+        self,
+        bridge: Any,
+        step: dict[str, Any],
+        params: dict[str, Any],
+    ) -> None:
+        """Execute one browser step against BrowserBridge."""
+        action = step.get("action", "")
+        selector = step.get("selector", "")
+        value = step.get("value", "")
+
+        if isinstance(value, str) and value.startswith("{{") and value.endswith("}}"):
+            param_name = value[2:-2].strip()
+            value = params.get(param_name, value)
+
+        if action == "click":
+            await bridge.click_node(selector)
+        elif action == "navigate":
+            await bridge.navigate_browser(str(value))
+        elif action == "fill" or action == "type":
+            await bridge.input_text_node(selector, str(value))
+        elif action == "press":
+            await bridge.press_key(str(value))
+        elif action == "wait":
+            timeout_ms = int(value) if value else 1000
+            await bridge.wait(timeout_ms)
+        elif action == "scroll":
+            amount = int(value) if value else 500
+            direction = "down" if amount >= 0 else "up"
+            await bridge.scroll_page(direction, abs(amount))
+        else:
+            logger.warning(f"Unknown bridge browser action: {action}")
     
     async def _execute_step(
         self,

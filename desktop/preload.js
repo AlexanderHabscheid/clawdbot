@@ -420,6 +420,18 @@ const electronAPI = {
   // ========================================
   // These APIs manage operating mode (action vs dictation) across windows
 
+  // ========================================
+  // ACTION AUTHORITY APIs (/api/v1/action)
+  // ========================================
+  // All runtime actions should flow through the same gateway authority surface.
+  actionApiCall: (method, params = {}) => ipcRenderer.invoke("action-api-call", method, params),
+  observeRuntime: (params = {}) => ipcRenderer.invoke("action-observe", params),
+  actRuntime: (params = {}) => ipcRenderer.invoke("action-act", params),
+  verifyRuntime: (params = {}) => ipcRenderer.invoke("action-verify", params),
+  routeRunRuntime: (params = {}) => ipcRenderer.invoke("action-route-run", params),
+  routeRecordStart: (params = {}) => ipcRenderer.invoke("action-route-record-start", params),
+  routeRecordStop: (params = {}) => ipcRenderer.invoke("action-route-record-stop", params),
+
   // Broadcast mode change to all windows (call after switching mode)
   broadcastModeChange: (mode) => ipcRenderer.invoke("broadcast-mode-change", mode),
 

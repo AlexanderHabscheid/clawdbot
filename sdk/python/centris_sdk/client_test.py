@@ -11,6 +11,11 @@ from centris_sdk.client import (
     AuthenticationError,
     RateLimitError,
 )
+from centris_sdk.kernel import KernelObserveRequest
+from centris_sdk.action_api import (
+    ActionRouteRecordStartRequest,
+    ActionRouteRecordStopRequest,
+)
 
 
 class TestCentrisClient:
@@ -99,3 +104,82 @@ class TestCentrisErrors:
     def test_rate_limit_error(self):
         err = RateLimitError("Rate limit exceeded")
         assert isinstance(err, CentrisError)
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict, status_code: int = 200):
+        self._payload = payload
+        self.status_code = status_code
+
+    def json(self):
+        return self._payload
+
+
+class _FakeHttpClient:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    def post(self, url, headers=None, json=None):
+        self.calls.append((url, headers, json))
+        return self._responses.pop(0)
+
+    def close(self):
+        return None
+
+
+class TestActionApiClient:
+    def test_observe_dispatches_action_api(self):
+        fake_http = _FakeHttpClient(
+            [
+                _FakeResponse(
+                    {
+                        "specVersion": "2026-02-19",
+                        "method": "observe",
+                        "ok": True,
+                        "result": {"url": "https://example.com", "interactive": []},
+                    }
+                )
+            ]
+        )
+
+        client = Centris(api_key="ck_test", base_url="https://api.example.com")
+        client._client = fake_http  # type: ignore[assignment]
+
+        result = client.observe(KernelObserveRequest(url="https://example.com"))
+        assert result.url == "https://example.com"
+        assert fake_http.calls[0][0].endswith("/api/v1/action")
+        assert fake_http.calls[0][2]["method"] == "observe"
+
+    def test_route_record_start_stop(self):
+        fake_http = _FakeHttpClient(
+            [
+                _FakeResponse(
+                    {
+                        "specVersion": "2026-02-19",
+                        "method": "route.record.start",
+                        "ok": True,
+                        "result": {"ok": True, "sessionId": "sess_123"},
+                    }
+                ),
+                _FakeResponse(
+                    {
+                        "specVersion": "2026-02-19",
+                        "method": "route.record.stop",
+                        "ok": True,
+                        "result": {"ok": True, "routeId": "download_invoice"},
+                    }
+                ),
+            ]
+        )
+
+        client = Centris(api_key="ck_test", base_url="https://api.example.com")
+        client._client = fake_http  # type: ignore[assignment]
+
+        start = client.route_record_start(ActionRouteRecordStartRequest(intent="download_invoice"))
+        stop = client.route_record_stop(ActionRouteRecordStopRequest(session_id=start.session_id))
+
+        assert start.ok is True
+        assert start.session_id == "sess_123"
+        assert stop.ok is True
+        assert stop.route_id == "download_invoice"

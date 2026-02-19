@@ -21,6 +21,7 @@ import {
 import { loadConfig } from "../config/config.js";
 import { safeEqualSecret } from "../security/secret-equal.js";
 import { handleSlackHttpRequest } from "../slack/http/index.js";
+import { handleActionApiEnvelope } from "./action-api-authority.js";
 import {
   authorizeGatewayConnect,
   isLocalDirectRequest,
@@ -505,7 +506,12 @@ export function createGatewayHttpServer(opts: {
 
       // Centris extension bridge status — loopback or token-gated
       if (requestPath === "/api/centris/status" && req.method === "GET") {
-        const clientIp = resolveGatewayClientIp(req, []);
+        const clientIp = resolveGatewayClientIp({
+          remoteAddr: req.socket?.remoteAddress ?? "",
+          forwardedFor: getHeader(req, "x-forwarded-for"),
+          realIp: getHeader(req, "x-real-ip"),
+          trustedProxies,
+        });
         const isLocal = isPrivateOrLoopbackAddress(clientIp);
         if (
           !isLocal &&
@@ -525,7 +531,12 @@ export function createGatewayHttpServer(opts: {
 
       // Centris desktop bridge status — loopback or token-gated
       if (requestPath === "/api/centris/desktop-status" && req.method === "GET") {
-        const clientIp = resolveGatewayClientIp(req, []);
+        const clientIp = resolveGatewayClientIp({
+          remoteAddr: req.socket?.remoteAddress ?? "",
+          forwardedFor: getHeader(req, "x-forwarded-for"),
+          realIp: getHeader(req, "x-real-ip"),
+          trustedProxies,
+        });
         const isLocal = isPrivateOrLoopbackAddress(clientIp);
         if (
           !isLocal &&
@@ -540,6 +551,47 @@ export function createGatewayHttpServer(opts: {
         }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(getCentrisDesktopStatus()));
+        return;
+      }
+
+      if (requestPath === "/api/v1/action" && req.method === "POST") {
+        const isLocal = isLocalDirectRequest(req, trustedProxies);
+        if (!isLocal) {
+          const token = getBearerToken(req);
+          const authResult = await authorizeGatewayConnect({
+            auth: resolvedAuth,
+            connectAuth: token ? { token, password: token } : null,
+            req,
+            trustedProxies,
+            rateLimiter,
+          });
+          if (!authResult.ok) {
+            sendGatewayAuthFailure(res, authResult);
+            return;
+          }
+        }
+
+        const body = await readJsonBody(req, 256 * 1024);
+        if (!body.ok || typeof body.value !== "object" || body.value === null) {
+          sendJson(res, 400, {
+            specVersion: "2026-02-19",
+            method: "unknown",
+            ok: false,
+            error: { code: "INVALID_REQUEST", message: "invalid JSON body" },
+          });
+          return;
+        }
+        const payload = body.value as Record<string, unknown>;
+        const response = await handleActionApiEnvelope({
+          specVersion: typeof payload.specVersion === "string" ? payload.specVersion : undefined,
+          method: typeof payload.method === "string" ? payload.method : undefined,
+          id: typeof payload.id === "string" ? payload.id : undefined,
+          params:
+            payload.params && typeof payload.params === "object" && !Array.isArray(payload.params)
+              ? (payload.params as Record<string, unknown>)
+              : undefined,
+        });
+        sendJson(res, response.ok ? 200 : 400, response);
         return;
       }
 

@@ -274,6 +274,67 @@ export {
 } from "./execution/index.js";
 
 // =============================================================================
+// Action Kernel
+// =============================================================================
+
+export {
+  ACTION_KERNEL_SPEC_VERSION,
+  PlaywrightActionKernel,
+  type ActionKernelSpecVersion,
+  type ActionKernel,
+  type KernelActionKind,
+  type KernelRouteStep,
+  type KernelSuccessCheck,
+  type KernelObserveRequest,
+  type KernelObserveResult,
+  type KernelActRequest,
+  type KernelActResult,
+  type KernelVerifyRequest,
+  type KernelVerifyResult,
+  type KernelRouteRequest,
+  type KernelRouteResult,
+  type KernelLearnRequest,
+  type KernelLearnResult,
+} from "./kernel/index.js";
+
+// =============================================================================
+// Action API Contract
+// =============================================================================
+
+export {
+  ACTION_API_SPEC_VERSION,
+  type ActionApiMethod,
+  type ActionRouteRunRequest,
+  type ActionRouteRunResult,
+  type ActionRouteRecordStartRequest,
+  type ActionRouteRecordStartResult,
+  type ActionRouteRecordStopRequest,
+  type ActionRouteRecordStopResult,
+  type ActionApiParamsByMethod,
+  type ActionApiResultByMethod,
+  type ActionApiRequestEnvelope,
+  type ActionApiError,
+  type ActionApiResponseEnvelope,
+} from "./action-api/index.js";
+
+// =============================================================================
+// API Client
+// =============================================================================
+
+export {
+  Centris,
+  do,
+  DEFAULT_API_VERSION,
+  CentrisError,
+  AuthenticationError,
+  RateLimitError,
+  type CentrisResult,
+  type CentrisUsage,
+  type CentrisClientOptions,
+  type DeprecationCallback,
+} from "./client/index.js";
+
+// =============================================================================
 // CLI
 // =============================================================================
 
@@ -285,15 +346,35 @@ export {
   testConnector,
   serveConnector,
   publishConnector,
+  runDoCommand,
+  runObserveActionCommand,
+  runActActionCommand,
+  runVerifyActionCommand,
+  runRouteRunActionCommand,
+  runRouteRecordStartActionCommand,
+  runRouteRecordStopActionCommand,
   initManifest,
   validateManifestFile,
+  recordRoute,
+  runRoute,
+  testRoute,
   type CLIOptions,
   type InitOptions,
   type TestOptions,
   type ServeOptions,
   type PublishOptions,
+  type DoOptions,
+  type ObserveOptions,
+  type ActOptions,
+  type VerifyOptions,
+  type RouteRunApiOptions,
+  type RouteRecordStartApiOptions,
+  type RouteRecordStopApiOptions,
   type ManifestInitOptions,
   type ManifestValidateOptions,
+  type RouteRecordOptions,
+  type RouteRunOptions,
+  type RouteTestOptions,
 } from "./cli/index.js";
 
 // =============================================================================
@@ -305,6 +386,7 @@ export type {
   ManifestLandmark,
   ManifestAction,
   ManifestActionStep,
+  ManifestSuccessCheck,
   ManifestRoute,
   ManifestIndexEntry,
   ResolvedManifest,

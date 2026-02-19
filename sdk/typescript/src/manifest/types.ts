@@ -61,6 +61,13 @@ export type ManifestActionStep =
   | { wait: number }
   | { scroll: "up" | "down"; amount?: number };
 
+export type ManifestSuccessCheck =
+  | { type: "url_contains"; value: string }
+  | { type: "text_present"; value: string }
+  | { type: "element_visible"; value: string }
+  | { type: "download"; value?: string }
+  | { type: "network_url_contains"; value: string };
+
 // --- Action recipe ---
 
 /**
@@ -71,6 +78,10 @@ export interface ManifestAction {
   description: string;
   params?: string[];
   steps: ManifestActionStep[];
+  successChecks?: ManifestSuccessCheck[];
+  confidence?: number;
+  lastVerifiedAt?: string;
+  fallbackChains?: string[][];
 }
 
 // --- Route ---

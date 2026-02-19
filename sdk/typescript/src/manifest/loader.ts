@@ -14,7 +14,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { CentrisManifest, ManifestAction, ManifestLandmark, ManifestRoute } from "./types.js";
+import type {
+  CentrisManifest,
+  ManifestAction,
+  ManifestLandmark,
+  ManifestRoute,
+  ManifestSuccessCheck,
+} from "./types.js";
 
 export interface ManifestLoaderOptions {
   workspaceDir?: string;
@@ -216,12 +222,25 @@ export function validateManifest(data: unknown): CentrisManifest | null {
           continue;
         }
 
+        const successChecks = normalizeSuccessChecks(ao.successChecks ?? ao.verify);
+        const confidence =
+          typeof ao.confidence === "number" && Number.isFinite(ao.confidence)
+            ? Math.max(0, Math.min(1, ao.confidence))
+            : undefined;
+        const lastVerifiedAt =
+          typeof ao.lastVerifiedAt === "string" ? ao.lastVerifiedAt : undefined;
+        const fallbackChains = normalizeFallbackChains(ao.fallbackChains);
+
         actions[ak] = {
           description: ao.description,
           params: Array.isArray(ao.params)
             ? ao.params.filter((p: unknown) => typeof p === "string")
             : undefined,
           steps: ao.steps as ManifestAction["steps"],
+          successChecks,
+          confidence,
+          lastVerifiedAt,
+          fallbackChains,
         };
       }
       if (Object.keys(actions).length > 0) {
@@ -233,10 +252,63 @@ export function validateManifest(data: unknown): CentrisManifest | null {
   }
 
   return {
-    centris: obj.centris,
+    centris: normalizeManifestVersion(obj.centris),
     app: obj.app,
     description: typeof obj.description === "string" ? obj.description : undefined,
     url_patterns: obj.url_patterns as string[],
     routes,
   };
+}
+
+function normalizeManifestVersion(input: string): string {
+  if (input === "1.0" || input === "2.0") {
+    return input;
+  }
+  return "2.0";
+}
+
+function normalizeSuccessChecks(input: unknown): ManifestSuccessCheck[] | undefined {
+  if (!Array.isArray(input)) {
+    return undefined;
+  }
+  const checks: ManifestSuccessCheck[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const rec = item as Record<string, unknown>;
+    const type = typeof rec.type === "string" ? rec.type : "";
+    const value = typeof rec.value === "string" ? rec.value : undefined;
+    if (
+      (type === "url_contains" ||
+        type === "text_present" ||
+        type === "element_visible" ||
+        type === "network_url_contains") &&
+      value
+    ) {
+      checks.push({ type, value });
+      continue;
+    }
+    if (type === "download") {
+      checks.push(value ? { type, value } : { type });
+    }
+  }
+  return checks.length > 0 ? checks : undefined;
+}
+
+function normalizeFallbackChains(input: unknown): string[][] | undefined {
+  if (!Array.isArray(input)) {
+    return undefined;
+  }
+  const chains: string[][] = [];
+  for (const chain of input) {
+    if (!Array.isArray(chain)) {
+      continue;
+    }
+    const normalized = chain.filter((entry): entry is string => typeof entry === "string");
+    if (normalized.length > 0) {
+      chains.push(normalized);
+    }
+  }
+  return chains.length > 0 ? chains : undefined;
 }

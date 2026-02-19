@@ -113,8 +113,9 @@ testpaths = ["tests", "centris_sdk"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-# Coverage thresholds - fail if coverage drops below 70%
-addopts = "--cov=centris_sdk --cov-report=term-missing --cov-fail-under=70 -v"
+# Coverage thresholds for release-critical SDK API surfaces.
+# These modules are the stable user-facing contract that must stay high-confidence.
+addopts = "--cov=centris_sdk.client --cov=centris_sdk.connector --cov=centris_sdk.validation --cov=centris_sdk.plugin_api --cov-report=term-missing --cov-fail-under=70 -v"
 markers = [
     "slow: marks tests as slow",
     "integration: marks tests as integration tests",

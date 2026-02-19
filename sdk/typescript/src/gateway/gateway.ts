@@ -157,7 +157,11 @@ export class CentrisMCPGateway implements ICentrisMCPGateway {
     });
 
     const context: ConnectorToolContext = { config: {} };
-    const tools = resolveConnectorTools({ registry, context, logger: this.logger });
+    const tools = resolveConnectorTools({
+      registry,
+      context,
+      logger: this.logger,
+    });
 
     for (const record of registry.connectors) {
       if (record.status !== "loaded") {
@@ -239,8 +243,16 @@ export class CentrisMCPGateway implements ICentrisMCPGateway {
   /**
    * List all available tools across all connectors.
    */
-  listTools(): Array<{ name: string; description: string; inputSchema: unknown }> {
-    const tools: Array<{ name: string; description: string; inputSchema: unknown }> = [];
+  listTools(): Array<{
+    name: string;
+    description: string;
+    inputSchema: unknown;
+  }> {
+    const tools: Array<{
+      name: string;
+      description: string;
+      inputSchema: unknown;
+    }> = [];
 
     for (const connector of this.connectors.values()) {
       for (const tool of connector.tools) {
@@ -337,7 +349,11 @@ export class CentrisMCPGateway implements ICentrisMCPGateway {
     }
 
     // Sort by confidence and limit
-    return results.toSorted((a, b) => b.confidence - a.confidence).slice(0, limit);
+    return [...results]
+      .toSorted(
+        (a: CapabilitySearchResult, b: CapabilitySearchResult) => b.confidence - a.confidence,
+      )
+      .slice(0, limit);
   }
 
   /**

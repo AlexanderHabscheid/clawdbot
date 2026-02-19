@@ -82,7 +82,11 @@ export async function publishConnector(options: PublishOptions, ctx: CLIContext)
   }
 
   let connector: CentrisConnectorDefinition;
-  const tools: Array<{ name: string; description: string; inputSchema: unknown }> = [];
+  const tools: Array<{
+    name: string;
+    description: string;
+    inputSchema: unknown;
+  }> = [];
 
   try {
     const mod = jiti(mainFile);
@@ -97,11 +101,18 @@ export async function publishConnector(options: PublishOptions, ctx: CLIContext)
       source: mainFile,
       config: {},
       connectorConfig: {},
-      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
       registerTool: (tool: Record<string, unknown>) => {
+        const name = typeof tool.name === "string" ? tool.name : "";
+        const description = typeof tool.description === "string" ? tool.description : "";
         tools.push({
-          name: tool.name,
-          description: tool.description,
+          name,
+          description,
           inputSchema: tool.parameters,
         });
       },

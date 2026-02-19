@@ -10,6 +10,7 @@ export { MCPServer, createMCPServer } from "./server.js";
 export type {
   MCPGatewayOptions,
   MCPServerOptions,
+  ActionApiHandler,
   RegisteredConnector,
   MCPToolCall,
   MCPToolResult,

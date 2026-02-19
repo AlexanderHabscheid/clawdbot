@@ -19,6 +19,8 @@ import click
 import json
 import asyncio
 import sys
+import types
+import inspect
 import importlib.util
 from pathlib import Path
 from typing import Optional, Any
@@ -45,15 +47,25 @@ def load_connector(path: Path) -> Any:
     if not connector_py.exists():
         raise FileNotFoundError(f"connector.py not found in {path}")
     
-    # Add path to sys.path temporarily
-    sys.path.insert(0, str(path))
+    # Add parent to sys.path and load connector as a package module so
+    # relative imports (e.g. from .base import ...) work for modular templates.
+    package_name = "_centris_connector_runtime"
+    parent = str(path.parent)
+    sys.path.insert(0, parent)
     
     try:
-        spec = importlib.util.spec_from_file_location("connector", connector_py)
+        package = types.ModuleType(package_name)
+        package.__path__ = [str(path)]  # type: ignore[attr-defined]
+        sys.modules[package_name] = package
+
+        module_name = f"{package_name}.connector"
+        spec = importlib.util.spec_from_file_location(module_name, connector_py)
         if spec is None or spec.loader is None:
             raise ImportError("Cannot load connector module")
         
         module = importlib.util.module_from_spec(spec)
+        module.__package__ = package_name
+        sys.modules[module_name] = module
         spec.loader.exec_module(module)
         
         # Look for connector export
@@ -64,7 +76,10 @@ def load_connector(path: Path) -> Any:
         else:
             raise AttributeError("No 'connector' or 'plugin' export found")
     finally:
-        sys.path.remove(str(path))
+        if parent in sys.path:
+            sys.path.remove(parent)
+        sys.modules.pop(f"{package_name}.connector", None)
+        sys.modules.pop(package_name, None)
 
 
 def generate_test_input(schema: dict[str, Any]) -> dict[str, Any]:
@@ -277,11 +292,21 @@ async def run_capability_test(
             if hasattr(connector, '_handlers'):
                 handler = connector._handlers.get(capability_id)
     
-    # Pattern 2: API-based with get_tools
+    # Pattern 2: API-based with api.get_tools()
     if not cap and hasattr(connector, 'api') and hasattr(connector.api, 'get_tools'):
         tools = connector.api.get_tools()
         for tool in tools:
             if tool.name == capability_id:
+                cap = tool
+                input_schema = getattr(tool, 'parameters', input_schema)
+                handler = getattr(tool, 'execute', None)
+                break
+
+    # Pattern 3: Connector exposes get_tools() directly (modular connectors)
+    if not cap and hasattr(connector, 'get_tools'):
+        tools = connector.get_tools()
+        for tool in tools:
+            if hasattr(tool, "name") and tool.name == capability_id:
                 cap = tool
                 input_schema = getattr(tool, 'parameters', input_schema)
                 handler = getattr(tool, 'execute', None)
@@ -311,7 +336,21 @@ async def run_capability_test(
         # Execute the handler with browser context
         if handler:
             context = {"browser_bridge": browser} if browser else {}
-            result_data = await handler(f"test_{capability_id}", test_params, context)
+            # Support both plugin-style handlers (tool_call_id, params, context)
+            # and simpler service handlers (params, context) used by modular templates.
+            params_count = len(
+                [
+                    p
+                    for p in inspect.signature(handler).parameters.values()
+                    if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+                ]
+            )
+            if params_count >= 3:
+                result_data = await handler(f"test_{capability_id}", test_params, context)
+            elif params_count == 2:
+                result_data = await handler(test_params, context)
+            else:
+                result_data = await handler(test_params)
             
             # Get operations from browser
             if browser and hasattr(browser, 'operations'):
@@ -525,10 +564,14 @@ def test_command(
         cap_ids = [capability]
     else:
         cap_ids = []
-        # Pattern 1: API-based with get_tools() - preferred pattern
+        # Pattern 1: API-based with api.get_tools() - preferred pattern
         if hasattr(connector, 'api') and hasattr(connector.api, 'get_tools'):
             tools = connector.api.get_tools()
             cap_ids = [tool.name for tool in tools]
+        # Pattern 2: direct get_tools() on connector (modular connectors)
+        elif hasattr(connector, 'get_tools'):
+            tools = connector.get_tools()
+            cap_ids = [tool.name for tool in tools if hasattr(tool, "name")]
         # Pattern 2: Decorator-based with capabilities attribute (must be a list)
         elif hasattr(connector, 'capabilities') and isinstance(connector.capabilities, list) and connector.capabilities:
             # Handle both string lists and capability objects

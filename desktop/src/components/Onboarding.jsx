@@ -17,7 +17,6 @@ import {
   Eye,
   ChevronRight,
   Chrome,
-  ExternalLink,
   Loader2,
   Wifi,
   Languages,
@@ -2149,32 +2148,38 @@ const BrowserExtensionStep = ({ onNext, onSkip }) => {
   const [isChecking, setIsChecking] = useState(true);
   const [checkCount, setCheckCount] = useState(0);
 
-  // Chrome Web Store link - will be updated when published
-  // For now, shows instructions for manual installation
-  const CHROME_EXTENSION_URL = null; // Will be: 'https://chrome.google.com/webstore/detail/centris-ai/EXTENSION_ID'
+  const checkExtensionStatus = async () => {
+    try {
+      // Preferred: probe runtime authority endpoint via IPC bridge.
+      if (window.electronAPI?.observeRuntime) {
+        const result = await window.electronAPI.observeRuntime({
+          instruction: "extension connection probe",
+        });
+        setExtensionConnected(result?.ok === true);
+        return;
+      }
+
+      // Fallback for older runtimes that do not expose action authority IPC yet.
+      const backendUrl = DEFAULT_BACKEND_URL || "http://127.0.0.1:5001";
+      const response = await fetch(`${backendUrl}/api/extension/status`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setExtensionConnected(data.connected === true);
+      }
+    } catch (error) {
+      console.log("[Onboarding] Extension status check failed (backend may not be ready)");
+      setExtensionConnected(false);
+    } finally {
+      setIsChecking(false);
+      setCheckCount((prev) => prev + 1);
+    }
+  };
 
   // Poll backend for extension connection status
   useEffect(() => {
-    const checkExtensionStatus = async () => {
-      try {
-        const backendUrl = DEFAULT_BACKEND_URL || "http://127.0.0.1:5001";
-        const response = await fetch(`${backendUrl}/api/extension/status`, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setExtensionConnected(data.connected === true);
-        }
-      } catch (error) {
-        console.log("[Onboarding] Extension status check failed (backend may not be ready)");
-      } finally {
-        setIsChecking(false);
-        setCheckCount((prev) => prev + 1);
-      }
-    };
-
     // Initial check
     checkExtensionStatus();
 
@@ -2183,18 +2188,6 @@ const BrowserExtensionStep = ({ onNext, onSkip }) => {
 
     return () => clearInterval(interval);
   }, []);
-
-  const handleInstallClick = () => {
-    if (CHROME_EXTENSION_URL) {
-      // Open Chrome Web Store
-      window.electronAPI?.openExternal?.(CHROME_EXTENSION_URL);
-    } else {
-      // Show installation instructions (development mode)
-      window.electronAPI?.openExternal?.(
-        "https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world",
-      );
-    }
-  };
 
   return (
     <motion.div
@@ -2206,7 +2199,7 @@ const BrowserExtensionStep = ({ onNext, onSkip }) => {
       <div className="space-y-2">
         <h2 className="text-2xl font-bold">Browser Control</h2>
         <p className="text-muted-foreground">
-          Install the browser extension to let Centris help you browse the web.
+          Centris connects to your browser automatically in the background.
         </p>
       </div>
 
@@ -2227,25 +2220,14 @@ const BrowserExtensionStep = ({ onNext, onSkip }) => {
                 />
               </div>
               <div className="text-left">
-                <h3 className="font-semibold">Centris Browser Extension</h3>
-                <p className="text-sm text-muted-foreground">Control your browser with AI</p>
+                <h3 className="font-semibold">Browser Bridge</h3>
+                <p className="text-sm text-muted-foreground">Automatic background connection</p>
               </div>
             </div>
             {extensionConnected ? (
               <Check className="w-6 h-6 text-green-500" />
             ) : (
-              <button
-                onClick={handleInstallClick}
-                className="px-4 py-2 rounded-lg font-medium bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm flex items-center gap-2"
-              >
-                {CHROME_EXTENSION_URL ? (
-                  <>
-                    Install <ExternalLink className="w-3 h-3" />
-                  </>
-                ) : (
-                  <>Coming Soon</>
-                )}
-              </button>
+              <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
             )}
           </div>
 
@@ -2266,16 +2248,27 @@ const BrowserExtensionStep = ({ onNext, onSkip }) => {
               {isChecking && checkCount < 2 ? (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">Checking connection...</span>
+                  <span className="text-sm">Connecting in background...</span>
                 </div>
               ) : (
                 <div className="text-left text-xs text-muted-foreground space-y-2">
-                  <p className="font-medium text-white/80">What you can do with browser control:</p>
+                  <p className="font-medium text-white/80">
+                    Centris keeps trying in the background.
+                  </p>
                   <ul className="space-y-1 ml-1">
                     <li>• "Go to amazon.com and search for wireless headphones"</li>
                     <li>• "Book a table at a nearby Italian restaurant"</li>
                     <li>• "Fill out this form with my information"</li>
                   </ul>
+                  <button
+                    onClick={() => {
+                      setIsChecking(true);
+                      checkExtensionStatus();
+                    }}
+                    className="mt-2 px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-white text-xs"
+                  >
+                    {isChecking ? "Checking..." : "Check Connection"}
+                  </button>
                 </div>
               )}
             </div>
@@ -2286,11 +2279,11 @@ const BrowserExtensionStep = ({ onNext, onSkip }) => {
         {!extensionConnected && checkCount > 1 && (
           <div className="bg-white/5 p-4 rounded-lg text-xs text-left text-muted-foreground">
             <p className="flex items-center gap-2 font-medium text-white/80 mb-2">
-              <Chrome className="w-4 h-4" /> Don't have the extension yet?
+              <Chrome className="w-4 h-4" /> No setup required
             </p>
             <p>
-              No worries! You can install it later from the Chrome Web Store. Centris works great
-              for voice dictation and desktop control without the browser extension.
+              You can continue now. Browser automation becomes available automatically once the
+              background bridge is ready.
             </p>
           </div>
         )}
@@ -2301,7 +2294,7 @@ const BrowserExtensionStep = ({ onNext, onSkip }) => {
           onClick={onSkip}
           className="flex-1 px-6 py-3 rounded-lg font-semibold bg-white/5 hover:bg-white/10 text-white border border-white/10 flex items-center justify-center gap-2"
         >
-          {extensionConnected ? "Continue" : "Skip for Now"}
+          Continue
         </button>
         {extensionConnected && (
           <button

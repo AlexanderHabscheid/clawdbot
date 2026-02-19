@@ -2,6 +2,23 @@
 
 The complete Centris SDK for building connectors, skills, and agents.
 
+## Documentation
+
+Detailed SDK documentation is available in [`sdk/typescript/docs`](./docs):
+
+- [Centris SDK overview](./docs/index.md)
+- [Installation and quickstart](./docs/quickstart.md)
+- [CLI reference](./docs/cli.md)
+- [CLI command matrix](./docs/cli-command-matrix.md)
+- [Connector API](./docs/connector-api.md)
+- [Execution engine](./docs/execution.md)
+- [MCP and HTTP API](./docs/mcp-http-api.md)
+- [MCP/HTTP endpoint examples](./docs/api-endpoints-examples.md)
+- [Manifest and routes](./docs/manifest-routes.md)
+- [TypeScript API surface](./docs/api-surface.md)
+- [Auth and config patterns](./docs/auth-config-patterns.md)
+- [Errors and troubleshooting](./docs/errors-troubleshooting.md)
+
 ## Features
 
 - **Connector Development**: Create connectors that integrate any application with Centris
@@ -15,6 +32,24 @@ The complete Centris SDK for building connectors, skills, and agents.
 
 ```bash
 npm install @centris/sdk
+```
+
+### Global CLI one-liner (recommended for dev UX)
+
+```bash
+npm install -g @centris/sdk
+```
+
+Create, compile, and run:
+
+```bash
+npx centris init demo-ts --language typescript
+cd demo-ts
+npm install
+npm run build
+centris validate .
+centris test .
+centris serve .
 ```
 
 ## Quick Start
@@ -110,6 +145,11 @@ centris publish [path]
   --registry <url>     Registry URL
   --api-key <key>      API key
   --dry-run            Dry run
+
+# Record/run/test deterministic routes (manifest-backed)
+centris route record --app <app> --action <name> --description <text> --url-pattern <pattern> --route-pattern <pattern> --steps '<json>' [--checks '<json>'] [--fallback-chains '<json>']
+centris route run --action <name> --url <url> [--manifest <file>] [--playwright]
+centris route test --action <name> --url <url> --playwright
 ```
 
 ## MCP Gateway

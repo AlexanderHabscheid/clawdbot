@@ -46,6 +46,27 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List, Callable
 
 import httpx
+from centris_sdk.action_api import (
+    ACTION_API_SPEC_VERSION,
+    ActionApiError,
+    ActionApiRequestEnvelope,
+    ActionApiResponseEnvelope,
+    ActionRouteRecordStartRequest,
+    ActionRouteRecordStartResult,
+    ActionRouteRecordStopRequest,
+    ActionRouteRecordStopResult,
+    ActionRouteRunRequest,
+    ActionRouteRunResult,
+)
+from centris_sdk.kernel import (
+    KernelActRequest,
+    KernelActResult,
+    KernelObserveRequest,
+    KernelObserveResult,
+    KernelSuccessCheck,
+    KernelVerifyRequest,
+    KernelVerifyResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -540,6 +561,150 @@ class Centris:
             tasks_used_today=data.get("tasks_used_today", 0),
             period_ends=data.get("period_ends"),
         )
+
+    def observe(self, request: KernelObserveRequest) -> KernelObserveResult:
+        """Observe runtime state via Action API."""
+        result = self._call_action_api("observe", request.__dict__)
+        return KernelObserveResult(
+            url=str(result.get("url", "")),
+            title=result.get("title"),
+            interactive=result.get("interactive", []),
+        )
+
+    def act(self, request: KernelActRequest) -> KernelActResult:
+        """Execute one runtime action via Action API."""
+        result = self._call_action_api("act", request.__dict__)
+        return KernelActResult(
+            ok=bool(result.get("ok", False)),
+            details=result.get("details", {}),
+        )
+
+    def verify(self, request: KernelVerifyRequest) -> KernelVerifyResult:
+        """Run success checks via Action API."""
+        payload_checks = [c.__dict__ for c in request.checks]
+        result = self._call_action_api("verify", {"checks": payload_checks})
+        return KernelVerifyResult(
+            ok=bool(result.get("ok", False)),
+            passed=[KernelSuccessCheck(**c) for c in result.get("passed", [])],
+            failed=[KernelSuccessCheck(**c) for c in result.get("failed", [])],
+        )
+
+    def route_run(self, request: ActionRouteRunRequest) -> ActionRouteRunResult:
+        """Run a named route via Action API."""
+        payload = {
+            "routeId": request.route_id,
+            "url": request.url,
+            "params": request.params,
+            "checks": [c.__dict__ for c in request.checks],
+        }
+        result = self._call_action_api("route.run", payload)
+        verify = result.get("verify")
+        verify_result = None
+        if isinstance(verify, dict):
+            verify_result = KernelVerifyResult(
+                ok=bool(verify.get("ok", False)),
+                passed=[KernelSuccessCheck(**c) for c in verify.get("passed", [])],
+                failed=[KernelSuccessCheck(**c) for c in verify.get("failed", [])],
+            )
+        return ActionRouteRunResult(
+            ok=bool(result.get("ok", False)),
+            executed=int(result.get("executed", 0)),
+            verify=verify_result,
+        )
+
+    def route_record_start(
+        self,
+        request: ActionRouteRecordStartRequest,
+    ) -> ActionRouteRecordStartResult:
+        """Start route recording via Action API."""
+        payload = {
+            "intent": request.intent,
+            "url": request.url,
+            "params": request.params,
+            "metadata": request.metadata,
+        }
+        result = self._call_action_api("route.record.start", payload)
+        return ActionRouteRecordStartResult(
+            ok=bool(result.get("ok", False)),
+            session_id=str(result.get("sessionId", "")),
+            started_at=result.get("startedAt"),
+        )
+
+    def route_record_stop(
+        self,
+        request: ActionRouteRecordStopRequest,
+    ) -> ActionRouteRecordStopResult:
+        """Stop route recording via Action API."""
+        payload = {
+            "sessionId": request.session_id,
+            "outcome": request.outcome,
+            "metadata": request.metadata,
+        }
+        result = self._call_action_api("route.record.stop", payload)
+        return ActionRouteRecordStopResult(
+            ok=bool(result.get("ok", False)),
+            route_id=result.get("routeId"),
+            updated_at=result.get("updatedAt"),
+        )
+
+    def dispatch_action_api(
+        self,
+        request: ActionApiRequestEnvelope,
+    ) -> ActionApiResponseEnvelope:
+        """Dispatch a typed Action API envelope."""
+        if self.local:
+            raise CentrisError("Action API dispatch requires API mode", code="LOCAL_UNSUPPORTED")
+
+        response = self._client.post(
+            f"{self.base_url}/api/v1/action",
+            headers=self._headers(),
+            json={
+                "specVersion": request.spec_version,
+                "method": request.method,
+                "id": request.id,
+                "params": request.params,
+            },
+        )
+        body = response.json()
+        if response.status_code >= 400:
+            raise CentrisError(
+                body.get("error", "Action API dispatch failed"),
+                code=body.get("code", "ACTION_API_FAILED"),
+            )
+
+        err_obj = None
+        if isinstance(body.get("error"), dict):
+            err_data = body["error"]
+            err_obj = ActionApiError(
+                code=str(err_data.get("code", "ACTION_API_FAILED")),
+                message=str(err_data.get("message", "Action API failed")),
+                details=err_data.get("details", {}) or {},
+            )
+
+        return ActionApiResponseEnvelope(
+            spec_version=str(body.get("specVersion", ACTION_API_SPEC_VERSION)),
+            method=body.get("method", request.method),
+            ok=bool(body.get("ok", False)),
+            result=body.get("result"),
+            error=err_obj,
+            id=body.get("id"),
+        )
+
+    def _call_action_api(self, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        envelope = ActionApiRequestEnvelope(
+            spec_version=ACTION_API_SPEC_VERSION,
+            method=method,  # type: ignore[arg-type]
+            params=params,
+        )
+        response = self.dispatch_action_api(envelope)
+        if not response.ok or not isinstance(response.result, dict):
+            err = getattr(response, "error", None)
+            message = getattr(err, "message", None) if err else None
+            raise CentrisError(
+                message or f"Action API method failed: {method}",
+                code=getattr(err, "code", "ACTION_API_FAILED") if err else "ACTION_API_FAILED",
+            )
+        return response.result
     
     def __enter__(self):
         return self

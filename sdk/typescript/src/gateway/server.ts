@@ -6,8 +6,9 @@
  */
 
 import http from "node:http";
+import type { ActionApiRequestEnvelope } from "../action-api/index.js";
 import type { ConnectorToolContext } from "../plugin/types.js";
-import type { MCPServerOptions, CentrisMCPGateway } from "./types.js";
+import type { MCPServerOptions, CentrisMCPGateway, ActionApiHandler } from "./types.js";
 
 /**
  * MCP Server that wraps the gateway.
@@ -17,6 +18,7 @@ export class MCPServer {
   private readonly port: number;
   private readonly host: string;
   private readonly cors: boolean;
+  private readonly actionApiHandler?: ActionApiHandler;
   private server: http.Server | null = null;
 
   constructor(options: MCPServerOptions) {
@@ -24,6 +26,7 @@ export class MCPServer {
     this.port = options.port ?? 3000;
     this.host = options.host ?? "localhost";
     this.cors = options.cors ?? true;
+    this.actionApiHandler = options.actionApiHandler;
   }
 
   /**
@@ -97,6 +100,8 @@ export class MCPServer {
         await this.handleSearch(req, res, url);
       } else if (url.pathname === "/rpc") {
         await this.handleJsonRpc(req, res);
+      } else if (url.pathname === "/api/v1/action") {
+        await this.handleActionApi(req, res);
       } else if (url.pathname === "/.well-known/agent.json") {
         await this.handleAgentCard(req, res);
       } else {
@@ -288,6 +293,40 @@ export class MCPServer {
     }
   }
 
+  private async handleActionApi(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> {
+    if (req.method !== "POST") {
+      this.sendError(res, 405, "Method not allowed");
+      return;
+    }
+
+    if (!this.actionApiHandler) {
+      this.sendJson(
+        res,
+        {
+          specVersion: "2026-02-19",
+          method: "observe",
+          ok: false,
+          error: {
+            code: "ACTION_API_UNAVAILABLE",
+            message: "Action API handler is not configured on this server.",
+          },
+        },
+        501,
+      );
+      return;
+    }
+
+    const body = await this.readBody(req);
+    const envelope = JSON.parse(body) as ActionApiRequestEnvelope;
+
+    const response = await this.actionApiHandler(envelope);
+
+    this.sendJson(res, response, response.ok ? 200 : 400);
+  }
+
   /**
    * A2A Agent Card endpoint.
    */
@@ -335,8 +374,8 @@ export class MCPServer {
   /**
    * Send JSON response.
    */
-  private sendJson(res: http.ServerResponse, data: unknown): void {
-    res.writeHead(200, { "Content-Type": "application/json" });
+  private sendJson(res: http.ServerResponse, data: unknown, status = 200): void {
+    res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify(data, null, 2));
   }
 

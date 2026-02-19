@@ -1365,11 +1365,173 @@ class AudioManager {
     }
   }
 
+  normalizeRuntimeUrl(candidate) {
+    if (!candidate || typeof candidate !== "string") {
+      return null;
+    }
+    const trimmed = candidate.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed;
+    }
+    if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed)) {
+      return `https://${trimmed}`;
+    }
+    return null;
+  }
+
+  parseDeterministicRuntimeIntent(text) {
+    const normalized = (text || "").trim().toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+
+    const runRouteMatch = normalized.match(/^(?:run|execute)\s+route\s+([a-z0-9._:-]+)$/i);
+    if (runRouteMatch) {
+      return {
+        kind: "route.run",
+        params: { routeId: runRouteMatch[1] },
+        description: `run route ${runRouteMatch[1]}`,
+      };
+    }
+
+    const recordStartMatch = normalized.match(
+      /^(?:start|begin)\s+(?:route\s+)?record(?:ing)?(?:\s+(?:for|intent)\s+(.+))?$/i,
+    );
+    if (recordStartMatch) {
+      const intent = (recordStartMatch[1] || "").trim() || "voice.runtime";
+      return {
+        kind: "route.record.start",
+        params: { intent },
+        description: `start route recording (${intent})`,
+      };
+    }
+
+    if (/^(?:stop|end)\s+(?:route\s+)?record(?:ing)?$/i.test(normalized)) {
+      return {
+        kind: "route.record.stop",
+        params: {},
+        description: "stop route recording",
+      };
+    }
+
+    if (/^(?:observe|snapshot|scan)(?:\s+(?:runtime|browser|page))?$/i.test(normalized)) {
+      return {
+        kind: "observe",
+        params: { instruction: text },
+        description: "observe runtime",
+      };
+    }
+
+    const navigateMatch = normalized.match(
+      /^(?:go to|navigate to|open)\s+([a-z0-9./:_-]+\.[a-z]{2,}(?:\/\S*)?|https?:\/\/\S+)$/i,
+    );
+    if (navigateMatch) {
+      const url = this.normalizeRuntimeUrl(navigateMatch[1]);
+      if (url) {
+        return {
+          kind: "act",
+          params: { kind: "navigate", value: url },
+          description: `navigate to ${url}`,
+        };
+      }
+    }
+
+    const pressMatch = normalized.match(/^(?:press|hit)\s+(enter|tab|escape|esc)$/i);
+    if (pressMatch) {
+      const key = pressMatch[1].toLowerCase() === "esc" ? "Escape" : pressMatch[1];
+      return {
+        kind: "act",
+        params: { kind: "press", value: key },
+        description: `press ${key}`,
+      };
+    }
+
+    const scrollMatch = normalized.match(/^scroll\s+(up|down)$/i);
+    if (scrollMatch) {
+      return {
+        kind: "act",
+        params: { kind: "scroll", value: scrollMatch[1].toLowerCase() },
+        description: `scroll ${scrollMatch[1].toLowerCase()}`,
+      };
+    }
+
+    return null;
+  }
+
+  async tryDeterministicRuntimeAction(text) {
+    if (!window.electronAPI) {
+      return { handled: false, success: false };
+    }
+
+    const intent = this.parseDeterministicRuntimeIntent(text);
+    if (!intent) {
+      return { handled: false, success: false };
+    }
+
+    try {
+      let response = null;
+      if (intent.kind === "observe" && window.electronAPI.observeRuntime) {
+        response = await window.electronAPI.observeRuntime(intent.params);
+      } else if (intent.kind === "route.run" && window.electronAPI.routeRunRuntime) {
+        response = await window.electronAPI.routeRunRuntime(intent.params);
+      } else if (intent.kind === "route.record.start" && window.electronAPI.routeRecordStart) {
+        response = await window.electronAPI.routeRecordStart(intent.params);
+      } else if (intent.kind === "route.record.stop" && window.electronAPI.routeRecordStop) {
+        response = await window.electronAPI.routeRecordStop(intent.params);
+      } else if (intent.kind === "act" && window.electronAPI.actRuntime) {
+        response = await window.electronAPI.actRuntime(intent.params);
+      } else if (window.electronAPI.actionApiCall) {
+        response = await window.electronAPI.actionApiCall(intent.kind, intent.params);
+      } else {
+        return { handled: false, success: false };
+      }
+
+      if (response?.ok) {
+        return {
+          handled: true,
+          success: true,
+          response,
+          description: intent.description,
+        };
+      }
+
+      return {
+        handled: true,
+        success: false,
+        error: response?.error?.message || "runtime authority request failed",
+      };
+    } catch (error) {
+      return {
+        handled: true,
+        success: false,
+        error: error?.message || "runtime authority request failed",
+      };
+    }
+  }
+
   async processActionMode(text, source) {
     // Action mode: process intent and execute actions via backend
     // CRITICAL: NO fallback to pasting - action mode should execute commands, not paste text
     // If something fails, show an error. User can switch to dictation mode if they want to paste.
     try {
+      // Prefer deterministic runtime authority commands first.
+      // If this path succeeds, we avoid an LLM round-trip entirely.
+      const deterministic = await this.tryDeterministicRuntimeAction(text);
+      if (deterministic.handled && deterministic.success) {
+        this.onTranscriptionComplete?.({
+          success: true,
+          text: text,
+          source: "runtime-authority",
+          mode: "action",
+          executed: true,
+          result: deterministic.response?.result ?? deterministic.response,
+        });
+        return;
+      }
+
       // Dynamic import - works with both ESM and CommonJS modules
       const module = await import("../services/centrisBackendService.js");
       const CentrisBackendService = module.default || module;

@@ -196,16 +196,16 @@ def validate_modularization(path: Path) -> ValidationResult:
     base_py = path / "base.py"
     
     if not services_dir.exists():
-        errors.append(
-            "Missing services/ directory. All connectors must use modular structure. "
-            "Run 'centris init' to create proper structure."
+        warnings.append(
+            "Missing services/ directory. Modular structure is recommended for maintainability. "
+            "Run 'centris init --template modular' to scaffold it."
         )
     else:
         info.append("services/ directory exists ✓")
         
         # Check services/__init__.py
         if not (services_dir / "__init__.py").exists():
-            errors.append("Missing services/__init__.py - required for service registry")
+            warnings.append("Missing services/__init__.py - recommended for service registry")
         
         # Check for at least one service
         service_files = [f for f in services_dir.glob("*.py") if not f.name.startswith("__")]

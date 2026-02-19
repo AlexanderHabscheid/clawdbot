@@ -6,9 +6,19 @@
 
 import { Command } from "commander";
 import type { CLIContext, CLILogger } from "./types.js";
+import {
+  runActActionCommand,
+  runObserveActionCommand,
+  runRouteRecordStartActionCommand,
+  runRouteRecordStopActionCommand,
+  runRouteRunActionCommand,
+  runVerifyActionCommand,
+} from "./commands/action-api.js";
+import { runDoCommand } from "./commands/do.js";
 import { initConnector } from "./commands/init.js";
 import { initManifest, validateManifestFile } from "./commands/manifest.js";
 import { publishConnector } from "./commands/publish.js";
+import { recordRoute, runRoute, testRoute } from "./commands/route.js";
 import { serveConnector } from "./commands/serve.js";
 import { testConnector } from "./commands/test.js";
 import { validateConnector } from "./commands/validate.js";
@@ -116,6 +126,137 @@ export function createCLI(): Command {
       await publishConnector({ ...options, path: path ?? "." }, ctx);
     });
 
+  // centris do <command...>
+  program
+    .command("do <command...>")
+    .description("Execute a natural-language command via Centris API")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--async", "Return immediately with task ID")
+    .option("--wait", "Poll until async task completes")
+    .option("--json", "Output raw JSON")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--poll-interval-ms <ms>", "Polling interval for --wait")
+    .option("--context <json>", "Optional context JSON")
+    .action(async (commandParts, options, cmd) => {
+      const globalOpts = cmd.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      let context: Record<string, unknown> | undefined;
+      if (typeof options.context === "string" && options.context.trim().length > 0) {
+        try {
+          const parsed = JSON.parse(options.context) as unknown;
+          if (typeof parsed === "object" && parsed !== null) {
+            context = parsed as Record<string, unknown>;
+          } else {
+            throw new Error("context must be a JSON object");
+          }
+        } catch (error) {
+          ctx.logger.error(`Invalid --context JSON: ${String(error)}`);
+          process.exit(1);
+        }
+      }
+      await runDoCommand(
+        {
+          command: Array.isArray(commandParts) ? commandParts.join(" ") : String(commandParts),
+          apiKey: options.apiKey,
+          baseUrl: options.baseUrl,
+          apiVersion: options.apiVersion,
+          asyncMode: options.async ?? false,
+          wait: options.wait ?? false,
+          json: options.json ?? false,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+          pollIntervalMs:
+            typeof options.pollIntervalMs === "string"
+              ? Number.parseInt(options.pollIntervalMs, 10)
+              : undefined,
+          context,
+        },
+        ctx,
+      );
+    });
+
+  program
+    .command("observe")
+    .description("Observe runtime context via Action API")
+    .option("--url <url>", "Optional URL hint")
+    .option("--instruction <text>", "Optional instruction hint")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runObserveActionCommand(
+        {
+          ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  program
+    .command("act")
+    .description("Execute a runtime action via Action API")
+    .requiredOption("--kind <kind>", "Action kind: navigate|click|type|press|wait|scroll")
+    .option("--target <target>", "Action target")
+    .option("--value <value>", "Action value")
+    .option("--amount <amount>", "Numeric amount for wait/scroll")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runActActionCommand(
+        {
+          ...options,
+          amount:
+            typeof options.amount === "string" ? Number.parseInt(options.amount, 10) : undefined,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  program
+    .command("verify")
+    .description("Run success checks via Action API")
+    .requiredOption("--checks <json>", "Success checks JSON array")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runVerifyActionCommand(
+        {
+          ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
   // centris manifest <subcommand>
   const manifest = program
     .command("manifest")
@@ -159,6 +300,172 @@ export function createCLI(): Command {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       const ctx = createContext(globalOpts);
       await validateManifestFile({ ...options, file: file ?? "centris.json" }, ctx);
+    });
+
+  // centris route <subcommand>
+  const route = program.command("route").description("Record, run, and test deterministic routes");
+
+  route
+    .command("record")
+    .description("Record/update a route action in a manifest")
+    .requiredOption("--app <app>", "App id (manifest app)")
+    .requiredOption("--action <name>", "Action name")
+    .requiredOption("--description <text>", "Action description")
+    .requiredOption("--url-pattern <pattern>", "Top-level URL pattern (e.g. app.example.com/*)")
+    .requiredOption("--route-pattern <pattern>", "Route key (e.g. /settings/billing)")
+    .requiredOption("--steps <json>", "Route steps JSON array")
+    .option("--params <json>", "Optional JSON array of param names")
+    .option("--checks <json>", "Optional success checks JSON array")
+    .option("--fallback-chains <json>", "Optional selector fallback chains JSON array")
+    .option("--confidence <num>", "Confidence between 0 and 1")
+    .option("--out <path>", "Manifest path")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await recordRoute(
+        {
+          ...options,
+          confidence:
+            typeof options.confidence === "string"
+              ? Number.parseFloat(options.confidence)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  route
+    .command("run")
+    .description("Resolve and run a route action")
+    .requiredOption("--action <name>", "Action name")
+    .requiredOption("--url <url>", "Target URL")
+    .option("--params <json>", "Route parameter values JSON object")
+    .option("--manifest <path>", "Manifest path (default: ./centris.json)")
+    .option("-k, --api-key <key>", "API key for runtime execution")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Runtime request timeout in milliseconds")
+    .option("--playwright", "Execute using Playwright harness")
+    .option("--headful", "Run browser in headed mode (when using Playwright)")
+    .option("--slow-mo <ms>", "Playwright slowMo")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runRoute(
+        {
+          ...options,
+          slowMo:
+            typeof options.slowMo === "string" ? Number.parseInt(options.slowMo, 10) : undefined,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  route
+    .command("test")
+    .description("Run route execution + verification checks")
+    .requiredOption("--action <name>", "Action name")
+    .requiredOption("--url <url>", "Target URL")
+    .option("--params <json>", "Route parameter values JSON object")
+    .option("--manifest <path>", "Manifest path (default: ./centris.json)")
+    .option("--playwright", "Execute using Playwright harness")
+    .option("--headful", "Run browser in headed mode")
+    .option("--slow-mo <ms>", "Playwright slowMo")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await testRoute(
+        {
+          ...options,
+          slowMo:
+            typeof options.slowMo === "string" ? Number.parseInt(options.slowMo, 10) : undefined,
+        },
+        ctx,
+      );
+    });
+
+  route
+    .command("run-runtime")
+    .description("Run a runtime route via Action API")
+    .requiredOption("--route-id <id>", "Route id")
+    .option("--url <url>", "Optional URL hint")
+    .option("--params <json>", "Route params JSON object")
+    .option("--checks <json>", "Success checks JSON array")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runRouteRunActionCommand(
+        {
+          ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  route
+    .command("record-start")
+    .description("Start runtime route recording via Action API")
+    .requiredOption("--intent <intent>", "Recording intent label")
+    .option("--url <url>", "Optional URL hint")
+    .option("--params <json>", "Intent params JSON object")
+    .option("--metadata <json>", "Recording metadata JSON object")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runRouteRecordStartActionCommand(
+        {
+          ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  route
+    .command("record-stop")
+    .description("Stop runtime route recording via Action API")
+    .requiredOption("--session-id <id>", "Recording session id")
+    .option("--outcome <outcome>", "Recording outcome: success|failed|cancelled")
+    .option("--metadata <json>", "Recording metadata JSON object")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runRouteRecordStopActionCommand(
+        {
+          ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
     });
 
   return program;

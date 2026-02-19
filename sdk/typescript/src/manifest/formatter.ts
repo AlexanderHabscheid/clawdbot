@@ -59,7 +59,7 @@ export function formatResolvedManifest(resolved: ResolvedManifest): string {
     lines.push("Landmarks:");
     for (const [name, lm] of landmarkEntries) {
       const desc = lm.description ? `  - ${lm.description}` : "";
-      const sel = lm.selectors[0];
+      const sel = lm.selectors[0] ?? "";
       lines.push(`  ${name}: ${sel} (${lm.role})${desc}`);
     }
   }
@@ -70,9 +70,16 @@ export function formatResolvedManifest(resolved: ResolvedManifest): string {
     lines.push("Actions:");
     for (const [name, action] of actionEntries) {
       const params = action.params?.length ? `(${action.params.join(", ")})` : "";
-      lines.push(`  ${name}${params}: ${action.description}`);
+      const confidence =
+        typeof action.confidence === "number"
+          ? ` [confidence=${action.confidence.toFixed(2)}]`
+          : "";
+      lines.push(`  ${name}${params}: ${action.description}${confidence}`);
       for (const step of action.steps) {
         lines.push(`    ${formatStep(step)}`);
+      }
+      if (action.successChecks?.length) {
+        lines.push(`    verify: ${action.successChecks.map((check) => check.type).join(", ")}`);
       }
     }
   }
@@ -93,8 +100,9 @@ export function formatResolvedManifestJson(resolved: ResolvedManifest): Record<s
   if (landmarkEntries.length > 0) {
     const landmarks: Record<string, { sel: string; role: string; desc?: string }> = {};
     for (const [name, lm] of landmarkEntries) {
+      const primarySelector = lm.selectors[0] ?? "";
       landmarks[name] = {
-        sel: lm.selectors[0],
+        sel: primarySelector,
         role: lm.role,
         ...(lm.description ? { desc: lm.description } : {}),
       };
@@ -104,12 +112,27 @@ export function formatResolvedManifestJson(resolved: ResolvedManifest): Record<s
 
   const actionEntries = Object.entries(resolved.actions);
   if (actionEntries.length > 0) {
-    const actions: Record<string, { desc: string; params?: string[]; steps: string[] }> = {};
+    const actions: Record<
+      string,
+      {
+        desc: string;
+        params?: string[];
+        steps: string[];
+        confidence?: number;
+        lastVerifiedAt?: string;
+        checks?: string[];
+      }
+    > = {};
     for (const [name, action] of actionEntries) {
       actions[name] = {
         desc: action.description,
         ...(action.params?.length ? { params: action.params } : {}),
         steps: action.steps.map(formatStep),
+        ...(typeof action.confidence === "number" ? { confidence: action.confidence } : {}),
+        ...(action.lastVerifiedAt ? { lastVerifiedAt: action.lastVerifiedAt } : {}),
+        ...(action.successChecks?.length
+          ? { checks: action.successChecks.map((check) => check.type) }
+          : {}),
       };
     }
     result.actions = actions;

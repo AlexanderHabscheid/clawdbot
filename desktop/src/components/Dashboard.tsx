@@ -94,6 +94,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
   const [backendStatus, setBackendStatus] = useState<"connected" | "disconnected" | "checking">(
     "checking",
   );
+  const [runtimeAuthorityStatus, setRuntimeAuthorityStatus] = useState<
+    "connected" | "disconnected" | "checking"
+  >("checking");
 
   const [selectedHotkey, setSelectedHotkey] = useState("GLOBE");
   const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
@@ -101,6 +104,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
   const [micPermissionGranted, setMicPermissionGranted] = useState(false);
   const [accessibilityPermissionGranted, setAccessibilityPermissionGranted] = useState(false);
   const [isSwitchingMode, setIsSwitchingMode] = useState(false);
+  const [isProbingRuntime, setIsProbingRuntime] = useState(false);
+  const [routeIntent, setRouteIntent] = useState("dashboard.manual");
+  const [lastRouteId, setLastRouteId] = useState("");
+  const [isRecordingRoute, setIsRecordingRoute] = useState(false);
+  const [isRouteBusy, setIsRouteBusy] = useState(false);
 
   useEffect(() => {
     const checkBackend = async () => {
@@ -113,6 +121,19 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
         setBackendStatus(response.ok ? "connected" : "disconnected");
       } catch {
         setBackendStatus("disconnected");
+      }
+
+      try {
+        if (window.electronAPI?.observeRuntime) {
+          const result = await window.electronAPI.observeRuntime({
+            instruction: "dashboard runtime health probe",
+          });
+          setRuntimeAuthorityStatus(result?.ok === true ? "connected" : "disconnected");
+        } else {
+          setRuntimeAuthorityStatus("disconnected");
+        }
+      } catch {
+        setRuntimeAuthorityStatus("disconnected");
       }
     };
 
@@ -273,6 +294,129 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
     }
   };
 
+  const handleRuntimeProbe = async () => {
+    if (isProbingRuntime) {
+      return;
+    }
+    setIsProbingRuntime(true);
+    try {
+      const result = await window.electronAPI?.observeRuntime?.({
+        instruction: "manual dashboard runtime probe",
+      });
+      if (result?.ok) {
+        setRuntimeAuthorityStatus("connected");
+        toast({
+          title: "Runtime probe passed",
+          description: "Bridge-first authority endpoint is responding.",
+        });
+      } else {
+        setRuntimeAuthorityStatus("disconnected");
+        toast({
+          title: "Runtime probe failed",
+          description: result?.error?.message || "Bridge authority endpoint is unavailable.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      setRuntimeAuthorityStatus("disconnected");
+      toast({
+        title: "Runtime probe failed",
+        description: "Unable to reach authority endpoint.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProbingRuntime(false);
+    }
+  };
+
+  const handleRouteRecordToggle = async () => {
+    if (isRouteBusy) {
+      return;
+    }
+    setIsRouteBusy(true);
+    try {
+      if (!isRecordingRoute) {
+        const startResult = await window.electronAPI?.routeRecordStart?.({
+          intent: routeIntent.trim() || "dashboard.manual",
+        });
+        if (startResult?.ok) {
+          setIsRecordingRoute(true);
+          toast({
+            title: "Route recording started",
+            description: "Perform browser actions, then stop recording.",
+          });
+        } else {
+          toast({
+            title: "Could not start recording",
+            description: startResult?.error?.message || "Route recorder unavailable.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+
+      const stopResult = await window.electronAPI?.routeRecordStop?.({});
+      if (stopResult?.ok) {
+        const routeId =
+          (stopResult?.result as { routeId?: string } | undefined)?.routeId ||
+          (stopResult?.result as { route?: { routeId?: string } } | undefined)?.route?.routeId ||
+          "";
+        if (routeId) {
+          setLastRouteId(routeId);
+        }
+        setIsRecordingRoute(false);
+        toast({
+          title: "Route recording saved",
+          description: routeId ? `Route id: ${routeId}` : "Route captured successfully.",
+        });
+      } else {
+        toast({
+          title: "Could not stop recording",
+          description: stopResult?.error?.message || "Route recorder stop failed.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Route recording failed",
+        description: "Unexpected runtime error while recording.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRouteBusy(false);
+    }
+  };
+
+  const handleRunRoute = async () => {
+    if (isRouteBusy || !lastRouteId) {
+      return;
+    }
+    setIsRouteBusy(true);
+    try {
+      const runResult = await window.electronAPI?.routeRunRuntime?.({ routeId: lastRouteId });
+      if (runResult?.ok) {
+        toast({
+          title: "Route executed",
+          description: `Executed ${lastRouteId} via runtime authority.`,
+        });
+      } else {
+        toast({
+          title: "Route execution failed",
+          description: runResult?.error?.message || "Failed to run recorded route.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Route execution failed",
+        description: "Unexpected runtime error while running route.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRouteBusy(false);
+    }
+  };
+
   const formatRelativeTime = (date: Date) => {
     const now = new Date();
     const diff = now.getTime() - date.getTime();
@@ -341,6 +485,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
                   : "Offline"
             }
           />
+          <StatusIndicator
+            status={runtimeAuthorityStatus}
+            label={
+              runtimeAuthorityStatus === "connected"
+                ? "Browser bridge ready"
+                : runtimeAuthorityStatus === "checking"
+                  ? "Checking bridge..."
+                  : "Bridge offline"
+            }
+          />
 
           <div className="px-2 py-2 rounded-lg bg-white/5 border border-white/5">
             <p className="text-[11px] text-zinc-500">
@@ -398,7 +552,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
                   </div>
 
                   {/* System Status - clean black/white */}
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-4 gap-3">
                     <div className="p-4 rounded-xl bg-white/[0.03] border border-white/5">
                       <div className="flex items-center gap-2.5 mb-2">
                         {backendStatus === "connected" ? (
@@ -416,6 +570,26 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
                           : backendStatus === "checking"
                             ? "Connecting..."
                             : "Offline mode"}
+                      </p>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-white/[0.03] border border-white/5">
+                      <div className="flex items-center gap-2.5 mb-2">
+                        {runtimeAuthorityStatus === "connected" ? (
+                          <CheckCircle2 className="w-5 h-5 text-white" />
+                        ) : runtimeAuthorityStatus === "checking" ? (
+                          <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
+                        ) : (
+                          <Globe className="w-5 h-5 text-zinc-600" />
+                        )}
+                        <span className="text-sm font-medium text-white">Browser Bridge</span>
+                      </div>
+                      <p className="text-xs text-zinc-500">
+                        {runtimeAuthorityStatus === "connected"
+                          ? "Authority endpoint active"
+                          : runtimeAuthorityStatus === "checking"
+                            ? "Validating runtime..."
+                            : "Extension disconnected"}
                       </p>
                     </div>
 
@@ -721,14 +895,75 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
                     </div>
                   </div>
 
+                  {/* Runtime Authority Controls */}
+                  <div className="p-5 rounded-xl bg-white/[0.03] border border-white/5 space-y-3">
+                    <div className="flex items-center gap-2.5">
+                      <Globe className="w-4 h-4 text-zinc-400" />
+                      <h3 className="text-sm font-medium text-white">Runtime Authority</h3>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleRuntimeProbe}
+                        disabled={isProbingRuntime}
+                        className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs disabled:opacity-60 flex items-center gap-1.5"
+                      >
+                        {isProbingRuntime ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Globe className="w-3.5 h-3.5" />
+                        )}
+                        Observe
+                      </button>
+                      <button
+                        onClick={handleRouteRecordToggle}
+                        disabled={isRouteBusy}
+                        className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs disabled:opacity-60"
+                      >
+                        {isRecordingRoute ? "Stop Recording" : "Start Recording"}
+                      </button>
+                      <button
+                        onClick={handleRunRoute}
+                        disabled={isRouteBusy || !lastRouteId}
+                        className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs disabled:opacity-50"
+                      >
+                        Run Route
+                      </button>
+                    </div>
+                    <input
+                      value={routeIntent}
+                      onChange={(e) => setRouteIntent(e.target.value)}
+                      placeholder="Route intent"
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500"
+                    />
+                    <p className="text-[11px] text-zinc-500">
+                      {lastRouteId
+                        ? `Last route: ${lastRouteId}`
+                        : "No recorded route yet. Start recording to capture one."}
+                    </p>
+                  </div>
+
                   {/* Diagnostics */}
-                  <button
-                    onClick={() => setShowDiagnostic(true)}
-                    className="w-full p-3 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.06] transition-colors text-sm text-zinc-400 flex items-center justify-center gap-2"
-                  >
-                    <Shield className="w-4 h-4" />
-                    Run Diagnostics
-                  </button>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setShowDiagnostic(true)}
+                      className="w-full p-3 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.06] transition-colors text-sm text-zinc-400 flex items-center justify-center gap-2"
+                    >
+                      <Shield className="w-4 h-4" />
+                      Run Diagnostics
+                    </button>
+                    <button
+                      onClick={handleRuntimeProbe}
+                      disabled={isProbingRuntime}
+                      className="w-full p-3 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.06] transition-colors text-sm text-zinc-400 flex items-center justify-center gap-2 disabled:opacity-60"
+                    >
+                      {isProbingRuntime ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Globe className="w-4 h-4" />
+                      )}
+                      Check Runtime
+                    </button>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>

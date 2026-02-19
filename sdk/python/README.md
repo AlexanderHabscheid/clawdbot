@@ -43,6 +43,24 @@ Or from GitHub:
 curl -fsSL https://raw.githubusercontent.com/centris-ai/centris-ai/main/scripts/install.sh | bash
 ```
 
+### Fastest dev setup (single command)
+
+```bash
+pipx install "centris-sdk[all]"
+```
+
+Verify and start:
+
+```bash
+centris --version
+centris doctor
+centris init demo-py --template browser --url https://example.com
+cd demo-py
+centris validate .
+centris test .
+centris serve .
+```
+
 ### pip / pipx
 
 ```bash
@@ -494,10 +512,15 @@ For full versioning documentation, see:
 
 ### Essential Reading
 
-| Document                                               | Purpose                                                     |
-| ------------------------------------------------------ | ----------------------------------------------------------- |
-| **[CONNECTOR_FRAMEWORK.md](./CONNECTOR_FRAMEWORK.md)** | **START HERE** - Complete framework guide                   |
-| [CONNECTOR_DEVELOPMENT.md](./CONNECTOR_DEVELOPMENT.md) | Detailed integration guide (signatures, browser bridge API) |
+| Document                                                           | Purpose                                                     |
+| ------------------------------------------------------------------ | ----------------------------------------------------------- |
+| **[docs/index.md](./docs/index.md)**                               | **SDK docs map** - Python SDK modules (client, CLI, API)    |
+| [docs/cli-command-matrix.md](./docs/cli-command-matrix.md)         | Full flag-by-flag CLI command matrix                        |
+| [docs/api-endpoints-examples.md](./docs/api-endpoints-examples.md) | End-to-end API request/response examples                    |
+| [docs/auth-profile-config.md](./docs/auth-profile-config.md)       | Auth, profile isolation, and config patterns                |
+| [docs/errors-troubleshooting.md](./docs/errors-troubleshooting.md) | Error codes and troubleshooting matrix                      |
+| **[CONNECTOR_FRAMEWORK.md](./CONNECTOR_FRAMEWORK.md)**             | **START HERE** - Complete framework guide                   |
+| [CONNECTOR_DEVELOPMENT.md](./CONNECTOR_DEVELOPMENT.md)             | Detailed integration guide (signatures, browser bridge API) |
 
 ---
 

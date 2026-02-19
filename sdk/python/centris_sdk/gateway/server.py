@@ -7,11 +7,16 @@ FastAPI-based HTTP server for the MCP Gateway.
 import asyncio
 import logging
 import json
-from typing import Any, Optional
+from typing import Any, Optional, Awaitable, Callable
 from datetime import datetime
 
 from centris_sdk.gateway.gateway import MCPGateway
 from centris_sdk.gateway.types import GatewayConfig, ToolCall
+from centris_sdk.action_api import (
+    ACTION_API_SPEC_VERSION,
+    ActionApiRequestEnvelope,
+    ActionApiResponseEnvelope,
+)
 
 
 logger = logging.getLogger("centris.gateway.server")
@@ -41,9 +46,13 @@ class GatewayServer:
         self,
         gateway: MCPGateway,
         config: Optional[GatewayConfig] = None,
+        action_api_handler: Optional[
+            Callable[[ActionApiRequestEnvelope], Awaitable[ActionApiResponseEnvelope]]
+        ] = None,
     ):
         self.gateway = gateway
         self.config = config or gateway.config
+        self.action_api_handler = action_api_handler
         self._app = None
     
     def create_app(self):
@@ -218,6 +227,52 @@ class GatewayServer:
             base_url = str(request.base_url).rstrip("/")
             card = self.gateway.to_agent_card(base_url)
             return card.to_dict()
+
+        @app.post("/api/v1/action")
+        async def action_api(request: Request, _: bool = Depends(verify_auth)):
+            body = await request.json()
+            if not self.action_api_handler:
+                return JSONResponse(
+                    status_code=501,
+                    content={
+                        "specVersion": ACTION_API_SPEC_VERSION,
+                        "method": body.get("method", "observe"),
+                        "ok": False,
+                        "error": {
+                            "code": "ACTION_API_UNAVAILABLE",
+                            "message": "Action API handler is not configured on this server.",
+                        },
+                    },
+                )
+
+            envelope = ActionApiRequestEnvelope(
+                spec_version=str(body.get("specVersion", ACTION_API_SPEC_VERSION)),
+                method=body.get("method", "observe"),
+                params=body.get("params") or {},
+                id=body.get("id"),
+            )
+            result = await self.action_api_handler(envelope)
+
+            status = 200 if result.ok else 400
+            error_payload = None
+            if result.error:
+                error_payload = {
+                    "code": result.error.code,
+                    "message": result.error.message,
+                    "details": result.error.details,
+                }
+
+            return JSONResponse(
+                status_code=status,
+                content={
+                    "specVersion": result.spec_version,
+                    "method": result.method,
+                    "ok": result.ok,
+                    "result": result.result,
+                    "error": error_payload,
+                    "id": result.id,
+                },
+            )
         
         # Connector status endpoints
         @app.get("/connectors")

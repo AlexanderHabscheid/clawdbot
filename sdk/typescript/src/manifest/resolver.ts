@@ -203,6 +203,9 @@ function routeMatches(urlPath: string, routePattern: string): number {
 
   while (ri < routeParts.length) {
     const rp = routeParts[ri];
+    if (!rp) {
+      return -1;
+    }
 
     if (rp === "*") {
       ui = urlParts.length;
@@ -216,7 +219,8 @@ function routeMatches(urlPath: string, routePattern: string): number {
         return -1;
       }
       const prefix = rp.slice(0, -1);
-      if (!urlParts[ui].startsWith(prefix)) {
+      const uiPart = urlParts[ui];
+      if (!uiPart || !uiPart.startsWith(prefix)) {
         return -1;
       }
       specificity += 2;

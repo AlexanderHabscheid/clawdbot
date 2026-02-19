@@ -260,11 +260,16 @@ class PlaywrightBrowserBridge:
         # Try class-based if it's a class selector
         if selector.startswith("."):
             class_name = selector.split(".")[1].split("[")[0].split(":")[0]
-            classes = await self._page.evaluate(f"""
-                () => Array.from(document.querySelectorAll('[class*="{class_name}"]'))
+            class_script = """
+                () => Array.from(document.querySelectorAll('[class*="__CLASS_NAME__"]'))
                     .slice(0, 10)
-                    .map(el => `.${el.className.split(' ').filter(c => c.includes("{class_name}"))[0] || el.className.split(' ')[0]}`)
-            """)
+                    .map(el => {
+                        const match = el.className.split(' ').find(c => c.includes("__CLASS_NAME__"))
+                            || el.className.split(' ')[0];
+                        return `.${match}`;
+                    })
+            """.replace("__CLASS_NAME__", class_name)
+            classes = await self._page.evaluate(class_script)
             similar.extend(classes)
         
         # Try tag + attribute combos for generic selectors

@@ -12,6 +12,67 @@ declare module "react" {
 }
 
 interface ElectronAPI {
+  // Action authority
+  actionApiCall: (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => Promise<{
+    specVersion: string;
+    method: string;
+    id?: string;
+    ok: boolean;
+    result?: unknown;
+    error?: { code: string; message: string; details?: Record<string, unknown> };
+  }>;
+  observeRuntime: (params?: Record<string, unknown>) => Promise<{
+    specVersion: string;
+    method: string;
+    id?: string;
+    ok: boolean;
+    result?: unknown;
+    error?: { code: string; message: string; details?: Record<string, unknown> };
+  }>;
+  actRuntime: (params?: Record<string, unknown>) => Promise<{
+    specVersion: string;
+    method: string;
+    id?: string;
+    ok: boolean;
+    result?: unknown;
+    error?: { code: string; message: string; details?: Record<string, unknown> };
+  }>;
+  verifyRuntime: (params?: Record<string, unknown>) => Promise<{
+    specVersion: string;
+    method: string;
+    id?: string;
+    ok: boolean;
+    result?: unknown;
+    error?: { code: string; message: string; details?: Record<string, unknown> };
+  }>;
+  routeRunRuntime: (params?: Record<string, unknown>) => Promise<{
+    specVersion: string;
+    method: string;
+    id?: string;
+    ok: boolean;
+    result?: unknown;
+    error?: { code: string; message: string; details?: Record<string, unknown> };
+  }>;
+  routeRecordStart: (params?: Record<string, unknown>) => Promise<{
+    specVersion: string;
+    method: string;
+    id?: string;
+    ok: boolean;
+    result?: unknown;
+    error?: { code: string; message: string; details?: Record<string, unknown> };
+  }>;
+  routeRecordStop: (params?: Record<string, unknown>) => Promise<{
+    specVersion: string;
+    method: string;
+    id?: string;
+    ok: boolean;
+    result?: unknown;
+    error?: { code: string; message: string; details?: Record<string, unknown> };
+  }>;
+
   // Window control
   pasteText: (text: string) => Promise<boolean>;
   hideWindow: () => Promise<void>;

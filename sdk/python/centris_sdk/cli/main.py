@@ -64,6 +64,12 @@ from centris_sdk.cli.theme import theme, styled_success, styled_error
 from centris_sdk.cli.elements_cmd import elements_group
 from centris_sdk.cli.refine_cmd import refine_command
 from centris_sdk.cli.skills_cmd import skills_group
+from centris_sdk.cli.action_api_cmd import (
+    observe_command,
+    act_command,
+    verify_command,
+    route_group,
+)
 from centris_sdk.cli.deps import CLIDeps, create_default_deps
 from centris_sdk.cli.profile import (
     ProfileConfig,
@@ -439,6 +445,10 @@ cli.add_command(do_command, name="do")
 cli.add_command(exec_command, name="exec")
 cli.add_command(browser_group, name="browser")
 cli.add_command(file_group, name="file")
+cli.add_command(observe_command, name="observe")
+cli.add_command(act_command, name="act")
+cli.add_command(verify_command, name="verify")
+cli.add_command(route_group, name="route")
 
 # Daemon management
 cli.add_command(daemon_group, name="daemon")

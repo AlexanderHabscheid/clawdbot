@@ -212,25 +212,10 @@ def create_connector(
             services_init = load_template("modular", "services_init.py.template", context)
             file_system.write_text(services_dir / "__init__.py", services_init)
             
-            # 2. Now add template-specific service implementation
-            if template == "browser":
-                # Browser automation service
-                service_content = load_template(template, "connector.py.template", context)
-                # Wrap browser template as a service module
-                file_system.write_text(services_dir / "browser_service.py", service_content)
-            elif template in ("api", "basic", "desktop"):
-                # API/basic/desktop service - use template's connector.py as service
-                try:
-                    service_content = load_template(template, "connector.py.template", context)
-                    file_system.write_text(services_dir / f"{template}_service.py", service_content)
-                except FileNotFoundError:
-                    # Fall back to example service
-                    service_content = load_template("modular", "service1.py.template", context)
-                    file_system.write_text(services_dir / "service1.py", service_content)
-            else:
-                # Default example service
-                service_content = load_template("modular", "service1.py.template", context)
-                file_system.write_text(services_dir / "service1.py", service_content)
+            # 2. Add the default service implementation.
+            # Keep scaffold deterministic and immediately runnable across all templates.
+            service_content = load_template("modular", "service1.py.template", context)
+            file_system.write_text(services_dir / "service1.py", service_content)
             
             # 3. Main connector.py (thin coordinator - ALWAYS modular)
             connector_content = load_template("modular", "connector.py.template", context)

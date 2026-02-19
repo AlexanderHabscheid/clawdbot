@@ -9,6 +9,10 @@ const path = require("path");
 const AudioTestService = require(path.join(__dirname, "../services/audioTestService"));
 const { backendManager } = require("./backendManager");
 
+const ACTION_API_SPEC_VERSION = "2026-02-19";
+const ACTION_API_TIMEOUT_MS = 30000;
+const LOCAL_GATEWAY_FALLBACK_URL = "http://127.0.0.1:18789";
+
 class IPCHandlers {
   constructor(managers) {
     this.environmentManager = managers.environmentManager;
@@ -1367,6 +1371,39 @@ class IPCHandlers {
     });
 
     // ========================================
+    // ACTION AUTHORITY HANDLERS (/api/v1/action)
+    // ========================================
+    // Desktop UI, extension, and CLI should all target the same action endpoint.
+
+    ipcMain.handle("action-api-call", async (event, method, params = {}) => {
+      return this.callGatewayActionApi(method, params);
+    });
+
+    ipcMain.handle("action-observe", async (event, params = {}) => {
+      return this.callGatewayActionApi("observe", params);
+    });
+
+    ipcMain.handle("action-act", async (event, params = {}) => {
+      return this.callGatewayActionApi("act", params);
+    });
+
+    ipcMain.handle("action-verify", async (event, params = {}) => {
+      return this.callGatewayActionApi("verify", params);
+    });
+
+    ipcMain.handle("action-route-run", async (event, params = {}) => {
+      return this.callGatewayActionApi("route.run", params);
+    });
+
+    ipcMain.handle("action-route-record-start", async (event, params = {}) => {
+      return this.callGatewayActionApi("route.record.start", params);
+    });
+
+    ipcMain.handle("action-route-record-stop", async (event, params = {}) => {
+      return this.callGatewayActionApi("route.record.stop", params);
+    });
+
+    // ========================================
     // MODE MANAGEMENT HANDLERS
     // ========================================
     // These handlers manage operating mode (action vs dictation) across all windows
@@ -1475,6 +1512,139 @@ class IPCHandlers {
         return null;
       }
     });
+  }
+
+  getActionApiBaseUrl() {
+    const fromEnv =
+      process.env.CENTRIS_GATEWAY_URL ||
+      process.env.OPENCLAW_GATEWAY_URL ||
+      process.env.VITE_CENTRIS_GATEWAY_URL ||
+      "";
+    const preferred = fromEnv || backendManager.backendUrl || LOCAL_GATEWAY_FALLBACK_URL;
+    return preferred.replace(/\/$/, "");
+  }
+
+  getGatewayToken() {
+    if (process.env.OPENCLAW_GATEWAY_TOKEN) {
+      return process.env.OPENCLAW_GATEWAY_TOKEN;
+    }
+    if (process.env.CENTRIS_GATEWAY_TOKEN) {
+      return process.env.CENTRIS_GATEWAY_TOKEN;
+    }
+    try {
+      const Store = require("electron-store");
+      const store = new Store();
+      const storedTokens = store.get("auth_tokens");
+      if (storedTokens && typeof storedTokens === "object") {
+        if (
+          typeof storedTokens.gateway_token === "string" &&
+          storedTokens.gateway_token.length > 0
+        ) {
+          return storedTokens.gateway_token;
+        }
+        if (typeof storedTokens.access_token === "string" && storedTokens.access_token.length > 0) {
+          return storedTokens.access_token;
+        }
+      }
+    } catch (error) {
+      logger.warn("[IPC] Unable to read gateway token from auth storage:", error?.message);
+    }
+    return null;
+  }
+
+  async callGatewayActionApi(method, params = {}) {
+    if (!method || typeof method !== "string") {
+      return {
+        specVersion: ACTION_API_SPEC_VERSION,
+        method: "unknown",
+        ok: false,
+        error: {
+          code: "INVALID_REQUEST",
+          message: "method must be a non-empty string",
+        },
+      };
+    }
+
+    const gatewayBaseUrl = this.getActionApiBaseUrl();
+    const headers = {
+      "Content-Type": "application/json",
+    };
+    const token = this.getGatewayToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), ACTION_API_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${gatewayBaseUrl}/api/v1/action`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          specVersion: ACTION_API_SPEC_VERSION,
+          method,
+          id: `desktop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          params: params && typeof params === "object" ? params : {},
+        }),
+        signal: controller.signal,
+      });
+
+      const rawText = await response.text();
+      let payload;
+      try {
+        payload = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        const message =
+          payload?.error?.message ||
+          payload?.message ||
+          `Gateway action request failed (${response.status})`;
+        return {
+          specVersion: ACTION_API_SPEC_VERSION,
+          method,
+          ok: false,
+          error: {
+            code: payload?.error?.code || "HTTP_ERROR",
+            message,
+            details: {
+              status: response.status,
+            },
+          },
+        };
+      }
+
+      if (payload && typeof payload === "object") {
+        return payload;
+      }
+
+      return {
+        specVersion: ACTION_API_SPEC_VERSION,
+        method,
+        ok: false,
+        error: {
+          code: "INVALID_RESPONSE",
+          message: "Gateway returned an invalid action response payload",
+        },
+      };
+    } catch (error) {
+      const isAbort = error?.name === "AbortError";
+      return {
+        specVersion: ACTION_API_SPEC_VERSION,
+        method,
+        ok: false,
+        error: {
+          code: isAbort ? "TIMEOUT" : "REQUEST_FAILED",
+          message: isAbort
+            ? "Action request timed out"
+            : error?.message || "Failed to call gateway action API",
+        },
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   broadcastToWindows(channel, payload) {
