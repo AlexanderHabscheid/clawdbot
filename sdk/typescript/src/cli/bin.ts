@@ -10,6 +10,7 @@
  *   centris test [path]        Test a connector
  *   centris serve [path]       Start development server
  *   centris publish [path]     Publish to registry
+ *   centris manifest ...       Create/validate site layout manifests
  */
 
 import { runCLI } from "./program.js";

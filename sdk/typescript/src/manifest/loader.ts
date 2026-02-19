@@ -14,7 +14,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { CentrisManifest, ManifestRoute, ManifestLandmark, ManifestAction } from "./types.js";
+import type { CentrisManifest, ManifestAction, ManifestLandmark, ManifestRoute } from "./types.js";
 
 export interface ManifestLoaderOptions {
   workspaceDir?: string;
@@ -135,7 +135,7 @@ function loadManifestFile(
  * Validate a parsed JSON object as a CentrisManifest.
  * Lenient: allows partial manifests (landmarks without actions, etc.)
  */
-function validateManifest(data: unknown): CentrisManifest | null {
+export function validateManifest(data: unknown): CentrisManifest | null {
   if (!data || typeof data !== "object") {
     return null;
   }

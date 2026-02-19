@@ -11,10 +11,13 @@ export { validateConnector } from "./commands/validate.js";
 export { testConnector } from "./commands/test.js";
 export { serveConnector } from "./commands/serve.js";
 export { publishConnector } from "./commands/publish.js";
+export { initManifest, validateManifestFile } from "./commands/manifest.js";
 export type {
   CLIOptions,
   InitOptions,
   TestOptions,
   ServeOptions,
   PublishOptions,
+  ManifestInitOptions,
+  ManifestValidateOptions,
 } from "./types.js";

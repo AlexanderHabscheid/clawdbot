@@ -72,6 +72,26 @@ export interface PublishOptions extends CLIOptions {
   yes?: boolean;
 }
 
+export interface ManifestInitOptions extends CLIOptions {
+  /** App/site identifier */
+  app: string;
+  /** Output manifest file path */
+  out?: string;
+  /** URL patterns for matching pages */
+  urlPatterns?: string[];
+  /** Human-readable description */
+  description?: string;
+  /** Overwrite output file if it exists */
+  force?: boolean;
+}
+
+export interface ManifestValidateOptions extends CLIOptions {
+  /** Manifest file path */
+  file?: string;
+  /** Require at least one route with landmarks/actions */
+  strict?: boolean;
+}
+
 export interface CLIContext {
   cwd: string;
   verbose: boolean;

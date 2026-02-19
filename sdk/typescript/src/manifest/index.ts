@@ -10,7 +10,7 @@ export type {
   SelectorStability,
 } from "./types.js";
 
-export { loadManifests } from "./loader.js";
+export { loadManifests, validateManifest } from "./loader.js";
 export type { ManifestLoaderOptions, LoadedManifest } from "./loader.js";
 
 export { ManifestStore } from "./resolver.js";

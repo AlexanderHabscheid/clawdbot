@@ -7,6 +7,7 @@
 import { Command } from "commander";
 import type { CLIContext, CLILogger } from "./types.js";
 import { initConnector } from "./commands/init.js";
+import { initManifest, validateManifestFile } from "./commands/manifest.js";
 import { publishConnector } from "./commands/publish.js";
 import { serveConnector } from "./commands/serve.js";
 import { testConnector } from "./commands/test.js";
@@ -95,7 +96,7 @@ export function createCLI(): Command {
         {
           ...options,
           path: path ?? ".",
-          port: parseInt(options.port, 10),
+          port: Number.parseInt(options.port, 10),
         },
         ctx,
       );
@@ -113,6 +114,51 @@ export function createCLI(): Command {
       const globalOpts = cmd.parent?.opts() ?? {};
       const ctx = createContext(globalOpts);
       await publishConnector({ ...options, path: path ?? "." }, ctx);
+    });
+
+  // centris manifest <subcommand>
+  const manifest = program
+    .command("manifest")
+    .description("Manage site layout manifests for browser automation");
+
+  // centris manifest init <app>
+  manifest
+    .command("init <app>")
+    .description("Create a starter centris.json manifest")
+    .option("-o, --out <path>", "Output file path (default: connectors/<app>/centris.json)")
+    .option(
+      "-u, --url-pattern <pattern>",
+      "URL pattern to include (repeatable, e.g. --url-pattern app.example.com/*)",
+      (value: string, previous: string[]) => [...previous, value],
+      [],
+    )
+    .option("-d, --description <text>", "Manifest description")
+    .option("-f, --force", "Overwrite existing file")
+    .action(async (app, options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await initManifest(
+        {
+          ...options,
+          app,
+          urlPatterns:
+            Array.isArray(options.urlPattern) && options.urlPattern.length > 0
+              ? (options.urlPattern as string[])
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  // centris manifest validate [file]
+  manifest
+    .command("validate [file]")
+    .description("Validate a centris site manifest")
+    .option("-s, --strict", "Require at least one route with landmarks/actions")
+    .action(async (file, options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await validateManifestFile({ ...options, file: file ?? "centris.json" }, ctx);
     });
 
   return program;

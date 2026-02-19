@@ -285,11 +285,15 @@ export {
   testConnector,
   serveConnector,
   publishConnector,
+  initManifest,
+  validateManifestFile,
   type CLIOptions,
   type InitOptions,
   type TestOptions,
   type ServeOptions,
   type PublishOptions,
+  type ManifestInitOptions,
+  type ManifestValidateOptions,
 } from "./cli/index.js";
 
 // =============================================================================
@@ -312,6 +316,7 @@ export type {
 
 export {
   loadManifests,
+  validateManifest,
   ManifestStore,
   formatManifestIndex,
   formatResolvedManifest,

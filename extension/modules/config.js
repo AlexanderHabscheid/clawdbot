@@ -21,10 +21,10 @@ const CONFIG = {
   // Whether to prefer Native Messaging over WebSocket
   PREFER_NATIVE_MESSAGING: true,
 
-  // Production gateway (custom domain preferred, Railway fallback)
-  PRODUCTION_HOST: "gateway.sentris.io",
-  PRODUCTION_HOSTS: ["gateway.sentris.io", "centris-ai-production.up.railway.app"],
-  PRODUCTION_HTTP_URL: "https://gateway.sentris.io",
+  // Production gateway (Railway primary; custom domain added when DNS is live)
+  PRODUCTION_HOST: "centris-ai-production.up.railway.app",
+  PRODUCTION_HOSTS: ["centris-ai-production.up.railway.app"],
+  PRODUCTION_HTTP_URL: "https://centris-ai-production.up.railway.app",
 
   // Default token for production gateway auth (used when no user override is stored)
   DEFAULT_EXTENSION_TOKEN: "770d3dd81270f86cdb2ec3ead5251c2a1dc8c2c1bf890481fe746622769ebbfd",
