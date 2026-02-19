@@ -46,6 +46,10 @@ import {
   pickFallbackThinkingLevel,
   type FailoverReason,
 } from "../pi-embedded-helpers.js";
+import {
+  detectSelfExtensionCapabilityGap,
+  runSelfExtensionIfNeeded,
+} from "../skills/self-extend.js";
 import { derivePromptTokens, normalizeUsage, type UsageLike } from "../usage.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
 import { compactEmbeddedPiSessionDirect } from "./compact.js";
@@ -443,6 +447,8 @@ export async function runEmbeddedPiAgent(
       const MAX_OVERFLOW_COMPACTION_ATTEMPTS = 3;
       let overflowCompactionAttempts = 0;
       let toolResultTruncationAttempted = false;
+      let selfExtensionAttempted = false;
+      let activeSkillsSnapshot = params.skillsSnapshot;
       const usageAccumulator = createUsageAccumulator();
       let lastRunPromptUsage: ReturnType<typeof normalizeUsage> | undefined;
       let autoCompactionCount = 0;
@@ -475,7 +481,7 @@ export async function runEmbeddedPiAgent(
             workspaceDir: resolvedWorkspace,
             agentDir,
             config: params.config,
-            skillsSnapshot: params.skillsSnapshot,
+            skillsSnapshot: activeSkillsSnapshot,
             prompt,
             images: params.images,
             disableTools: params.disableTools,
@@ -616,7 +622,7 @@ export async function runEmbeddedPiAgent(
                 workspaceDir: resolvedWorkspace,
                 agentDir,
                 config: params.config,
-                skillsSnapshot: params.skillsSnapshot,
+                skillsSnapshot: activeSkillsSnapshot,
                 senderIsOwner: params.senderIsOwner,
                 provider,
                 model: modelId,
@@ -723,6 +729,42 @@ export async function runEmbeddedPiAgent(
                 error: { kind, message: errorText },
               },
             };
+          }
+
+          const gapReason =
+            !selfExtensionAttempted && params.config?.skills?.selfExtend?.enabled === true
+              ? detectSelfExtensionCapabilityGap({
+                  promptError,
+                  assistantTexts: attempt.assistantTexts,
+                  assistantError: lastAssistant?.errorMessage,
+                  toolMetas: attempt.toolMetas,
+                  aborted,
+                  timedOut,
+                })
+              : undefined;
+          if (gapReason) {
+            const extension = await runSelfExtensionIfNeeded({
+              workspaceDir: resolvedWorkspace,
+              prompt,
+              reason: gapReason,
+              selfExtend: params.config?.skills?.selfExtend,
+            });
+            if (extension.created) {
+              selfExtensionAttempted = true;
+              // Force skill re-discovery for retry so the newly generated skill
+              // is included even when this run started with a frozen snapshot.
+              activeSkillsSnapshot = undefined;
+              log.info(
+                `[skills:self-extend] created=${extension.skillName} committed=${extension.committed ? "yes" : "no"} pushed=${extension.pushed ? "yes" : "no"} retrying`,
+              );
+              if (extension.error) {
+                log.warn(`[skills:self-extend] vcs warning: ${extension.error}`);
+              }
+              continue;
+            }
+            if (extension.error) {
+              log.warn(`[skills:self-extend] skipped: ${extension.error}`);
+            }
           }
 
           if (promptError && !aborted) {

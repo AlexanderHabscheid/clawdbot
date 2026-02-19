@@ -104,6 +104,10 @@ export type RunEmbeddedPiAgentParams = {
   enqueue?: typeof enqueueCommand;
   extraSystemPrompt?: string;
   inputProvenance?: InputProvenance;
+  /** Trusted intent text (user/control plane) excluding untrusted package context blocks. */
+  trustedIntentText?: string;
+  /** True when untrusted package context was appended to the prompt. */
+  untrustedContextPresent?: boolean;
   streamParams?: AgentStreamParams;
   ownerNumbers?: string[];
   enforceFinalTag?: boolean;

@@ -10,6 +10,12 @@ export type HookContext = {
   agentId?: string;
   sessionKey?: string;
   loopDetection?: ToolLoopDetectionConfig;
+  /** Trusted intent text (user/control plane) excluding untrusted package context blocks. */
+  trustedIntentText?: string;
+  /** True when untrusted package context was appended to the prompt. */
+  untrustedContextPresent?: boolean;
+  /** Inbound provenance kind when available. */
+  inputProvenanceKind?: "external_user" | "inter_session" | "internal_system";
 };
 
 type HookOutcome = { blocked: true; reason: string } | { blocked: false; params: unknown };
@@ -20,6 +26,48 @@ const adjustedParamsByToolCallId = new Map<string, unknown>();
 const MAX_TRACKED_ADJUSTED_PARAMS = 1024;
 const LOOP_WARNING_BUCKET_SIZE = 10;
 const MAX_LOOP_WARNING_KEYS = 256;
+const HIGH_RISK_TOOL_NAMES = new Set([
+  "exec",
+  "process",
+  "write",
+  "edit",
+  "apply_patch",
+  "message",
+  "sessions_send",
+  "gateway",
+]);
+
+function hasExplicitHighRiskIntent(toolName: string, trustedIntentText?: string): boolean {
+  const text = trustedIntentText?.trim().toLowerCase();
+  if (!text) {
+    return false;
+  }
+  if (text.includes(toolName)) {
+    return true;
+  }
+  if (toolName === "exec" || toolName === "process") {
+    return /\b(run|execute|command|terminal|shell|script|install|git|npm|pnpm|bun)\b/.test(text);
+  }
+  if (toolName === "write" || toolName === "edit" || toolName === "apply_patch") {
+    return /\b(edit|modify|change|write|patch|update|refactor|implement|fix)\b/.test(text);
+  }
+  if (toolName === "message" || toolName === "sessions_send" || toolName === "gateway") {
+    return /\b(send|message|reply|post|notify|forward|dispatch|deliver)\b/.test(text);
+  }
+  return false;
+}
+
+function shouldBlockUntrustedHighRiskToolCall(toolName: string, ctx?: HookContext): boolean {
+  if (!HIGH_RISK_TOOL_NAMES.has(toolName)) {
+    return false;
+  }
+  const trustGateActive =
+    ctx?.untrustedContextPresent || ctx?.inputProvenanceKind === "inter_session";
+  if (!trustGateActive) {
+    return false;
+  }
+  return !hasExplicitHighRiskIntent(toolName, ctx?.trustedIntentText);
+}
 
 function shouldEmitLoopWarning(state: SessionState, warningKey: string, count: number): boolean {
   if (!state.toolLoopWarningBuckets) {
@@ -79,6 +127,14 @@ export async function runBeforeToolCallHook(args: {
 }): Promise<HookOutcome> {
   const toolName = normalizeToolName(args.toolName || "tool");
   const params = args.params;
+  if (shouldBlockUntrustedHighRiskToolCall(toolName, args.ctx)) {
+    return {
+      blocked: true,
+      reason:
+        `Blocked high-risk tool "${toolName}" because intent came only from untrusted package data. ` +
+        "Require explicit trusted user intent for this action.",
+    };
+  }
 
   if (args.ctx?.sessionKey) {
     const { getDiagnosticSessionState } = await import("../logging/diagnostic-session-state.js");

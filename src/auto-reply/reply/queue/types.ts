@@ -78,6 +78,10 @@ export type FollowupRun = {
     ownerNumbers?: string[];
     extraSystemPrompt?: string;
     enforceFinalTag?: boolean;
+    /** Trusted intent text (user/control plane) excluding untrusted package context blocks. */
+    trustedIntentText?: string;
+    /** True when untrusted package context blocks were appended to the prompt. */
+    untrustedContextPresent?: boolean;
   };
 };
 

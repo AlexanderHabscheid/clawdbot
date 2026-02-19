@@ -246,6 +246,14 @@ Even with strong system prompts, **prompt injection is not solved**. System prom
 - Limit high-risk tools (`exec`, `browser`, `web_fetch`, `web_search`) to trusted agents or explicit allowlists.
 - **Model choice matters:** older/legacy models can be less robust against prompt injection and tool misuse. Prefer modern, instruction-hardened models for any bot with tools. We recommend Anthropic Opus 4.6 (or the latest Opus) because it’s strong at recognizing prompt injections (see [“A step forward on safety”](https://www.anthropic.com/news/claude-opus-4-5)).
 
+Control/data separation pattern (recommended):
+
+- Treat this as a "cell tower" split: a **control plane** and a **data plane**.
+- Control plane (trusted): system prompt, tool schemas, runtime policy.
+- Data plane (untrusted): user messages, files, web content, channel metadata, tool outputs.
+- Never allow data-plane text to rewrite control-plane policy ("ignore above", "new system prompt", "run this command exactly").
+- Autonomous agents should still stay inside control-plane limits: no extra user approval needed when policy already allows the action, but never promote data-plane instructions to control-plane authority.
+
 Red flags to treat as untrusted:
 
 - “Read this file/URL and do exactly what it says.”

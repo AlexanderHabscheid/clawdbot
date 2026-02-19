@@ -507,7 +507,13 @@ export function createGatewayHttpServer(opts: {
       if (requestPath === "/api/centris/status" && req.method === "GET") {
         const clientIp = resolveGatewayClientIp(req, []);
         const isLocal = isPrivateOrLoopbackAddress(clientIp);
-        if (!isLocal && !validateExtensionToken(req.url)) {
+        if (
+          !isLocal &&
+          !validateExtensionToken(req.url, {
+            clientIp,
+            allowLocalWithoutToken: true,
+          })
+        ) {
           res.writeHead(403, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "forbidden" }));
           return;
@@ -521,7 +527,13 @@ export function createGatewayHttpServer(opts: {
       if (requestPath === "/api/centris/desktop-status" && req.method === "GET") {
         const clientIp = resolveGatewayClientIp(req, []);
         const isLocal = isPrivateOrLoopbackAddress(clientIp);
-        if (!isLocal && !validateExtensionToken(req.url)) {
+        if (
+          !isLocal &&
+          !validateExtensionToken(req.url, {
+            clientIp,
+            allowLocalWithoutToken: true,
+          })
+        ) {
           res.writeHead(403, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "forbidden" }));
           return;
@@ -661,7 +673,12 @@ export function attachGatewayUpgradeHandler(opts: {
 
       // Centris Chrome extension WebSocket — token-gated when CENTRIS_EXTENSION_TOKEN is set
       if (isCentrisExtensionPath(pathname)) {
-        if (!validateExtensionToken(req.url)) {
+        if (
+          !validateExtensionToken(req.url, {
+            clientIp: req.socket?.remoteAddress ?? "",
+            allowLocalWithoutToken: true,
+          })
+        ) {
           socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
           socket.destroy();
           return;
@@ -674,7 +691,12 @@ export function attachGatewayUpgradeHandler(opts: {
 
       // Centris desktop app WebSocket — token-gated (same as extension bridge)
       if (isCentrisDesktopPath(pathname)) {
-        if (!validateExtensionToken(req.url)) {
+        if (
+          !validateExtensionToken(req.url, {
+            clientIp: req.socket?.remoteAddress ?? "",
+            allowLocalWithoutToken: true,
+          })
+        ) {
           socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
           socket.destroy();
           return;
@@ -687,7 +709,12 @@ export function attachGatewayUpgradeHandler(opts: {
 
       // Centris voice WebSocket — token-gated (same as extension bridge)
       if (isCentrisVoicePath(pathname)) {
-        if (!validateExtensionToken(req.url)) {
+        if (
+          !validateExtensionToken(req.url, {
+            clientIp: req.socket?.remoteAddress ?? "",
+            allowLocalWithoutToken: true,
+          })
+        ) {
           socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
           socket.destroy();
           return;

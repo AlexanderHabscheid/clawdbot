@@ -209,7 +209,9 @@ function createConnectorRecord(params: {
 /**
  * Load all Centris connectors from discovery sources.
  */
-export function loadCentrisConnectors(options: ConnectorLoadOptions = {}): ConnectorRegistry {
+export async function loadCentrisConnectors(
+  options: ConnectorLoadOptions = {},
+): Promise<ConnectorRegistry> {
   const cfg = options.config ?? {};
   const logger = options.logger ?? createDefaultLogger();
   const normalized = normalizeConnectorsConfig(cfg.connectors);
@@ -345,15 +347,7 @@ export function loadCentrisConnectors(options: ConnectorLoadOptions = {}): Conne
     });
 
     try {
-      const result = register(api);
-      if (result && typeof result.then === "function") {
-        registry.diagnostics.push({
-          level: "warn",
-          connectorId: record.id,
-          source: record.source,
-          message: "Connector register() returned a promise; async registration not yet supported",
-        });
-      }
+      await Promise.resolve(register(api));
       record.status = "loaded";
       registry.connectors.push(record);
     } catch (err) {

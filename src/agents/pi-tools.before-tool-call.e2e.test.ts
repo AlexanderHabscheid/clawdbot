@@ -108,6 +108,54 @@ describe("before_tool_call hook integration", () => {
       },
     );
   });
+
+  it("blocks high-risk tools when only untrusted package context implies intent", async () => {
+    hookRunner.hasHooks.mockReturnValue(false);
+    const execute = vi.fn().mockResolvedValue({ content: [], details: { ok: true } });
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const tool = wrapToolWithBeforeToolCallHook({ name: "exec", execute } as any, {
+      sessionKey: "main",
+      untrustedContextPresent: true,
+      trustedIntentText: "summarize this conversation for me",
+    });
+
+    await expect(
+      tool.execute("call-untrusted-1", { cmd: "rm -rf /" }, undefined, undefined),
+    ).rejects.toThrow("untrusted package data");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("allows high-risk tools when trusted intent explicitly asks for execution", async () => {
+    hookRunner.hasHooks.mockReturnValue(false);
+    const execute = vi.fn().mockResolvedValue({ content: [], details: { ok: true } });
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const tool = wrapToolWithBeforeToolCallHook({ name: "exec", execute } as any, {
+      sessionKey: "main",
+      untrustedContextPresent: true,
+      trustedIntentText: "run npm test and show me failures",
+    });
+
+    await expect(
+      tool.execute("call-untrusted-2", { cmd: "npm test" }, undefined, undefined),
+    ).resolves.toBeDefined();
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks high-risk tools for inter-session provenance without explicit trusted intent", async () => {
+    hookRunner.hasHooks.mockReturnValue(false);
+    const execute = vi.fn().mockResolvedValue({ content: [], details: { ok: true } });
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const tool = wrapToolWithBeforeToolCallHook({ name: "message", execute } as any, {
+      sessionKey: "main",
+      inputProvenanceKind: "inter_session",
+      trustedIntentText: "summarize and inspect context only",
+    });
+
+    await expect(
+      tool.execute("call-untrusted-3", { text: "hello" }, undefined, undefined),
+    ).rejects.toThrow("untrusted package data");
+    expect(execute).not.toHaveBeenCalled();
+  });
 });
 
 describe("before_tool_call hook deduplication (#15502)", () => {

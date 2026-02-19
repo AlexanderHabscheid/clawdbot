@@ -14,6 +14,12 @@ import type {
 } from "./types.js";
 import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import { resolveMemorySearchConfig } from "../agents/memory-search.js";
+import {
+  resolveSessionFilePath,
+  resolveSessionTranscriptsDirForAgent,
+  resolveStorePath,
+} from "../config/sessions/paths.js";
+import { loadSessionStore } from "../config/sessions/store.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
   createEmbeddingProvider,
@@ -29,6 +35,7 @@ import { memoryManagerEmbeddingOps } from "./manager-embedding-ops.js";
 import { searchKeyword, searchVector } from "./manager-search.js";
 import { memoryManagerSyncOps } from "./manager-sync-ops.js";
 import { extractKeywords } from "./query-expansion.js";
+import { sessionPathForFile } from "./session-files.js";
 const SNIPPET_MAX_CHARS = 700;
 const VECTOR_TABLE = "chunks_vec";
 const FTS_TABLE = "chunks_fts";
@@ -98,6 +105,7 @@ export class MemoryIndexManager implements MemorySearchManager {
     { lastSize: number; pendingBytes: number; pendingMessages: number }
   >();
   private sessionWarm = new Set<string>();
+  private sessionResultScopeCache = new Map<string, string | null>();
   private syncing: Promise<void> | null = null;
 
   static async get(params: {
@@ -261,7 +269,7 @@ export class MemoryIndexManager implements MemorySearchManager {
         .filter((entry) => entry.score >= minScore)
         .slice(0, maxResults);
 
-      return merged;
+      return this.filterResultsBySessionScope(merged, opts?.sessionKey);
     }
 
     const keywordResults = hybrid.enabled
@@ -275,7 +283,8 @@ export class MemoryIndexManager implements MemorySearchManager {
       : [];
 
     if (!hybrid.enabled) {
-      return vectorResults.filter((entry) => entry.score >= minScore).slice(0, maxResults);
+      const limited = vectorResults.filter((entry) => entry.score >= minScore).slice(0, maxResults);
+      return this.filterResultsBySessionScope(limited, opts?.sessionKey);
     }
 
     const merged = await this.mergeHybridResults({
@@ -287,7 +296,57 @@ export class MemoryIndexManager implements MemorySearchManager {
       temporalDecay: hybrid.temporalDecay,
     });
 
-    return merged.filter((entry) => entry.score >= minScore).slice(0, maxResults);
+    const limited = merged.filter((entry) => entry.score >= minScore).slice(0, maxResults);
+    return this.filterResultsBySessionScope(limited, opts?.sessionKey);
+  }
+
+  private resolveScopedSessionPath(sessionKey?: string): string | null {
+    const trimmed = sessionKey?.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const cacheHit = this.sessionResultScopeCache.get(trimmed);
+    if (cacheHit !== undefined) {
+      return cacheHit;
+    }
+    try {
+      const storePath = resolveStorePath(this.cfg.session?.store, { agentId: this.agentId });
+      const store = loadSessionStore(storePath);
+      const entry = store[trimmed] ?? store[trimmed.toLowerCase()];
+      if (!entry?.sessionId) {
+        this.sessionResultScopeCache.set(trimmed, null);
+        return null;
+      }
+      const absPath = resolveSessionFilePath(entry.sessionId, entry, {
+        agentId: this.agentId,
+        sessionsDir: resolveSessionTranscriptsDirForAgent(this.agentId),
+      });
+      const relPath = sessionPathForFile(absPath);
+      this.sessionResultScopeCache.set(trimmed, relPath);
+      return relPath;
+    } catch {
+      this.sessionResultScopeCache.set(trimmed, null);
+      return null;
+    }
+  }
+
+  private filterResultsBySessionScope(
+    results: MemorySearchResult[],
+    sessionKey?: string,
+  ): MemorySearchResult[] {
+    const trimmed = sessionKey?.trim();
+    if (!trimmed) {
+      return results;
+    }
+    const scopedSessionPath = this.resolveScopedSessionPath(trimmed);
+    // Strict isolation: when we cannot resolve the session transcript path,
+    // do not return any session-derived memory to avoid cross-user leakage.
+    if (!scopedSessionPath) {
+      return results.filter((entry) => entry.source !== "sessions");
+    }
+    return results.filter(
+      (entry) => entry.source !== "sessions" || entry.path === scopedSessionPath,
+    );
   }
 
   private async searchVector(

@@ -89,7 +89,7 @@ export class CentrisMCPGateway implements ICentrisMCPGateway {
   async discoverConnectors(): Promise<void> {
     this.logger.debug?.("Discovering connectors...");
 
-    const registry = loadCentrisConnectors({
+    const registry = await loadCentrisConnectors({
       workspaceDir: this.options.workspaceDir,
       logger: this.logger,
     });
@@ -151,7 +151,7 @@ export class CentrisMCPGateway implements ICentrisMCPGateway {
     this.logger.debug?.(`Loading connector from ${connectorPath}`);
 
     // Use the loader with specific path
-    const registry = loadCentrisConnectors({
+    const registry = await loadCentrisConnectors({
       extraPaths: [connectorPath],
       logger: this.logger,
     });

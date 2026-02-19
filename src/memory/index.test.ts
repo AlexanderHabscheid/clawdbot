@@ -35,6 +35,8 @@ describe("memory index", () => {
   let workspaceDir = "";
   let memoryDir = "";
   let extraDir = "";
+  let stateDir = "";
+  let sessionsDir = "";
   let indexVectorPath = "";
   let indexMainPath = "";
   let indexExtraPath = "";
@@ -48,11 +50,15 @@ describe("memory index", () => {
     workspaceDir = path.join(fixtureRoot, "workspace");
     memoryDir = path.join(workspaceDir, "memory");
     extraDir = path.join(workspaceDir, "extra");
+    stateDir = path.join(fixtureRoot, "state");
+    sessionsDir = path.join(stateDir, "agents", "main", "sessions");
     indexMainPath = path.join(workspaceDir, "index-main.sqlite");
     indexVectorPath = path.join(workspaceDir, "index-vector.sqlite");
     indexExtraPath = path.join(workspaceDir, "index-extra.sqlite");
 
     await fs.mkdir(memoryDir, { recursive: true });
+    await fs.mkdir(sessionsDir, { recursive: true });
+    vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
     await fs.writeFile(
       path.join(memoryDir, "2026-01-12.md"),
       "# Log\nAlpha memory line.\nZebra memory line.",
@@ -61,6 +67,7 @@ describe("memory index", () => {
 
   afterAll(async () => {
     await Promise.all(Array.from(managersForCleanup).map((manager) => manager.close()));
+    vi.unstubAllEnvs();
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   });
 
@@ -75,6 +82,8 @@ describe("memory index", () => {
 
     // Clean additional paths that may have been created by earlier cases.
     await fs.rm(extraDir, { recursive: true, force: true });
+    await fs.rm(sessionsDir, { recursive: true, force: true });
+    await fs.mkdir(sessionsDir, { recursive: true });
   });
 
   function resetManagerForTest(manager: MemoryIndexManager) {
@@ -97,6 +106,8 @@ describe("memory index", () => {
     vectorEnabled?: boolean;
     cacheEnabled?: boolean;
     hybrid?: { enabled: boolean; vectorWeight?: number; textWeight?: number };
+    sources?: Array<"memory" | "sessions">;
+    sessionMemory?: boolean;
   }): TestCfg {
     return {
       agents: {
@@ -105,6 +116,8 @@ describe("memory index", () => {
           memorySearch: {
             provider: "openai",
             model: params.model ?? "mock-embed",
+            sources: params.sources,
+            experimental: { sessionMemory: params.sessionMemory ?? false },
             store: { path: params.storePath, vector: { enabled: params.vectorEnabled ?? false } },
             // Perf: keep test indexes to a single chunk to reduce sqlite work.
             chunking: { tokens: 4000, overlap: 0 },
@@ -325,5 +338,71 @@ describe("memory index", () => {
         "path required",
       );
     }
+  });
+
+  it("scopes session-source search results to the active session key", async () => {
+    const sessionStorePath = path.join(sessionsDir, "sessions.json");
+    const aliceSessionKey = "agent:main:slack:direct:alice";
+    const bobSessionKey = "agent:main:slack:direct:bob";
+    const aliceSessionId = "alice-session";
+    const bobSessionId = "bob-session";
+    const aliceTranscriptPath = path.join(sessionsDir, `${aliceSessionId}.jsonl`);
+    const bobTranscriptPath = path.join(sessionsDir, `${bobSessionId}.jsonl`);
+
+    const sessionStore = {
+      [aliceSessionKey]: { sessionId: aliceSessionId, updatedAt: Date.now() },
+      [bobSessionKey]: { sessionId: bobSessionId, updatedAt: Date.now() },
+    };
+    await fs.writeFile(sessionStorePath, JSON.stringify(sessionStore, null, 2), "utf-8");
+
+    const buildSessionTranscript = (sessionId: string, message: string) =>
+      [
+        JSON.stringify({
+          type: "session",
+          id: sessionId,
+          version: 1,
+          timestamp: "2026-01-01T00:00:00.000Z",
+        }),
+        JSON.stringify({
+          type: "message",
+          message: { role: "user", content: [{ type: "text", text: message }] },
+        }),
+      ].join("\n") + "\n";
+
+    await fs.writeFile(
+      aliceTranscriptPath,
+      buildSessionTranscript(aliceSessionId, "alpha user preference"),
+      "utf-8",
+    );
+    await fs.writeFile(
+      bobTranscriptPath,
+      buildSessionTranscript(bobSessionId, "beta user preference"),
+      "utf-8",
+    );
+
+    const cfg = createCfg({
+      storePath: path.join(workspaceDir, `index-sessions-${Date.now()}.sqlite`),
+      sources: ["sessions"],
+      sessionMemory: true,
+    });
+    const result = await getMemorySearchManager({ cfg, agentId: "main" });
+    expect(result.manager).not.toBeNull();
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
+    const manager = result.manager;
+    await manager.sync?.({ reason: "test" });
+
+    const aliceResults = await manager.search("beta", { sessionKey: aliceSessionKey });
+    expect(aliceResults.every((entry) => entry.path.endsWith(`${aliceSessionId}.jsonl`))).toBe(
+      true,
+    );
+
+    const unknownResults = await manager.search("beta", {
+      sessionKey: "agent:main:slack:direct:unknown",
+    });
+    expect(unknownResults.some((entry) => entry.source === "sessions")).toBe(false);
+
+    await manager.close?.();
   });
 });

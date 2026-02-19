@@ -256,6 +256,8 @@ export async function runPreparedReply(
     isNewSession,
     prefixedBodyBase,
   });
+  const trustedIntentText = prefixedBodyBase;
+  const untrustedContextPresent = (sessionCtx.UntrustedContext?.length ?? 0) > 0;
   prefixedBodyBase = appendUntrustedContext(prefixedBodyBase, sessionCtx.UntrustedContext);
   const threadStarterBody = ctx.ThreadStarterBody?.trim();
   const threadHistoryBody = ctx.ThreadHistoryBody?.trim();
@@ -431,6 +433,8 @@ export async function runPreparedReply(
       blockReplyBreak: resolvedBlockStreamingBreak,
       ownerNumbers: command.ownerList.length > 0 ? command.ownerList : undefined,
       extraSystemPrompt: extraSystemPrompt || undefined,
+      trustedIntentText,
+      untrustedContextPresent,
       ...(isReasoningTagProvider(provider) ? { enforceFinalTag: true } : {}),
     },
   };

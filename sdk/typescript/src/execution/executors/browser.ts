@@ -97,6 +97,16 @@ export class BrowserExecutor implements Executor {
 
     try {
       const actions = this.generateActions(capabilityId, params, uiMappings);
+      if (actions.length === 0) {
+        return executorError(
+          "NO_ACTIONS",
+          `No executable browser actions resolved for ${connectorId}.${capabilityId}`,
+          {
+            retryable: false,
+            metadata: meta(),
+          },
+        );
+      }
       const result = await this.executeActions(actions);
       return executorSuccess(result, meta());
     } catch (err) {

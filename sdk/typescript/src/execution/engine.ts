@@ -56,16 +56,26 @@ export class ExecutionEngine {
     context: ExecutorContext;
     options?: ExecutionOptions;
   }): Promise<ExecutorResult> {
+    const mergedAuth = {
+      ...params.context.auth,
+      ...params.options?.auth,
+    };
+    const contextWithOptions: ExecutorContext = {
+      ...params.context,
+      auth: mergedAuth,
+    };
+
     // Create execution plan
     const plan = await this.router.planExecution({
       connectorId: params.connectorId,
       capabilityId: params.capabilityId,
       params: params.params,
-      context: params.context,
+      context: contextWithOptions,
+      preferences: params.options?.preferences,
     });
 
     // Execute according to plan
-    return this.executePlan(plan, params.context, params.options);
+    return this.executePlan(plan, contextWithOptions, params.options);
   }
 
   /**

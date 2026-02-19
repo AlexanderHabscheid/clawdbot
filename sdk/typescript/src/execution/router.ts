@@ -42,6 +42,7 @@ export class ExecutionRouter {
     params: Record<string, unknown>;
     context: ExecutorContext;
     metadata?: CapabilityMetadata;
+    preferences?: ExecutionOptions["preferences"];
   }): Promise<ExecutionPlan> {
     const { connectorId, capabilityId, context } = params;
     const metadata = params.metadata ?? this.getCapabilityMetadata(connectorId, capabilityId);
@@ -49,10 +50,10 @@ export class ExecutionRouter {
     const availableMethods =
       metadata.executionMethods.length > 0
         ? metadata.executionMethods
-        : (["api"] as ExecutionMethod[]);
+        : (["api", "desktop", "browser"] as ExecutionMethod[]);
 
     // Select best method
-    const bestMethod = this.selectBestMethod(availableMethods, context);
+    const bestMethod = this.selectBestMethod(availableMethods, context, params.preferences);
     const fallbacks = availableMethods.filter((m) => m !== bestMethod);
 
     return {
@@ -72,7 +73,10 @@ export class ExecutionRouter {
   private selectBestMethod(
     available: ExecutionMethod[],
     context: ExecutorContext,
+    overridePreferences?: ExecutionOptions["preferences"],
   ): ExecutionMethod {
+    const preferences = overridePreferences ?? this.preferences;
+
     // Priority: API > Desktop > Browser
     const priorities: Record<ExecutionMethod, number> = {
       api: 3,
@@ -81,12 +85,12 @@ export class ExecutionRouter {
     };
 
     // Check user preference
-    const preferred = this.preferences?.preferredMethod;
+    const preferred = preferences?.preferredMethod;
     if (preferred && available.includes(preferred)) {
       // Check if preference is allowed
-      if (preferred === "browser" && this.preferences?.allowBrowserAutomation === false) {
+      if (preferred === "browser" && preferences?.allowBrowserAutomation === false) {
         // Skip browser if not allowed
-      } else if (preferred === "desktop" && this.preferences?.allowDesktopAutomation === false) {
+      } else if (preferred === "desktop" && preferences?.allowDesktopAutomation === false) {
         // Skip desktop if not allowed
       } else {
         return preferred;
@@ -94,16 +98,16 @@ export class ExecutionRouter {
     }
 
     // Check if API auth is available
-    if (available.includes("api") && context.auth?.accessToken) {
+    if (available.includes("api") && (context.auth?.accessToken || context.auth?.apiKey)) {
       return "api";
     }
 
     // Filter by what's allowed
     let allowed = available;
-    if (this.preferences?.allowBrowserAutomation === false) {
+    if (preferences?.allowBrowserAutomation === false) {
       allowed = allowed.filter((m) => m !== "browser");
     }
-    if (this.preferences?.allowDesktopAutomation === false) {
+    if (preferences?.allowDesktopAutomation === false) {
       allowed = allowed.filter((m) => m !== "desktop");
     }
 
@@ -112,8 +116,16 @@ export class ExecutionRouter {
       allowed = available;
     }
 
+    // If no API credentials are present, prefer local methods before API.
+    if (!(context.auth?.accessToken || context.auth?.apiKey)) {
+      priorities.api = 0;
+    }
+
     // Sort by priority and return best
-    return allowed.toSorted((a, b) => (priorities[b] ?? 0) - (priorities[a] ?? 0))[0] ?? "api";
+    const ordered = [...allowed].toSorted(
+      (a: ExecutionMethod, b: ExecutionMethod) => (priorities[b] ?? 0) - (priorities[a] ?? 0),
+    );
+    return ordered[0] ?? "api";
   }
 
   /**
@@ -147,7 +159,7 @@ export class ExecutionRouter {
 
     // Default metadata
     return {
-      executionMethods: ["api"],
+      executionMethods: [],
       requiresConfirmation: false,
     };
   }

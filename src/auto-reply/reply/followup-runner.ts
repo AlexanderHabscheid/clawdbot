@@ -158,6 +158,8 @@ export function createFollowupRunner(params: {
               skillsSnapshot: queued.run.skillsSnapshot,
               prompt: queued.prompt,
               extraSystemPrompt: queued.run.extraSystemPrompt,
+              trustedIntentText: queued.run.trustedIntentText,
+              untrustedContextPresent: queued.run.untrustedContextPresent,
               ownerNumbers: queued.run.ownerNumbers,
               enforceFinalTag: queued.run.enforceFinalTag,
               provider,

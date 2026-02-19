@@ -1,12 +1,14 @@
 """
 Centris SDK Browser Executor
 
-Executes capabilities via browser automation using Playwright.
+Legacy Playwright browser executor (opt-in).
+Centris production browser automation uses the real-browser bridge runtime.
 """
 
 import logging
 import time
 import base64
+import os
 from typing import Any, Optional
 
 from centris_sdk.types import ExecutionMethod
@@ -44,6 +46,11 @@ class BrowserExecutor:
     
     def __init__(self, config: Optional[ExecutionConfig] = None):
         self.config = config or ExecutionConfig()
+        self._legacy_enabled = os.environ.get("CENTRIS_PY_BROWSER_LEGACY", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         self._playwright = None
         self._browser = None
         self._context = None
@@ -69,6 +76,8 @@ class BrowserExecutor:
     
     async def is_available(self) -> bool:
         """Check if browser execution is available."""
+        if not self._legacy_enabled:
+            return False
         if self._browser is not None:
             return True
         
@@ -80,6 +89,9 @@ class BrowserExecutor:
     
     async def setup(self) -> None:
         """Initialize Playwright and browser."""
+        if not self._legacy_enabled:
+            self._available = False
+            return
         try:
             from playwright.async_api import async_playwright
             
@@ -127,6 +139,19 @@ class BrowserExecutor:
         - extract: Data to extract from page
         """
         start_time = time.time()
+
+        if not self._legacy_enabled:
+            return ExecutionResponse(
+                success=False,
+                error=(
+                    "Python BrowserExecutor legacy Playwright mode is disabled. "
+                    "Use the Centris real-browser bridge runtime or set "
+                    "CENTRIS_PY_BROWSER_LEGACY=1 for legacy local automation."
+                ),
+                error_code="BROWSER_EXECUTOR_DISABLED",
+                method_used=self.method,
+                latency_ms=(time.time() - start_time) * 1000,
+            )
         
         if not self._available:
             await self.setup()

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Centris Extension Bridge Tests
@@ -20,6 +20,7 @@ import {
   sendExtensionCommand,
   isCentrisExtensionPath,
   handleCentrisExtensionConnection,
+  validateExtensionToken,
 } from "./centris-extension-bridge.js";
 
 // ─── Mock WebSocket ─────────────────────────────────────────────────────────
@@ -70,6 +71,10 @@ function createMockWs() {
 
 const mockReq = {} as IncomingMessage;
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("centris-extension-bridge", () => {
   // ─── Path matching ──────────────────────────────────────────────────────
 
@@ -82,6 +87,28 @@ describe("centris-extension-bridge", () => {
       expect(isCentrisExtensionPath("/ws/centris/voice")).toBe(false);
       expect(isCentrisExtensionPath("/ws/something")).toBe(false);
       expect(isCentrisExtensionPath("/")).toBe(false);
+    });
+  });
+
+  describe("validateExtensionToken", () => {
+    it("denies non-local clients when token is not configured", () => {
+      vi.stubEnv("CENTRIS_EXTENSION_TOKEN", "");
+      expect(
+        validateExtensionToken("/ws/centris/extension", {
+          clientIp: "8.8.8.8",
+          allowLocalWithoutToken: true,
+        }),
+      ).toBe(false);
+    });
+
+    it("allows local clients when token is not configured", () => {
+      vi.stubEnv("CENTRIS_EXTENSION_TOKEN", "");
+      expect(
+        validateExtensionToken("/ws/centris/extension", {
+          clientIp: "127.0.0.1",
+          allowLocalWithoutToken: true,
+        }),
+      ).toBe(true);
     });
   });
 

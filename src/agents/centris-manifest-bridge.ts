@@ -49,6 +49,7 @@ let store: {
   size: number;
   buildIndex: () => ManifestIndexEntry[];
   resolve: (url: string) => ResolvedManifest | null;
+  add?: (entry: { manifest: unknown; source: string }) => void;
 } | null = null;
 
 let formatIndexFn: ((entries: ManifestIndexEntry[]) => string) | null = null;
@@ -57,6 +58,27 @@ let formatResolvedJsonFn: ((resolved: ResolvedManifest) => Record<string, unknow
 function sdkBasePath(): string {
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(thisDir, "..", "..", "sdk", "typescript", "src");
+}
+
+function parseWellKnownAllowlist(raw: string | undefined): string[] {
+  if (!raw) {
+    return [];
+  }
+  return raw
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((entry) => !entry.includes("://") && !entry.includes("/"));
+}
+
+async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -97,6 +119,31 @@ export async function initManifestStore(options?: {
 
     const ManifestStore = resolverMod.ManifestStore;
     store = new ManifestStore(loaded);
+
+    // Optional first-party discovery: fetch .well-known manifests from an explicit allowlist.
+    const allowlist = parseWellKnownAllowlist(process.env.CENTRIS_MANIFEST_ALLOWLIST);
+    if (allowlist.length > 0 && typeof store.add === "function") {
+      for (const host of allowlist) {
+        const url = `https://${host}/.well-known/centris.json`;
+        try {
+          const res = await fetchWithTimeout(url, 2500);
+          if (!res.ok) {
+            logDebug(`[manifest-bridge] skipped ${url} (${res.status})`);
+            continue;
+          }
+          const parsed = (await res.json()) as unknown;
+          const validated = loaderMod.validateManifest(parsed);
+          if (!validated) {
+            logDebug(`[manifest-bridge] invalid remote manifest: ${url}`);
+            continue;
+          }
+          store.add({ manifest: validated, source: `well-known:${host}` });
+          logInfo(`[manifest-bridge] loaded remote manifest: ${host}`);
+        } catch (err) {
+          logDebug(`[manifest-bridge] failed loading ${url}: ${String(err)}`);
+        }
+      }
+    }
 
     if (store && store.size > 0) {
       logInfo(`[manifest-bridge] ${store.size} manifest(s) loaded and indexed`);

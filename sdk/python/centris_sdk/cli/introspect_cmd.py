@@ -70,58 +70,20 @@ def introspect_command(
     # ═══════════════════════════════════════════════════════════════════════════
     
     if scope in ("all", "tools"):
-        try:
-            # Try to import from backend (if running in same environment)
-            from backend.agent.tools import get_full_tools, get_all_tools
-            from backend.agent.tool_handlers import TOOL_REGISTRY
-            
-            tools_info = []
-            
-            # Get tool definitions
-            all_tools = get_full_tools()
-            
-            for tool in all_tools:
-                func = tool.get("function", {})
-                name = func.get("name", "")
-                description = func.get("description", "")
-                
-                if compact:
-                    description = description.split(".")[0][:60] if description else ""
-                else:
-                    description = description[:200] if description else ""
-                
-                tools_info.append({
-                    "name": name,
-                    "description": description,
-                    "parameters": list(func.get("parameters", {}).get("properties", {}).keys()),
-                })
-            
-            result["tools"] = {
-                "registered_count": len(TOOL_REGISTRY),
-                "tools": tools_info,
-            }
-            
-        except ImportError:
-            # Backend not available, provide static list
-            result["tools"] = {
-                "error": "Backend not importable from CLI context",
-                "hint": "Run from backend environment or use backend introspect tool",
-                "known_tools": [
-                    # Browser tools
-                    "navigate_browser", "get_interactive_snapshot", "click_node",
-                    "type_text", "press_key", "paste_text", "global_type",
-                    "get_page_content", "google_search",
-                    # System tools
-                    "read_file", "write_file", "list_directory",
-                    "open_application", "execute_terminal_command",
-                    "get_clipboard", "set_clipboard",
-                    # Self-learning tools
-                    "exec", "process", "introspect",
-                    "memory_search", "memory_get", "memory_save",
-                    # Agent management
-                    "spawn_subagent", "get_subagent_status",
-                ]
-            }
+        # SDK introspection should never depend on internal backend imports.
+        # Report stable, SDK-level execution surfaces instead.
+        known_tools = [
+            "navigate_browser", "get_interactive_snapshot", "click_node", "type_text",
+            "press_key", "global_type", "get_page_content", "scroll_page",
+            "read_file", "write_file", "list_directory", "execute_terminal_command",
+            "memory_search", "memory_get", "memory_save",
+        ]
+        result["tools"] = {
+            "registered_count": 0,
+            "source": "centris-sdk",
+            "hint": "Runtime tool registries are discovered from installed connectors.",
+            "known_tools": known_tools if compact else known_tools,
+        }
     
     # ═══════════════════════════════════════════════════════════════════════════
     # SKILLS DISCOVERY

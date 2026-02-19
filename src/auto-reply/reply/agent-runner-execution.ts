@@ -290,6 +290,8 @@ export async function runAgentTurnWithFallback(params: {
             skillsSnapshot: params.followupRun.run.skillsSnapshot,
             prompt: params.commandBody,
             extraSystemPrompt: params.followupRun.run.extraSystemPrompt,
+            trustedIntentText: params.followupRun.run.trustedIntentText,
+            untrustedContextPresent: params.followupRun.run.untrustedContextPresent,
             ownerNumbers: params.followupRun.run.ownerNumbers,
             enforceFinalTag: resolveEnforceFinalTag(params.followupRun.run, provider),
             provider,

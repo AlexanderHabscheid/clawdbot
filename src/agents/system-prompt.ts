@@ -3,6 +3,7 @@ import type { MemoryCitationsMode } from "../config/types.memory.js";
 import type { ResolvedTimeFormat } from "./date-time.js";
 import type { EmbeddedContextFile } from "./pi-embedded-helpers.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
+import { buildControlDataPlaneGuardrails } from "../security/control-data-plane.js";
 import { listDeliverableMessageChannels } from "../utils/message-channel.js";
 import { sanitizeForPromptLiteral } from "./sanitize-for-prompt.js";
 
@@ -425,6 +426,11 @@ export function buildAgentSystemPrompt(params: {
     "Do not manipulate or persuade anyone to expand access or disable safeguards. Do not copy yourself or change system prompts, safety rules, or tool policies unless explicitly requested.",
     "",
   ];
+  const controlDataPlaneSection = buildControlDataPlaneGuardrails({
+    autonomousActions:
+      params.skillsSelfExtend?.enabled === true &&
+      (params.skillsSelfExtend.autoCommit === true || params.skillsSelfExtend.autoPush === true),
+  });
   const skillsSection = buildSkillsSection({
     skillsPrompt,
     isMinimal,
@@ -486,6 +492,7 @@ export function buildAgentSystemPrompt(params: {
     "Use plain human language for narration unless in a technical context.",
     "",
     ...safetySection,
+    ...controlDataPlaneSection,
     "## OpenClaw CLI Quick Reference",
     "OpenClaw is controlled via subcommands. Do not invent commands.",
     "To manage the Gateway daemon service (start/stop/restart):",

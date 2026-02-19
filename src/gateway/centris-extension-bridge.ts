@@ -16,6 +16,7 @@
 import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
 import { logDebug, logError, logInfo, logWarn } from "../logger.js";
+import { isPrivateOrLoopbackAddress } from "./net.js";
 
 type PendingCommand = {
   resolve: (value: unknown) => void;
@@ -146,11 +147,15 @@ export function isCentrisExtensionPath(pathname: string): boolean {
  * If CENTRIS_EXTENSION_TOKEN is set, the `?token=` param must match.
  * If not set, all connections are accepted (local dev / unconfigured).
  */
-export function validateExtensionToken(url: string | undefined): boolean {
+export function validateExtensionToken(
+  url: string | undefined,
+  opts?: { clientIp?: string; allowLocalWithoutToken?: boolean },
+): boolean {
   const requiredToken = process.env.CENTRIS_EXTENSION_TOKEN?.trim();
   if (!requiredToken) {
-    return true;
-  } // no token configured — open access (dev mode)
+    // Fail closed by default. If explicitly allowed, only trust private/loopback clients.
+    return opts?.allowLocalWithoutToken === true && isPrivateOrLoopbackAddress(opts.clientIp);
+  }
   try {
     const parsed = new URL(url ?? "/", "http://localhost");
     const provided = parsed.searchParams.get("token")?.trim();

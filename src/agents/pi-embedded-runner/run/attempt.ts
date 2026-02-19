@@ -457,6 +457,9 @@ export async function runEmbeddedAttempt(
           requireExplicitMessageTarget:
             params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
           disableMessageTool: params.disableMessageTool,
+          trustedIntentText: params.trustedIntentText,
+          untrustedContextPresent: params.untrustedContextPresent,
+          inputProvenanceKind: params.inputProvenance?.kind,
         });
     // Centris: route to domain-specific tool subset based on user message.
     // This mirrors the OG Centris orchestrator pattern — the LLM only sees tools
@@ -776,6 +779,9 @@ export async function runEmbeddedAttempt(
               agentId: sessionAgentId,
               sessionKey: params.sessionKey,
               loopDetection: clientToolLoopDetection,
+              trustedIntentText: params.trustedIntentText,
+              untrustedContextPresent: params.untrustedContextPresent,
+              inputProvenanceKind: params.inputProvenance?.kind,
             },
           )
         : [];

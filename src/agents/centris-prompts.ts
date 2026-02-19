@@ -15,6 +15,7 @@
 
 import type { CentrisDomain } from "./centris-router.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
+import { buildControlDataPlaneGuardrails } from "../security/control-data-plane.js";
 import { getManifestIndexPrompt } from "./centris-manifest-bridge.js";
 import { buildRuntimeLine } from "./system-prompt.js";
 
@@ -180,6 +181,15 @@ export function buildCentrisSystemPrompt(params: CentrisPromptParams): string | 
   // 5. Safety (from OpenClaw)
   lines.push(SAFETY);
   lines.push("");
+
+  // 5b. Control/Data plane separation guardrails (prompt injection defense)
+  lines.push(
+    ...buildControlDataPlaneGuardrails({
+      autonomousActions:
+        params.skillsSelfExtend?.enabled === true &&
+        (params.skillsSelfExtend.autoCommit === true || params.skillsSelfExtend.autoPush === true),
+    }),
+  );
 
   // 6. Skills (from OpenClaw, if available — enables extensibility)
   if (params.skillsPrompt?.trim()) {

@@ -212,6 +212,12 @@ export function createOpenClawCodingTools(options?: {
   disableMessageTool?: boolean;
   /** Whether the sender is an owner (required for owner-only tools). */
   senderIsOwner?: boolean;
+  /** Trusted intent text (user/control plane) excluding untrusted context blocks. */
+  trustedIntentText?: string;
+  /** True when untrusted package context blocks were appended to the prompt. */
+  untrustedContextPresent?: boolean;
+  /** Inbound provenance kind when available. */
+  inputProvenanceKind?: "external_user" | "inter_session" | "internal_system";
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
@@ -480,6 +486,9 @@ export function createOpenClawCodingTools(options?: {
       agentId,
       sessionKey: options?.sessionKey,
       loopDetection: resolveToolLoopDetectionConfig({ cfg: options?.config, agentId }),
+      trustedIntentText: options?.trustedIntentText,
+      untrustedContextPresent: options?.untrustedContextPresent,
+      inputProvenanceKind: options?.inputProvenanceKind,
     }),
   );
   const withAbort = options?.abortSignal
