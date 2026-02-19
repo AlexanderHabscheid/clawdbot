@@ -1,0 +1,61 @@
+# {name}
+
+{description}
+
+## Installation
+
+```bash
+pip install centris-sdk
+```
+
+## Usage
+
+```python
+from {module_name} import connector
+
+# The connector exposes capabilities that Centris can invoke
+# Example: connector.execute("example_action", {{"message": "Hello"}})
+```
+
+## Development
+
+### Validate
+
+```bash
+centris validate .
+```
+
+### Test
+
+```bash
+centris test .
+```
+
+### Serve locally
+
+```bash
+centris serve .
+```
+
+### Publish
+
+```bash
+centris publish .
+```
+
+## Capabilities
+
+### example_action
+
+An example capability - replace with your actual functionality.
+
+**Input:**
+- `message` (string, required): A message to process
+
+**Output:**
+- `success` (boolean): Whether the operation succeeded
+- `result` (string): The processed result
+
+## License
+
+MIT

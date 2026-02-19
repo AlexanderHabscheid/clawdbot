@@ -1,0 +1,85 @@
+{
+  "centris": "1.0",
+  "app": "slack",
+  "description": "Slack messaging workspace",
+  "url_patterns": ["app.slack.com/*", "*.slack.com/client/*"],
+  "routes": {
+    "/client/:workspace": {
+      "landmarks": {
+        "sidebar": {
+          "role": "navigation",
+          "selectors": ["[data-qa='channel-sidebar']", ".p-channel_sidebar", "[role='navigation']"],
+          "stability": "stable",
+          "description": "Channel list sidebar"
+        },
+        "composer": {
+          "role": "textbox",
+          "selectors": [
+            "[data-qa='message_input']",
+            ".ql-editor",
+            "[role='textbox'][aria-label*='Message']",
+            "[contenteditable='true']"
+          ],
+          "stability": "stable",
+          "description": "Message input field"
+        },
+        "message_list": {
+          "role": "main",
+          "selectors": [
+            "[data-qa='slack_kit_list']",
+            ".c-virtual_list",
+            "[role='list'][aria-label*='Message']"
+          ],
+          "stability": "moderate",
+          "description": "Message list area"
+        },
+        "channel_header": {
+          "role": "banner",
+          "selectors": ["[data-qa='channel_header']", ".p-view_header"],
+          "stability": "stable",
+          "description": "Current channel name and info"
+        },
+        "search_bar": {
+          "role": "search",
+          "selectors": [
+            "[data-qa='top_nav_search']",
+            "[role='search']",
+            "button[aria-label*='Search']"
+          ],
+          "stability": "stable",
+          "description": "Top search bar"
+        }
+      },
+      "actions": {
+        "send_message": {
+          "description": "Send a message to the current channel",
+          "params": ["message"],
+          "steps": [
+            { "click": "composer" },
+            { "type": { "target": "composer", "value": "{{message}}" } },
+            { "press": "Enter" }
+          ]
+        },
+        "switch_channel": {
+          "description": "Switch to a specific channel in the sidebar",
+          "params": ["channel"],
+          "steps": [{ "click": "[data-qa-channel-sidebar-channel-btn='{{channel}}']" }]
+        },
+        "search": {
+          "description": "Search Slack for a query",
+          "params": ["query"],
+          "steps": [
+            { "click": "search_bar" },
+            { "type": { "target": "search_bar", "value": "{{query}}" } },
+            { "press": "Enter" }
+          ]
+        },
+        "open_thread": {
+          "description": "Open the thread panel for a message",
+          "params": [],
+          "steps": [{ "click": "[data-qa='message_container']:last-child [data-qa='reply_bar']" }]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,105 @@
+"""
+{name} Connector - Modular Multi-Service Architecture
+
+This connector uses a modular structure to prevent file bloat.
+Each service lives in its own file under the services/ directory.
+
+Structure:
+    {connector_id}/
+    ├── __init__.py           # Package exports
+    ├── connector.py          # This file - coordinator only
+    ├── connector.json        # Manifest
+    ├── base.py               # Shared base class and utilities
+    └── services/             # Individual service modules
+        ├── __init__.py       # Service exports
+        ├── service1.py       # Service 1 implementation
+        ├── service2.py       # Service 2 implementation
+        └── ...
+
+Guidelines:
+    - Each file should be <300 lines (enforced by SDK validation)
+    - Each service module should have <5 tools (split if more)
+    - Shared code goes in base.py
+    - Keep this connector.py file as a thin coordinator
+
+This modular pattern is required for multi-service connectors.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List, Optional
+
+from .base import {class_name}ConnectorBase
+from .services import ALL_SERVICES, get_all_tools, get_service
+
+logger = logging.getLogger(__name__)
+
+
+class {class_name}Connector:
+    """
+    {name} connector coordinator.
+    
+    This is a thin coordinator class that:
+    - Exposes all services through a unified API
+    - Routes tool calls to the appropriate service
+    - Provides discovery for available tools
+    
+    The actual implementation lives in services/*.py
+    """
+    
+    id: str = "{connector_id}"
+    name: str = "{name}"
+    version: str = "1.0.0"
+    description: str = "{description}"
+    
+    def __init__(self):
+        self._services = ALL_SERVICES
+    
+    @property
+    def services(self) -> List[str]:
+        """List available service IDs."""
+        return [s.id for s in self._services]
+    
+    def get_service(self, service_id: str):
+        """Get a specific service by ID."""
+        return get_service(service_id)
+    
+    def get_tools(self, context: Optional[Any] = None) -> List[Dict[str, Any]]:
+        """Get all tools from all services."""
+        return get_all_tools()
+    
+    async def execute(
+        self,
+        tool_name: str,
+        params: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Route a tool call to the appropriate service.
+        
+        Tool names are prefixed with service ID:
+        - service1_action → routes to services/service1.py
+        """
+        # Parse tool name to find service
+        parts = tool_name.split("_", 1)
+        if len(parts) < 2:
+            return {{"success": False, "error": f"Invalid tool name format: {{tool_name}}"}}
+        
+        service_id = parts[0]
+        service = get_service(service_id)
+        
+        if not service:
+            return {{"success": False, "error": f"Unknown service: {{service_id}}"}}
+        
+        # Find and execute the tool
+        for tool in service.get_tools():
+            if tool.name == tool_name:
+                return await tool.execute(params, context)
+        
+        return {{"success": False, "error": f"Tool not found: {{tool_name}}"}}
+
+
+# Export the connector instance
+connector = {class_name}Connector()
+
+__all__ = ["connector", "{class_name}Connector"]

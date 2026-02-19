@@ -4,6 +4,7 @@ import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import type { AnyAgentTool } from "./tools/common.js";
 import { resolvePluginTools } from "../plugins/tools.js";
 import { resolveSessionAgentId } from "./agent-scope.js";
+import { loadConnectorTools } from "./centris-connector-bridge.js";
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
 import { createArchitectPipelineTool } from "./tools/architect-pipeline-tool.js";
 import { createBrowserTool } from "./tools/browser-tool.js";
@@ -202,5 +203,14 @@ export function createOpenClawTools(options?: {
     toolAllowlist: options?.pluginToolAllowlist,
   });
 
-  return [...tools, ...pluginTools];
+  const allToolsSoFar = [...tools, ...pluginTools];
+  const existingNames = new Set(allToolsSoFar.map((t) => t.name));
+
+  // Load SDK connector tools (from connectors/ dir, ~/.centris/connectors/, npm packages)
+  const connectorTools = loadConnectorTools({
+    workspaceDir,
+    existingToolNames: existingNames,
+  });
+
+  return [...allToolsSoFar, ...connectorTools];
 }

@@ -15,6 +15,7 @@
 
 import type { CentrisDomain } from "./centris-router.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
+import { getManifestIndexPrompt } from "./centris-manifest-bridge.js";
 import { buildRuntimeLine } from "./system-prompt.js";
 
 // ─── Params ──────────────────────────────────────────────────────────────────
@@ -149,15 +150,22 @@ export function buildCentrisSystemPrompt(params: CentrisPromptParams): string | 
   lines.push(DOMAIN_INSTRUCTIONS[params.domain]);
   lines.push("");
 
-  // 3. Tool Call Style (from OpenClaw)
+  // 3. Pre-mapped site manifests (the LLM decides what to use, not keyword routing)
+  const manifestIndex = getManifestIndexPrompt();
+  if (manifestIndex) {
+    lines.push(manifestIndex);
+    lines.push("");
+  }
+
+  // 4. Tool Call Style (from OpenClaw)
   lines.push(TOOL_CALL_STYLE);
   lines.push("");
 
-  // 4. Safety (from OpenClaw)
+  // 5. Safety (from OpenClaw)
   lines.push(SAFETY);
   lines.push("");
 
-  // 5. Skills (from OpenClaw, if available — enables extensibility)
+  // 6. Skills (from OpenClaw, if available — enables extensibility)
   if (params.skillsPrompt?.trim()) {
     lines.push("## Skills (mandatory)");
     lines.push("Before replying: scan <available_skills> <description> entries.");
@@ -169,21 +177,21 @@ export function buildCentrisSystemPrompt(params: CentrisPromptParams): string | 
     lines.push("");
   }
 
-  // 6. TTS hint (voice-specific behavior)
+  // 7. TTS hint (voice-specific behavior)
   if (params.ttsHint?.trim()) {
     lines.push("## Voice");
     lines.push(params.ttsHint.trim());
     lines.push("");
   }
 
-  // 7. Workspace (just the directory, not the massive context files)
+  // 8. Workspace (just the directory, not the massive context files)
   if (params.workspaceDir) {
     lines.push("## Workspace");
     lines.push(`Your working directory is: ${params.workspaceDir}`);
     lines.push("");
   }
 
-  // 8. Heartbeats (proactive features — reminders, periodic checks)
+  // 9. Heartbeats (proactive features — reminders, periodic checks)
   if (params.heartbeatPrompt?.trim()) {
     lines.push("## Heartbeats");
     lines.push(`Heartbeat prompt: ${params.heartbeatPrompt.trim()}`);
@@ -194,13 +202,13 @@ export function buildCentrisSystemPrompt(params: CentrisPromptParams): string | 
     lines.push("");
   }
 
-  // 9. Silent Replies (needed for heartbeat acks and when nothing to say)
+  // 10. Silent Replies (needed for heartbeat acks and when nothing to say)
   lines.push("## Silent Replies");
   lines.push(`When you have nothing to say, respond with ONLY: ${SILENT_REPLY_TOKEN}`);
   lines.push("It must be your ENTIRE message — nothing else.");
   lines.push("");
 
-  // 10. Runtime line (model, OS, arch — LLM uses this for context)
+  // 11. Runtime line (model, OS, arch — LLM uses this for context)
   if (params.runtimeInfo) {
     lines.push("## Runtime");
     lines.push(

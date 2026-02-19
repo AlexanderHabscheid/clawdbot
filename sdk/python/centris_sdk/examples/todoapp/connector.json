@@ -1,0 +1,43 @@
+{
+  "id": "todoapp",
+  "name": "TodoApp",
+  "description": "Fast todo list automation using compiled browser recipes. No OAuth needed.",
+  "version": "1.0.0",
+  "author": "Centris SDK Examples",
+  "license": "MIT",
+  "main": "connector.py",
+  "centrisConnector": {
+    "id": "todoapp",
+    "type": "browser",
+    "categories": ["productivity"],
+    "authScheme": "browser_session",
+    "urlPatterns": ["todomvc.com", "todo"]
+  },
+  "tools": [
+    {
+      "name": "todoapp_add_task",
+      "label": "Add Task",
+      "description": "Add a new task to the todo list"
+    },
+    {
+      "name": "todoapp_complete_task",
+      "label": "Complete Task",
+      "description": "Mark a task as complete"
+    },
+    {
+      "name": "todoapp_delete_task",
+      "label": "Delete Task",
+      "description": "Delete a task from the list"
+    },
+    {
+      "name": "todoapp_get_tasks",
+      "label": "Get Tasks",
+      "description": "Get all tasks"
+    },
+    {
+      "name": "todoapp_clear_completed",
+      "label": "Clear Completed",
+      "description": "Remove all completed tasks"
+    }
+  ]
+}

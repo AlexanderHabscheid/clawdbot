@@ -1,0 +1,374 @@
+"""
+{name} Connector for Centris
+
+A Browser/DOM connector with pre-mapped elements for fast, reliable automation.
+This makes Centris 10x faster by knowing exactly where to click instead of
+using LLM-in-the-loop screenshot analysis.
+
+NO OAUTH REQUIRED - uses the user's existing browser session.
+The user is already logged into {name} in their browser.
+
+CENTRIS CONNECTOR FRAMEWORK:
+    1. task_keywords - Words that trigger this connector (e.g., "gmail", "send email")
+    2. url_patterns - URL regex patterns this connector handles
+    3. element_map - Pre-mapped DOM elements from Chrome extension
+    4. page_element_sections - Which element sections apply to which page types
+    5. get_page_type() - Detect current page type from URL
+    6. api.get_tools() - Return tool definitions
+
+See sdk/python/CONNECTOR_FRAMEWORK.md for complete documentation.
+
+Architecture:
+    WITHOUT CONNECTOR (LLM-in-loop, 10-30 seconds):
+        Screenshot → LLM: "click compose" → Click
+        Screenshot → LLM: "click input" → Click
+        Screenshot → LLM: "type text" → Type
+    
+    WITH CONNECTOR (pre-mapped DOM, 1-3 seconds):
+        Connector injects: "compose_button = node_id 5"
+        LLM calls: click_node(5) → Instant success
+"""
+
+import logging
+from dataclasses import dataclass, field
+from typing import Dict, Any, List, Optional, Callable
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# URL HELPERS - Page Type Detection
+# =============================================================================
+
+class {class_name}URLs:
+    """URL patterns and page type detection for {name}."""
+    
+    BASE = "{base_url}"
+    
+    @classmethod
+    def is_{python_id}(cls, url: str) -> bool:
+        """Check if URL belongs to {name}."""
+        return "{domain}" in url
+    
+    @staticmethod
+    def get_page_type(url: str) -> Optional[str]:
+        """
+        Detect page type from URL.
+        
+        Returns page type string that maps to page_element_sections.
+        Called by ConnectorContextProvider to filter element_map.
+        
+        Customize this based on your app's URL structure:
+            /dashboard → "dashboard"
+            /settings → "settings"
+            /edit → "form"
+            etc.
+        """
+        if "/dashboard" in url:
+            return "dashboard"
+        elif "/settings" in url:
+            return "settings"
+        elif "/edit" in url or "/new" in url:
+            return "form"
+        else:
+            return "home"
+
+
+# =============================================================================
+# STATIC DOM ELEMENTS - UI Controls Only
+# =============================================================================
+# 
+# IMPORTANT: Only map STATIC UI elements that are the same for ALL users:
+#   ✅ Buttons (Compose, Search, Save)
+#   ✅ Navigation (Menu items, tabs)
+#   ✅ Form inputs (Text fields, dropdowns)
+#   ❌ DO NOT map dynamic content (individual emails, events, files)
+#
+# Use the Centris Chrome extension to get element IDs:
+#   1. Navigate to the target page
+#   2. Click Centris extension icon → "Show Elements"
+#   3. Copy the element IDs for STATIC UI controls only
+#
+# Element format: (node_id, element_type, description)
+#   - node_id: The ID from Chrome extension
+#   - element_type: "clickable", "typeable", or "selectable"
+#   - description: Human-readable label for the LLM
+# =============================================================================
+
+class {class_name}StaticControls:
+    """
+    STATIC UI elements only - same for all users.
+    
+    ✅ Map: Buttons, menus, inputs, navigation
+    ❌ Don't map: Individual items, user content, search results
+    """
+    # Navigation controls
+    MAIN_CTA = (10, "clickable", "Main call-to-action button")
+    SEARCH_INPUT = (11, "typeable", "Search input")
+    SETTINGS = (15, "clickable", "Settings button")
+    
+    # Form inputs (if static form structure)
+    NAME_FIELD = (20, "typeable", "Name input field")
+    EMAIL_FIELD = (21, "typeable", "Email input field")
+    SAVE_BUTTON = (25, "clickable", "Save button")
+    
+    # ⚠️ CAUTION: Don't expose dangerous buttons like submit/delete directly
+
+
+# =============================================================================
+# TOOL IMPLEMENTATIONS - Browser Automation Recipes
+# =============================================================================
+
+async def {python_id}_example_action(
+    tool_call_id: str,
+    params: Dict[str, Any],
+    context: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Example action via browser automation.
+    
+    This is a "compiled recipe" - deterministic steps that don't need LLM analysis.
+    10x faster than screenshot → LLM → click cycles.
+    
+    Args:
+        tool_call_id: Unique ID for this tool call
+        params: Input parameters (defined in tool schema below)
+        context: Contains browser_bridge for automation
+        
+    Returns:
+        {{"success": True/False, ...}}
+    """
+    browser_bridge = context.get("browser_bridge") if context else None
+    
+    if not browser_bridge:
+        return {{
+            "success": False,
+            "error": "Browser bridge not available. Ensure Centris desktop app is running."
+        }}
+    
+    input_value = params.get("input", "")
+    
+    try:
+        logger.info(f"[{name}] Executing action with input: {{input_value}}")
+        
+        # Step 1: Ensure we're on {name}
+        current_tab = await browser_bridge.get_active_tab()
+        if not {class_name}URLs.is_{python_id}(current_tab.get("url", "")):
+            await browser_bridge.navigate_browser({class_name}URLs.BASE)
+            await browser_bridge.wait(2000)
+        
+        # Step 2: Click using pre-mapped node ID (from element_map)
+        await browser_bridge.click_node(node_id={class_name}HomeElements.MAIN_CTA[0])
+        await browser_bridge.wait(500)
+        
+        # Step 3: Fill input field
+        await browser_bridge.click_node(node_id={class_name}FormElements.NAME_FIELD[0])
+        await browser_bridge.type_text(input_value)
+        await browser_bridge.wait(300)
+        
+        # Step 4: Save
+        await browser_bridge.click_node(node_id={class_name}FormElements.SAVE_BUTTON[0])
+        await browser_bridge.wait(1000)
+        
+        logger.info(f"[{name}] Action completed successfully")
+        
+        return {{
+            "success": True,
+            "message": f"Action completed with input: {{input_value}}"
+        }}
+        
+    except Exception as e:
+        logger.error(f"[{name}] Action failed: {{e}}")
+        return {{"success": False, "error": str(e)}}
+
+
+# =============================================================================
+# TOOL DEFINITIONS
+# =============================================================================
+
+@dataclass
+class Tool:
+    """Tool definition for Centris registry."""
+    name: str
+    description: str
+    parameters: Dict[str, Any]
+    execute: Callable
+    label: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+
+
+class {class_name}ConnectorApi:
+    """
+    API for tool registration.
+    
+    CRITICAL: The get_tools() method is called by ConnectorManager during
+    connector loading to discover and register tools with the agent system.
+    """
+    
+    def __init__(self):
+        self._gateway_methods: Dict[str, Callable] = {{}}
+        self._services: List[Any] = []
+    
+    def get_tools(self, context: Any = None) -> List[Tool]:
+        """
+        Return all {name} tools.
+        
+        CRITICAL: This method is called by the agent system to discover tools.
+        Each Tool must have: name, description, parameters (JSON Schema), execute (async function).
+        """
+        return [
+            Tool(
+                name="{python_id}_example_action",
+                label="Example Action",
+                description="An example action via {name} browser automation. No login needed - uses existing session.",
+                parameters={{
+                    "type": "object",
+                    "properties": {{
+                        "input": {{
+                            "type": "string",
+                            "description": "The input value"
+                        }}
+                    }},
+                    "required": ["input"]
+                }},
+                execute={python_id}_example_action,
+                tags=["{category}"]
+            ),
+            # Add more tools here...
+        ]
+
+
+# =============================================================================
+# CONNECTOR DEFINITION - The Main Export
+# =============================================================================
+
+@dataclass
+class {class_name}Connector:
+    """
+    {name} connector - Browser/DOM automation with pre-mapped elements.
+    
+    This connector uses the Centris Connector Framework for:
+    - Intelligent selection via task_keywords
+    - URL-based routing via url_patterns
+    - Pre-mapped DOM via element_map
+    - Page-aware context via page_element_sections
+    """
+    
+    # =========================================================================
+    # REQUIRED: Core Identity
+    # =========================================================================
+    id: str = "{connector_id}"
+    name: str = "{name}"
+    version: str = "1.0.0"
+    description: str = "Fast {name} automation using pre-mapped DOM elements."
+    
+    # REQUIRED: API for tool registration
+    api: {class_name}ConnectorApi = field(default_factory={class_name}ConnectorApi)
+    
+    # =========================================================================
+    # REQUIRED: URL Patterns - Which URLs this connector handles
+    # Regex patterns matched against browser URL
+    # =========================================================================
+    url_patterns: List[str] = field(default_factory=lambda: [
+        r"{domain_pattern}"
+    ])
+    
+    # =========================================================================
+    # REQUIRED: Task Keywords - Words that trigger this connector
+    # Enables intelligent selection BEFORE navigation
+    # Include: brand names, abbreviations, common phrases
+    # Avoid: generic words like "app", "site", "form"
+    # =========================================================================
+    task_keywords: List[str] = field(default_factory=lambda: [
+        "{python_id}",
+        "{name}".lower(),
+        # Add more keywords users might say:
+        # "your app",
+        # "your service",
+    ])
+    
+    # =========================================================================
+    # STATIC DOM ONLY - UI controls that never change
+    # =========================================================================
+    # 
+    # IMPORTANT: Only include STATIC UI elements:
+    #   ✅ Buttons, menus, navigation, form inputs
+    #   ❌ DO NOT include dynamic content (emails, events, files, list items)
+    #
+    # For dynamic content, implement get_api_context() instead
+    # =========================================================================
+    element_map: Dict[str, Any] = field(default_factory=lambda: {{
+        # Static controls - same for all users
+        "controls": {{
+            "main_cta": {class_name}StaticControls.MAIN_CTA,
+            "search": {class_name}StaticControls.SEARCH_INPUT,
+            "settings": {class_name}StaticControls.SETTINGS,
+        }},
+        
+        # Form elements (if form structure is static)
+        "form_fields": {{
+            "name": {class_name}StaticControls.NAME_FIELD,
+            "email": {class_name}StaticControls.EMAIL_FIELD,
+            "save": {class_name}StaticControls.SAVE_BUTTON,
+        }},
+    }})
+    
+    # =========================================================================
+    # Page Element Sections - Filter by page type
+    # =========================================================================
+    page_element_sections: Dict[str, List[str]] = field(default_factory=lambda: {{
+        "home": ["controls"],
+        "dashboard": ["controls"],
+        "form": ["controls", "form_fields"],
+        "settings": ["controls"],
+    }})
+    
+    @staticmethod
+    def get_page_type(url: str) -> Optional[str]:
+        """Detect page type from URL."""
+        return {class_name}URLs.get_page_type(url)
+    
+    # =========================================================================
+    # DYNAMIC CONTENT - Use API for user-specific data (if applicable)
+    # =========================================================================
+    # 
+    # If your app has dynamic content (emails, events, files, list items),
+    # implement this method to fetch it via API instead of trying to map DOM.
+    #
+    # Example: Gmail has static controls (compose button) but dynamic emails.
+    # The static DOM tells LLM HOW to interact (click compose).
+    # The API context tells LLM WHAT exists (user has 5 unread emails).
+    # =========================================================================
+    async def get_api_context(self, user_id: str) -> Dict[str, Any]:
+        """
+        Fetch dynamic content via API (if applicable).
+        
+        Override this if your app has:
+        - User-specific content (emails, events, files)
+        - List items that change over time
+        - Search results or filtered views
+        
+        Returns context about user's actual data for LLM.
+        """
+        # Default: no API context (for static apps)
+        # 
+        # For dynamic apps, override like:
+        # return {{
+        #     "items": await self._fetch_user_items(user_id),
+        #     "hint": "Use SEARCH_INPUT to find specific items"
+        # }}
+        return {{}}
+
+
+# =============================================================================
+# MODULE EXPORT - CRITICAL for auto-discovery
+# =============================================================================
+
+connector = {class_name}Connector()
+
+__all__ = [
+    "connector",
+    "{class_name}Connector",
+    "{class_name}URLs",
+    "{class_name}StaticControls",
+]

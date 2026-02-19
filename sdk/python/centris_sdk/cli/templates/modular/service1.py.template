@@ -1,0 +1,102 @@
+"""
+{name} - Service 1
+
+This is an example service module. Create one file per service area.
+
+Guidelines:
+- Keep this file under 300 lines
+- Maximum 5 tools per service (split if more)
+- All tools should be related to this service's domain
+- Use the shared base class from ../base.py
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List, Optional
+
+from ..base import {class_name}ConnectorBase, Tool, handle_errors
+
+logger = logging.getLogger(__name__)
+
+
+class Service1Connector({class_name}ConnectorBase):
+    """
+    Service 1 implementation.
+    
+    Replace this with your actual service (e.g., EmailService, CalendarService).
+    """
+    
+    @property
+    def id(self) -> str:
+        return "service1"
+    
+    @property
+    def name(self) -> str:
+        return "Service 1"
+    
+    @property
+    def description(self) -> str:
+        return "Example service - replace with your implementation"
+    
+    # =========================================================================
+    # Tool Implementations
+    # =========================================================================
+    
+    @handle_errors
+    async def example_action(
+        self,
+        params: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Example action implementation.
+        
+        Replace this with your actual tool logic.
+        """
+        input_value = params.get("input", "")
+        
+        self._log_operation("example_action", input=input_value)
+        
+        # Your implementation here
+        result = f"Processed: {{input_value}}"
+        
+        return {{
+            "success": True,
+            "result": result
+        }}
+    
+    # Add more tool implementations here...
+    # Remember: max 5 tools per service file
+    
+    # =========================================================================
+    # Tool Definitions
+    # =========================================================================
+    
+    def get_tools(self) -> List[Tool]:
+        """Return tools for this service."""
+        return [
+            Tool(
+                name="service1_example_action",
+                label="Example Action",
+                description="An example action - replace with your implementation",
+                parameters={{
+                    "type": "object",
+                    "properties": {{
+                        "input": {{
+                            "type": "string",
+                            "description": "Input value"
+                        }}
+                    }},
+                    "required": ["input"]
+                }},
+                execute=self.example_action,
+                tags=["{category}"]
+            ),
+            # Add more tools here (max 5 per service)
+        ]
+
+
+# Singleton instance
+service1_connector = Service1Connector()
+
+__all__ = ["service1_connector", "Service1Connector"]

@@ -512,6 +512,15 @@ export async function runEmbeddedAttempt(
     // Cherry-picks valuable OpenClaw sections (Safety, Skills, Heartbeats, Runtime)
     // while replacing massive workspace context files with a focused Centris identity.
     const centrisProfile = params.config?.tools?.profile;
+
+    // Initialize manifest store so pre-mapped site context is available
+    // for system prompt injection and browser tool URL resolution.
+    if (centrisProfile === "centris") {
+      const { initManifestStore } = await import("../../centris-manifest-bridge.js");
+      await initManifestStore({ workspaceDir: effectiveWorkspace }).catch((err: unknown) => {
+        log.warn(`[centris-manifests] init failed: ${String(err)}`);
+      });
+    }
     const centrisDomain =
       centrisProfile === "centris" ? classifyCentrisIntent(params.prompt) : undefined;
     const centrisPrompt = centrisDomain

@@ -1,0 +1,22 @@
+{{
+  "id": "{id}",
+  "name": "{name}",
+  "description": "{description}",
+  "version": "1.0.0",
+  "author": "",
+  "license": "MIT",
+  "main": "connector.py",
+  "auth": {{
+    "type": "api_key",
+    "required": true
+  }},
+  "capabilities": [
+    {{
+      "id": "example_action",
+      "name": "Example Action",
+      "description": "An example capability"
+    }}
+  ],
+  "categories": ["{category}"],
+  "tags": ["{tag}"]
+}}

@@ -1,0 +1,55 @@
+"""
+{name} Services Package
+
+This module exports all service implementations.
+Each service is a separate file to keep code organized and maintainable.
+
+Adding a new service:
+1. Create services/new_service.py following the pattern in service1.py
+2. Import and add it to ALL_SERVICES below
+3. Update connector.json with the new service entry
+
+Guidelines:
+- Each service file should be <300 lines
+- Each service should have <5 tools (split if more)
+- Use the shared base class from base.py
+"""
+from __future__ import annotations
+
+from typing import List, Optional
+
+# Import all service modules
+from .service1 import service1_connector, Service1Connector
+
+# List of all service instances
+ALL_SERVICES = [
+    service1_connector,
+    # Add more services here as you create them:
+    # service2_connector,
+]
+
+
+def get_all_tools():
+    """Get all tools from all services."""
+    tools = []
+    for service in ALL_SERVICES:
+        tools.extend(service.get_tools())
+    return tools
+
+
+def get_service(service_id: str):
+    """Get a service by its ID."""
+    for service in ALL_SERVICES:
+        if service.id == service_id:
+            return service
+    return None
+
+
+__all__ = [
+    "ALL_SERVICES",
+    "get_all_tools",
+    "get_service",
+    # Service classes
+    "service1_connector",
+    "Service1Connector",
+]

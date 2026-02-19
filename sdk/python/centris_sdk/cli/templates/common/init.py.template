@@ -1,0 +1,7 @@
+"""
+{name} Connector
+"""
+
+from .connector import connector
+
+__all__ = ["connector"]

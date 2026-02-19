@@ -1,0 +1,105 @@
+{
+  "name": "@centris/sdk",
+  "version": "1.0.0",
+  "description": "Centris SDK for building connectors and integrations",
+  "keywords": [
+    "ai",
+    "automation",
+    "centris",
+    "connector",
+    "mcp",
+    "sdk"
+  ],
+  "license": "MIT",
+  "author": "Centris AI",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/centris-ai/centris-ai.git",
+    "directory": "sdk/typescript"
+  },
+  "bin": {
+    "centris": "./dist/cli/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin/index.d.ts",
+      "import": "./dist/plugin/index.js"
+    },
+    "./loader": {
+      "types": "./dist/loader/index.d.ts",
+      "import": "./dist/loader/index.js"
+    },
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "import": "./dist/tools/index.js"
+    },
+    "./validation": {
+      "types": "./dist/validation/index.d.ts",
+      "import": "./dist/validation/index.js"
+    },
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "import": "./dist/config/index.js"
+    },
+    "./gateway": {
+      "types": "./dist/gateway/index.d.ts",
+      "import": "./dist/gateway/index.js"
+    },
+    "./execution": {
+      "types": "./dist/execution/index.d.ts",
+      "import": "./dist/execution/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "import": "./dist/cli/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "centris": "node --loader ts-node/esm src/cli/bin.ts",
+    "clean": "rm -rf dist",
+    "dev": "tsc --watch",
+    "format": "biome format --write src",
+    "lint": "biome check src",
+    "prepublishOnly": "npm run build",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "0.34.48",
+    "commander": "^14.0.3",
+    "jiti": "^2.6.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

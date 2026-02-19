@@ -1,0 +1,134 @@
+{
+  "centris": "1.0",
+  "app": "github",
+  "description": "GitHub code hosting and collaboration",
+  "url_patterns": ["github.com/*"],
+  "routes": {
+    "/:owner/:repo": {
+      "landmarks": {
+        "repo_nav": {
+          "role": "navigation",
+          "selectors": [
+            "[data-testid='repository-navigation']",
+            "nav[aria-label='Repository']",
+            ".UnderlineNav"
+          ],
+          "stability": "stable",
+          "description": "Code/Issues/PRs/Actions tab bar"
+        },
+        "file_tree": {
+          "role": "tree",
+          "selectors": [
+            "[data-testid='repos-file-tree-container']",
+            "[role='tree']",
+            ".react-directory-truncate"
+          ],
+          "stability": "moderate",
+          "description": "File browser tree"
+        }
+      },
+      "actions": {
+        "go_to_issues": {
+          "description": "Navigate to the issues tab",
+          "steps": [{ "click": "repo_nav [data-content='Issues']" }]
+        },
+        "go_to_pull_requests": {
+          "description": "Navigate to the pull requests tab",
+          "steps": [{ "click": "repo_nav [data-content='Pull requests']" }]
+        }
+      }
+    },
+    "/:owner/:repo/issues": {
+      "landmarks": {
+        "issue_list": {
+          "role": "list",
+          "selectors": ["[data-testid='issue-list']", "[role='group']", ".js-issue-row"],
+          "stability": "moderate",
+          "description": "List of issues"
+        },
+        "new_issue_button": {
+          "role": "button",
+          "selectors": [
+            "[data-testid='new-issue-button']",
+            "a[href$='/issues/new/choose']",
+            "a[href$='/issues/new']"
+          ],
+          "stability": "stable",
+          "description": "Create new issue button"
+        },
+        "search_bar": {
+          "role": "search",
+          "selectors": [
+            "[data-testid='issues-search']",
+            "#js-issues-search",
+            "input[aria-label*='Search']"
+          ],
+          "stability": "moderate",
+          "description": "Issue search/filter bar"
+        }
+      },
+      "actions": {
+        "create_issue": {
+          "description": "Start creating a new issue",
+          "steps": [{ "click": "new_issue_button" }]
+        },
+        "search_issues": {
+          "description": "Search/filter issues",
+          "params": ["query"],
+          "steps": [
+            { "click": "search_bar" },
+            { "type": { "target": "search_bar", "value": "{{query}}" } },
+            { "press": "Enter" }
+          ]
+        }
+      }
+    },
+    "/:owner/:repo/issues/new*": {
+      "landmarks": {
+        "title_input": {
+          "role": "textbox",
+          "selectors": [
+            "#issue_title",
+            "input[name='issue[title]']",
+            "[data-testid='issue-title-input']"
+          ],
+          "stability": "stable",
+          "description": "Issue title field"
+        },
+        "body_editor": {
+          "role": "textbox",
+          "selectors": [
+            "#issue_body",
+            "textarea[name='issue[body]']",
+            "[data-testid='markdown-editor'] textarea"
+          ],
+          "stability": "stable",
+          "description": "Issue body/description editor"
+        },
+        "submit_button": {
+          "role": "button",
+          "selectors": [
+            "[data-testid='create-issue-button']",
+            "button[type='submit']:has-text('Submit new issue')",
+            ".btn-primary[type='submit']"
+          ],
+          "stability": "moderate",
+          "description": "Submit new issue button"
+        }
+      },
+      "actions": {
+        "fill_and_submit_issue": {
+          "description": "Fill out and submit a new issue",
+          "params": ["title", "body"],
+          "steps": [
+            { "click": "title_input" },
+            { "type": { "target": "title_input", "value": "{{title}}" } },
+            { "click": "body_editor" },
+            { "type": { "target": "body_editor", "value": "{{body}}" } },
+            { "click": "submit_button" }
+          ]
+        }
+      }
+    }
+  }
+}

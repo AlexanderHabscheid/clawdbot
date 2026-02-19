@@ -1,0 +1,73 @@
+"""
+{name} Connector for Centris
+
+{description}
+"""
+
+from centris_sdk import (
+    CentrisConnector,
+    ExecutionMethod,
+    AuthScheme,
+)
+
+
+# Create the connector
+connector = CentrisConnector(
+    connector_id="{id}",
+    name="{name}",
+    description="{description}",
+    version="1.0.0",
+    auth_schemes=[AuthScheme.API_KEY],
+    categories=["{category}"],
+    tags=["{tag}"],
+)
+
+
+@connector.capability(
+    id="example_action",
+    name="Example Action",
+    description="An example capability - replace with your actual functionality",
+    input_schema={{
+        "type": "object",
+        "properties": {{
+            "message": {{
+                "type": "string",
+                "description": "A message to process",
+            }},
+        }},
+        "required": ["message"],
+    }},
+    execution_methods=[ExecutionMethod.API],
+)
+async def example_action(params: dict, context: dict) -> dict:
+    """
+    Example capability handler.
+    
+    Args:
+        params: Input parameters from the schema
+        context: Execution context with auth info
+        
+    Returns:
+        Result dictionary
+    """
+    message = params.get("message", "")
+    
+    # TODO: Implement your actual logic here
+    return {{
+        "success": True,
+        "result": f"Processed: {{message}}",
+    }}
+
+
+# Export for discovery
+__all__ = ["connector"]
+
+
+if __name__ == "__main__":
+    import asyncio
+    
+    async def main():
+        # Run the connector server
+        await connector.serve(port=8000)
+    
+    asyncio.run(main())

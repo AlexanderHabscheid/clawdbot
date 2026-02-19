@@ -1,0 +1,102 @@
+# {name} Connector
+
+{description}
+
+## Modular Architecture
+
+This connector uses a **modular multi-service architecture** to prevent file bloat
+and maintain clean, organized code. Each service lives in its own file.
+
+```
+{connector_id}/
+├── __init__.py           # Package exports
+├── connector.py          # Thin coordinator (routes to services)
+├── connector.json        # Manifest with service definitions
+├── base.py               # Shared base class and utilities
+└── services/             # Service implementations
+    ├── __init__.py       # Service registry
+    ├── service1.py       # First service (~300 lines max)
+    └── service2.py       # Second service (~300 lines max)
+```
+
+## Guidelines
+
+The SDK enforces these guidelines to keep code maintainable:
+
+| Rule | Limit | Reason |
+|------|-------|--------|
+| Max lines per file | 300 | Keeps files readable |
+| Max tools per service | 5 | Forces logical grouping |
+| Shared code location | `base.py` | Single source of truth |
+
+## Adding a New Service
+
+1. Create `services/my_new_service.py`:
+
+```python
+from ..base import {class_name}ConnectorBase, Tool
+
+class MyNewServiceConnector({class_name}ConnectorBase):
+    @property
+    def id(self) -> str:
+        return "my_new_service"
+    
+    # ... implement get_tools() and tool methods
+```
+
+2. Register in `services/__init__.py`:
+
+```python
+from .my_new_service import my_new_service_connector
+
+ALL_SERVICES = [
+    # ... existing services
+    my_new_service_connector,
+]
+```
+
+3. Add to `connector.json`:
+
+```json
+{{
+  "services": [
+    // ... existing services
+    {{
+      "id": "my_new_service",
+      "name": "My New Service",
+      "module": "services.my_new_service"
+    }}
+  ]
+}}
+```
+
+## Usage
+
+```python
+from {python_id} import connector
+
+# List all services
+print(connector.services)
+
+# Get tools from all services
+tools = connector.get_tools()
+
+# Execute a tool
+result = await connector.execute(
+    "service1_example_action",
+    {{"input": "test"}}
+)
+```
+
+## Testing
+
+```bash
+centris validate .
+centris test .
+```
+
+## Publishing
+
+```bash
+centris publish .
+```

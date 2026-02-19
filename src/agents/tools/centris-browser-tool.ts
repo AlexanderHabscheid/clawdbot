@@ -24,6 +24,10 @@ import {
   sendExtensionCommand,
   waitForExtension,
 } from "../../gateway/centris-extension-bridge.js";
+import {
+  resolveManifestForUrl,
+  formatManifestForToolResultJson,
+} from "../centris-manifest-bridge.js";
 import { stringEnum, optionalStringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readStringParam } from "./common.js";
 
@@ -221,6 +225,21 @@ export function createCentrisBrowserTool(): AnyAgentTool {
               /* snapshot/content failure shouldn't break click */
             }
           }
+
+          // Inject manifest context for click results too — the LLM may be
+          // mid-way through an action recipe and needs the landmarks/actions.
+          try {
+            const clickUrl = clickResult.url as string | undefined;
+            if (clickUrl) {
+              const resolved = resolveManifestForUrl(clickUrl);
+              if (resolved) {
+                clickResult._manifest = formatManifestForToolResultJson(resolved);
+              }
+            }
+          } catch {
+            /* manifest resolution failure shouldn't break click */
+          }
+
           return jsonResult(clickResult);
         }
 
@@ -397,6 +416,20 @@ export function createCentrisBrowserTool(): AnyAgentTool {
           delete navResult.tabId;
           delete navResult.loadTime;
           delete navResult.duration_ms;
+
+          // Check if this URL has a pre-mapped manifest.
+          // If yes, inject the semantic map so the LLM can follow action recipes
+          // instead of discovering elements through expensive snapshot cycles.
+          try {
+            const finalUrl = (navResult.url as string) ?? url;
+            const resolved = resolveManifestForUrl(finalUrl);
+            if (resolved) {
+              navResult._manifest = formatManifestForToolResultJson(resolved);
+            }
+          } catch {
+            /* manifest resolution failure shouldn't break navigate */
+          }
+
           return jsonResult(navResult);
         }
 

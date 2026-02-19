@@ -1,0 +1,92 @@
+# {name}
+
+{description}
+
+## Architecture
+
+This is a **compiled recipe** connector - it provides deterministic browser automation that runs 10x faster than LLM-in-the-loop approaches.
+
+### How It Works
+
+```
+WITHOUT CONNECTOR (LLM-in-loop, 10-30 seconds):
+  Screenshot → LLM: "click button" → Click
+  Screenshot → LLM: "fill input" → Type
+  Screenshot → LLM: "submit form" → Click
+
+WITH CONNECTOR (compiled recipe, 1-3 seconds):
+  LLM: "use {python_id}_action" → Connector executes deterministic sequence
+```
+
+### NO OAuth Required
+
+The user is already logged into {name} in their browser. The connector operates within that existing session - just like a human clicking around.
+
+## Installation
+
+```bash
+pip install centris-sdk
+```
+
+## Development
+
+### 1. Define Selectors
+
+Edit `connector.py` and update the `{class_name}Selectors` class with the CSS selectors for your app:
+
+```python
+class {class_name}Selectors:
+    COMPOSE_BUTTON = '[data-testid="compose"]'  # Find via browser DevTools
+    SEND_BUTTON = '[type="submit"]'
+```
+
+### 2. Implement Tools
+
+Add browser automation recipes using the `browser_bridge`:
+
+```python
+async def {python_id}_send(tool_call_id, params, context):
+    bridge = context.get("browser_bridge")
+    await bridge.click_node({class_name}Selectors.COMPOSE_BUTTON)
+    await bridge.input_text_node("#to", params["recipient"])
+    await bridge.click_node({class_name}Selectors.SEND_BUTTON)
+    return {{"success": True}}
+```
+
+### 3. Test
+
+```bash
+centris test .
+```
+
+### 4. Publish
+
+```bash
+centris publish .
+```
+
+## Browser Bridge API
+
+The `browser_bridge` provides these methods:
+
+| Method | Description |
+|--------|-------------|
+| `navigate_browser(url)` | Navigate to URL |
+| `click_node(selector)` | Click element |
+| `input_text_node(selector, text)` | Type into input |
+| `type_text(text)` | Type at cursor |
+| `press_key(key)` | Press keyboard key |
+| `wait(ms)` | Wait milliseconds |
+| `wait_for_selector(selector)` | Wait for element |
+| `get_page_content()` | Get page text |
+| `take_screenshot()` | Capture screenshot |
+
+## Security
+
+- Your connector runs in a sandboxed environment
+- You cannot access user credentials or other connectors' data
+- All browser interactions go through the safe `browser_bridge` API
+
+## License
+
+MIT

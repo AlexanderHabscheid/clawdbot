@@ -1,0 +1,27 @@
+{
+  "id": "{connector_id}",
+  "name": "{name}",
+  "description": "{description}",
+  "version": "1.0.0",
+  "main": "__init__.py",
+  "centrisConnector": {
+    "id": "{connector_id}",
+    "type": "modular",
+    "categories": ["{category}"],
+    "structure": "multi-service"
+  },
+  "services": [
+    {
+      "id": "service1",
+      "name": "Service 1",
+      "description": "First service module",
+      "module": "services.service1",
+      "tools": []
+    }
+  ],
+  "guidelines": {
+    "maxFileLines": 300,
+    "maxToolsPerFile": 5,
+    "enforceModularization": true
+  }
+}

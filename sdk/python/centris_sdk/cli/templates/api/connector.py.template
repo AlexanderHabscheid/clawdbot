@@ -1,0 +1,201 @@
+"""
+{name} API Connector for Centris
+
+Direct API integration - 10-100x faster than browser automation.
+Use this when the service has a REST API.
+
+CENTRIS CONNECTOR FRAMEWORK:
+    1. task_keywords - Words that trigger this connector (e.g., "stripe", "payment")
+    2. url_patterns - URL patterns for context awareness (optional for pure API)
+    3. api.get_tools() - Return tool definitions with API implementations
+
+See sdk/python/CONNECTOR_FRAMEWORK.md for complete documentation.
+
+Architecture:
+    API CONNECTOR (direct API calls):
+        User: "create payment link"
+        → Connector selected via "payment" keyword
+        → Direct Stripe API call
+        → Result in ~200ms
+    
+    vs BROWSER AUTOMATION (slower):
+        User: "create payment link"
+        → Navigate to dashboard.stripe.com
+        → Click elements, fill forms
+        → Result in 5-10 seconds
+"""
+
+import logging
+import os
+from dataclasses import dataclass, field
+from typing import Dict, Any, List, Optional, Callable
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# API OPERATIONS - Direct API Calls
+# =============================================================================
+
+async def {python_id}_example_action(
+    tool_call_id: str,
+    params: Dict[str, Any],
+    context: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Example API action.
+    
+    This calls the {name} API directly - much faster than browser automation.
+    
+    Args:
+        tool_call_id: Unique ID for this tool call
+        params: Input parameters from tool schema
+        context: May contain user_id, config, etc.
+        
+    Returns:
+        {{"success": True/False, ...}}
+    """
+    # Get API key from environment (secure, not hardcoded)
+    api_key = os.getenv("{env_prefix}_API_KEY")
+    
+    if not api_key:
+        return {{
+            "success": False,
+            "error": "{name} API key not configured. Set {env_prefix}_API_KEY environment variable."
+        }}
+    
+    message = params.get("message", "")
+    
+    try:
+        logger.info(f"[{name}] API call with: {{message}}")
+        
+        # TODO: Replace with actual API call
+        # Example with httpx:
+        # import httpx
+        # async with httpx.AsyncClient() as client:
+        #     response = await client.post(
+        #         "https://api.{domain}/v1/endpoint",
+        #         headers={{"Authorization": f"Bearer {{api_key}}"}},
+        #         json={{"message": message}}
+        #     )
+        #     data = response.json()
+        
+        return {{
+            "success": True,
+            "result": f"Processed: {{message}}",
+        }}
+        
+    except Exception as e:
+        logger.error(f"[{name}] API error: {{e}}")
+        return {{"success": False, "error": str(e)}}
+
+
+# =============================================================================
+# TOOL DEFINITIONS
+# =============================================================================
+
+@dataclass
+class Tool:
+    """Tool definition for Centris registry."""
+    name: str
+    description: str
+    parameters: Dict[str, Any]
+    execute: Callable
+    label: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+
+
+class {class_name}ConnectorApi:
+    """
+    API for tool registration.
+    
+    The get_tools() method is called by Centris to discover available tools.
+    """
+    
+    def __init__(self):
+        self._gateway_methods: Dict[str, Callable] = {{}}
+        self._services: List[Any] = []
+    
+    def get_tools(self, context: Any = None) -> List[Tool]:
+        """Return all {name} API tools."""
+        return [
+            Tool(
+                name="{python_id}_example_action",
+                label="Example Action",
+                description="Example {name} API action. Fast direct API call.",
+                parameters={{
+                    "type": "object",
+                    "properties": {{
+                        "message": {{
+                            "type": "string",
+                            "description": "The message to process"
+                        }}
+                    }},
+                    "required": ["message"]
+                }},
+                execute={python_id}_example_action,
+                tags=["{category}"]
+            ),
+            # Add more API tools here...
+        ]
+
+
+# =============================================================================
+# CONNECTOR DEFINITION
+# =============================================================================
+
+@dataclass
+class {class_name}Connector:
+    """
+    {name} API Connector - Direct API integration.
+    
+    This is an API connector (not browser-based), so it doesn't need:
+    - element_map (no DOM to map)
+    - page_element_sections (no pages to filter)
+    - get_page_type() (no page detection needed)
+    
+    What it DOES have:
+    - task_keywords: How users refer to this service
+    - url_patterns: For context awareness (optional)
+    - api.get_tools(): Tool definitions with API implementations
+    """
+    
+    # =========================================================================
+    # REQUIRED: Core Identity
+    # =========================================================================
+    id: str = "{connector_id}"
+    name: str = "{name}"
+    version: str = "1.0.0"
+    description: str = "Fast {name} integration via direct API calls."
+    
+    # REQUIRED: API for tool registration
+    api: {class_name}ConnectorApi = field(default_factory={class_name}ConnectorApi)
+    
+    # =========================================================================
+    # REQUIRED: Task Keywords - Words that trigger this connector
+    # Include: service name, abbreviations, action phrases
+    # =========================================================================
+    task_keywords: List[str] = field(default_factory=lambda: [
+        "{python_id}",
+        "{name}".lower(),
+        # Add more keywords users might say:
+        # "your service",
+        # "do action",
+    ])
+    
+    # =========================================================================
+    # OPTIONAL: URL Patterns - For context awareness
+    # When user is on these URLs, prefer this connector's API tools
+    # =========================================================================
+    url_patterns: List[str] = field(default_factory=lambda: [
+        r"{domain_pattern}"
+    ])
+
+
+# =============================================================================
+# MODULE EXPORT - CRITICAL for auto-discovery
+# =============================================================================
+
+connector = {class_name}Connector()
+
+__all__ = ["connector", "{class_name}Connector"]

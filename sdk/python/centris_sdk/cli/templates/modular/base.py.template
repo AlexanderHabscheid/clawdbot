@@ -1,0 +1,93 @@
+"""
+{name} Connector - Shared Base Class
+
+This module contains shared utilities and the base class
+that all service modules inherit from.
+
+Keep this file focused on shared functionality:
+- Authentication/token management
+- Common API client setup
+- Shared data types
+- Utility functions
+"""
+from __future__ import annotations
+
+import logging
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Tool:
+    """Tool definition for Centris registry."""
+    name: str
+    description: str
+    parameters: Dict[str, Any]
+    execute: Callable
+    label: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+
+
+class {class_name}ConnectorBase(ABC):
+    """
+    Base class for all {name} service modules.
+    
+    Subclasses implement specific services but share:
+    - Authentication handling
+    - Error handling patterns
+    - Common utilities
+    """
+    
+    @property
+    @abstractmethod
+    def id(self) -> str:
+        """Unique service identifier."""
+        pass
+    
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Human-readable service name."""
+        pass
+    
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        """Service description."""
+        pass
+    
+    @abstractmethod
+    def get_tools(self) -> List[Tool]:
+        """Return list of tools this service provides."""
+        pass
+    
+    def _get_context_value(self, context: Optional[Dict], key: str, default: Any = None) -> Any:
+        """Safely get a value from context."""
+        if not context:
+            return default
+        return context.get(key, default)
+    
+    def _log_operation(self, operation: str, **kwargs):
+        """Log an operation with consistent formatting."""
+        extra = " ".join(f"{{k}}={{v}}" for k, v in kwargs.items())
+        logger.info(f"[{{self.name}}] {{operation}} {{extra}}")
+
+
+def handle_errors(func):
+    """Decorator to handle errors gracefully."""
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"Error in {{func.__name__}}: {{e}}")
+            return {{
+                "success": False,
+                "error": str(e)
+            }}
+    return wrapper
+
+
+__all__ = ["Tool", "{class_name}ConnectorBase", "handle_errors"]
