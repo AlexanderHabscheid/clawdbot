@@ -6,7 +6,7 @@ import {
   formatResolvedManifest,
   formatResolvedManifestJson,
 } from "./formatter.js";
-import { loadManifests } from "./loader.js";
+import { loadManifests, validateManifest } from "./loader.js";
 import { ManifestStore } from "./resolver.js";
 
 const SLACK_MANIFEST: CentrisManifest = {
@@ -262,5 +262,30 @@ describe("loadManifests", () => {
     const results = loadManifests({ workspaceDir: "/nonexistent/path" });
     // May still find global manifests, but should not throw
     expect(Array.isArray(results)).toBe(true);
+  });
+
+  it("migrates legacy verify field into successChecks", () => {
+    const legacy = {
+      centris: "1.0",
+      app: "legacy",
+      url_patterns: ["legacy.example.com/*"],
+      routes: {
+        "/": {
+          actions: {
+            submit: {
+              description: "Submit",
+              steps: [{ click: "#submit" }],
+              verify: [{ type: "url_contains", value: "/done" }],
+            },
+          },
+        },
+      },
+    };
+    const parsed = validateManifest(legacy);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.routes["/"]?.actions?.submit?.successChecks?.[0]).toEqual({
+      type: "url_contains",
+      value: "/done",
+    });
   });
 });

@@ -32,6 +32,10 @@ interface ManifestAction {
   description: string;
   params?: string[];
   steps: Array<Record<string, unknown>>;
+  successChecks?: Array<{ type: string; value?: string }>;
+  confidence?: number;
+  lastVerifiedAt?: string;
+  fallbackChains?: string[][];
 }
 
 interface ResolvedManifest {
@@ -122,7 +126,7 @@ export async function initManifestStore(options?: {
 
     // Optional first-party discovery: fetch .well-known manifests from an explicit allowlist.
     const allowlist = parseWellKnownAllowlist(process.env.CENTRIS_MANIFEST_ALLOWLIST);
-    if (allowlist.length > 0 && typeof store.add === "function") {
+    if (store && allowlist.length > 0 && typeof store.add === "function") {
       for (const host of allowlist) {
         const url = `https://${host}/.well-known/centris.json`;
         try {
