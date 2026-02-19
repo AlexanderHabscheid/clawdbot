@@ -579,6 +579,14 @@ export const OpenClawSchema = z
           })
           .strict()
           .optional(),
+        selfExtend: z
+          .object({
+            enabled: z.boolean().optional(),
+            autoCommit: z.boolean().optional(),
+            autoPush: z.boolean().optional(),
+          })
+          .strict()
+          .optional(),
         limits: z
           .object({
             maxCandidatesPerRoot: z.number().int().min(1).optional(),

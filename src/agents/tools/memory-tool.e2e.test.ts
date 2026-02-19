@@ -11,7 +11,10 @@ let searchImpl: () => Promise<unknown[]> = async () => [
     source: "memory" as const,
   },
 ];
-let readFileImpl: () => Promise<string> = async () => "";
+let readFileImpl: () => Promise<{ text: string; path: string }> = async () => ({
+  text: "",
+  path: "MEMORY.md",
+});
 
 const stubManager = {
   search: vi.fn(async () => await searchImpl()),
@@ -54,7 +57,7 @@ beforeEach(() => {
       source: "memory" as const,
     },
   ];
-  readFileImpl = async () => "";
+  readFileImpl = async () => ({ text: "", path: "MEMORY.md" });
   vi.clearAllMocks();
 });
 
@@ -177,5 +180,34 @@ describe("memory tools", () => {
       disabled: true,
       error: "path required",
     });
+  });
+
+  it("memory_get applies default line window when lines is omitted", async () => {
+    readFileImpl = async () => ({ text: "line 1\nline 2", path: "MEMORY.md" });
+    const cfg = { agents: { list: [{ id: "main", default: true }] } };
+    const tool = createMemoryGetTool({ config: cfg });
+    if (!tool) {
+      throw new Error("tool missing");
+    }
+
+    await tool.execute("call_default_lines", { path: "MEMORY.md" });
+    const call = stubManager.readFile.mock.calls[0]?.[0] as { lines?: number } | undefined;
+    expect(call?.lines).toBe(20);
+  });
+
+  it("memory_get truncates oversized text payloads", async () => {
+    readFileImpl = async () => ({ text: "x".repeat(2500), path: "MEMORY.md" });
+    const cfg = { agents: { list: [{ id: "main", default: true }] } };
+    const tool = createMemoryGetTool({ config: cfg });
+    if (!tool) {
+      throw new Error("tool missing");
+    }
+
+    const result = await tool.execute("call_truncate", { path: "MEMORY.md", lines: 9999 });
+    const details = result.details as { text: string; truncated: boolean; lines: number };
+    expect(details.truncated).toBe(true);
+    expect(details.lines).toBe(200);
+    expect(details.text).toContain("[memory_get truncated]");
+    expect(details.text.length).toBeLessThanOrEqual(2050);
   });
 });

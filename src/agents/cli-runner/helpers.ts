@@ -88,6 +88,7 @@ export function buildSystemPrompt(params: {
     ownerNumbers: params.ownerNumbers,
     reasoningTagHint: false,
     heartbeatPrompt: params.heartbeatPrompt,
+    skillsSelfExtend: params.config?.skills?.selfExtend,
     docsPath: params.docsPath,
     runtimeInfo,
     toolNames: params.tools.map((tool) => tool.name),

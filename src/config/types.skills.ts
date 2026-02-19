@@ -22,6 +22,15 @@ export type SkillsInstallConfig = {
   nodeManager?: "npm" | "pnpm" | "yarn" | "bun";
 };
 
+export type SkillsSelfExtendConfig = {
+  /** Allow the agent to scaffold new skills when no existing skill applies. */
+  enabled?: boolean;
+  /** If enabled, the agent may commit self-extension changes after validation. */
+  autoCommit?: boolean;
+  /** If enabled, the agent may push self-extension commits after updating with rebase. */
+  autoPush?: boolean;
+};
+
 export type SkillsLimitsConfig = {
   /** Max number of immediate child directories to consider under a skills root before treating it as suspicious. */
   maxCandidatesPerRoot?: number;
@@ -40,6 +49,7 @@ export type SkillsConfig = {
   allowBundled?: string[];
   load?: SkillsLoadConfig;
   install?: SkillsInstallConfig;
+  selfExtend?: SkillsSelfExtendConfig;
   limits?: SkillsLimitsConfig;
   entries?: Record<string, SkillConfig>;
 };

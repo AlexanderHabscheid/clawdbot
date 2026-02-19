@@ -293,6 +293,29 @@ describe("buildAgentSystemPrompt", () => {
     );
   });
 
+  it("includes self-extension guidance when enabled", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      skillsPrompt:
+        "<available_skills>\n  <skill>\n    <name>demo</name>\n  </skill>\n</available_skills>",
+      skillsSelfExtend: { enabled: true },
+    });
+
+    expect(prompt).toContain("Self-extension (enabled)");
+    expect(prompt).toContain("VCS automation (disabled)");
+  });
+
+  it("includes VCS automation push guidance when enabled", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      skillsPrompt:
+        "<available_skills>\n  <skill>\n    <name>demo</name>\n  </skill>\n</available_skills>",
+      skillsSelfExtend: { enabled: true, autoCommit: true, autoPush: true },
+    });
+
+    expect(prompt).toContain("commit with `scripts/committer` and then push");
+  });
+
   it("appends available skills when provided", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",

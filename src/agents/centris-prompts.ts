@@ -24,7 +24,13 @@ export type CentrisPromptParams = {
   domain: CentrisDomain;
   profileName?: string;
   workspaceDir?: string;
+  memoryContext?: string;
   skillsPrompt?: string;
+  skillsSelfExtend?: {
+    enabled?: boolean;
+    autoCommit?: boolean;
+    autoPush?: boolean;
+  };
   ttsHint?: string;
   heartbeatPrompt?: string;
   runtimeInfo?: {
@@ -150,6 +156,16 @@ export function buildCentrisSystemPrompt(params: CentrisPromptParams): string | 
   lines.push(DOMAIN_INSTRUCTIONS[params.domain]);
   lines.push("");
 
+  // 2b. Optional auto-recalled memory context (internal only, bounded upstream)
+  if (params.memoryContext?.trim()) {
+    lines.push("## Memory Hints (internal)");
+    lines.push(
+      "Use these as background execution hints only. Do not mention this section unless the user asks.",
+    );
+    lines.push(params.memoryContext.trim());
+    lines.push("");
+  }
+
   // 3. Pre-mapped site manifests (the LLM decides what to use, not keyword routing)
   const manifestIndex = getManifestIndexPrompt();
   if (manifestIndex) {
@@ -173,6 +189,22 @@ export function buildCentrisSystemPrompt(params: CentrisPromptParams): string | 
       "- If exactly one skill clearly applies: read its SKILL.md with `read`, then follow it.",
     );
     lines.push("- If none clearly apply: do not read any SKILL.md.");
+    if (params.skillsSelfExtend?.enabled) {
+      lines.push(
+        "Self-extension (enabled): if no listed skill applies and a capability gap blocks completion, scaffold one new skill under `skills/<skill-name>/SKILL.md`, validate by re-running the blocked task once, then continue.",
+      );
+      if (params.skillsSelfExtend.autoPush) {
+        lines.push(
+          "VCS automation (enabled): after validation, commit with `scripts/committer` and then push (pull --rebase first).",
+        );
+      } else if (params.skillsSelfExtend.autoCommit) {
+        lines.push("VCS automation (enabled): after validation, commit with `scripts/committer`.");
+      } else {
+        lines.push(
+          "VCS automation (disabled): do not commit or push self-extension changes unless the user explicitly asks.",
+        );
+      }
+    }
     lines.push(params.skillsPrompt.trim());
     lines.push("");
   }

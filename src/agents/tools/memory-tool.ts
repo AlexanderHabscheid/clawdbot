@@ -22,6 +22,10 @@ const MemoryGetSchema = Type.Object({
   lines: Type.Optional(Type.Number()),
 });
 
+const MEMORY_GET_DEFAULT_LINES = 20;
+const MEMORY_GET_MAX_LINES = 200;
+const MEMORY_GET_MAX_CHARS = 2000;
+
 function resolveMemoryToolContext(options: { config?: OpenClawConfig; agentSessionKey?: string }) {
   const cfg = options.config;
   if (!cfg) {
@@ -116,7 +120,11 @@ export function createMemoryGetTool(options: {
     execute: async (_toolCallId, params) => {
       const relPath = readStringParam(params, "path", { required: true });
       const from = readNumberParam(params, "from", { integer: true });
-      const lines = readNumberParam(params, "lines", { integer: true });
+      const requestedLines = readNumberParam(params, "lines", { integer: true });
+      const lines =
+        requestedLines === undefined
+          ? MEMORY_GET_DEFAULT_LINES
+          : Math.max(1, Math.min(MEMORY_GET_MAX_LINES, requestedLines));
       const { manager, error } = await getMemorySearchManager({
         cfg,
         agentId,
@@ -128,9 +136,19 @@ export function createMemoryGetTool(options: {
         const result = await manager.readFile({
           relPath,
           from: from ?? undefined,
-          lines: lines ?? undefined,
+          lines,
         });
-        return jsonResult(result);
+        const text = typeof result.text === "string" ? result.text : "";
+        const truncated = text.length > MEMORY_GET_MAX_CHARS;
+        const boundedText = truncated
+          ? `${text.slice(0, MEMORY_GET_MAX_CHARS)}\n...[memory_get truncated]`
+          : text;
+        return jsonResult({
+          ...result,
+          text: boundedText,
+          lines,
+          truncated,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return jsonResult({ path: relPath, text: "", disabled: true, error: message });

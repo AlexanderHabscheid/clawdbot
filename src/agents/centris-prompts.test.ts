@@ -102,6 +102,27 @@ describe("buildCentrisSystemPrompt", () => {
     expect(prompt).toContain("test skill");
   });
 
+  it("includes self-extension guidance when enabled", () => {
+    const prompt = buildCentrisSystemPrompt({
+      domain: "general",
+      profileName: "centris",
+      skillsPrompt: "<available_skills>test skill</available_skills>",
+      skillsSelfExtend: { enabled: true },
+    })!;
+    expect(prompt).toContain("Self-extension (enabled)");
+    expect(prompt).toContain("VCS automation (disabled)");
+  });
+
+  it("includes VCS push guidance when self-extension push is enabled", () => {
+    const prompt = buildCentrisSystemPrompt({
+      domain: "general",
+      profileName: "centris",
+      skillsPrompt: "<available_skills>test skill</available_skills>",
+      skillsSelfExtend: { enabled: true, autoCommit: true, autoPush: true },
+    })!;
+    expect(prompt).toContain("commit with `scripts/committer` and then push");
+  });
+
   it("omits skills section when skillsPrompt is empty", () => {
     const prompt = buildCentrisSystemPrompt({
       domain: "general",
@@ -137,6 +158,25 @@ describe("buildCentrisSystemPrompt", () => {
       ttsHint: "",
     })!;
     expect(prompt).not.toContain("## Voice");
+  });
+
+  it("includes internal memory hints when memoryContext is provided", () => {
+    const prompt = buildCentrisSystemPrompt({
+      domain: "general",
+      profileName: "centris",
+      memoryContext: "- MEMORY.md#L10: prefer keyboard shortcuts in browser flows",
+    })!;
+    expect(prompt).toContain("## Memory Hints (internal)");
+    expect(prompt).toContain("prefer keyboard shortcuts");
+  });
+
+  it("omits memory hints section when memoryContext is empty", () => {
+    const prompt = buildCentrisSystemPrompt({
+      domain: "general",
+      profileName: "centris",
+      memoryContext: "   ",
+    })!;
+    expect(prompt).not.toContain("## Memory Hints (internal)");
   });
 
   it("includes workspace when provided", () => {

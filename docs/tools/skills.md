@@ -225,6 +225,32 @@ Rules:
 - `allowBundled`: optional allowlist for **bundled** skills only. If set, only
   bundled skills in the list are eligible (managed/workspace skills unaffected).
 
+## Self-extension (optional)
+
+If you want the agent to scaffold a new skill when no existing skill applies,
+enable `skills.selfExtend`:
+
+```json5
+{
+  skills: {
+    selfExtend: {
+      enabled: true,
+      autoCommit: false,
+      autoPush: false,
+    },
+  },
+}
+```
+
+Behavior when enabled:
+
+- The skills prompt allows one new skill scaffold per user request when a
+  capability gap blocks completion.
+- The scaffold is created under `<workspace>/skills/<skill-name>/SKILL.md`.
+- The agent should validate by retrying the blocked task once.
+- By default, VCS actions stay off. Set `autoCommit: true` to allow commits,
+  and `autoPush: true` (plus `autoCommit`) to allow pull-rebase + push.
+
 ## Environment injection (per agent run)
 
 When an agent run starts, OpenClaw:

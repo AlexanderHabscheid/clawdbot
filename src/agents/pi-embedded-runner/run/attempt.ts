@@ -9,6 +9,7 @@ import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
+import { getMemorySearchManager } from "../../../memory/index.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import {
   isCronSessionKey,
@@ -23,7 +24,7 @@ import { resolveUserPath } from "../../../utils.js";
 import { normalizeMessageChannel } from "../../../utils/message-channel.js";
 import { isReasoningTagProvider } from "../../../utils/provider-utils.js";
 import { resolveOpenClawAgentDir } from "../../agent-paths.js";
-import { resolveSessionAgentIds } from "../../agent-scope.js";
+import { resolveSessionAgentId, resolveSessionAgentIds } from "../../agent-scope.js";
 import { createAnthropicPayloadLogger } from "../../anthropic-payload-log.js";
 import { makeBootstrapWarn, resolveBootstrapContextForRun } from "../../bootstrap-files.js";
 import { createCacheTrace } from "../../cache-trace.js";
@@ -42,6 +43,7 @@ import {
 } from "../../channel-tools.js";
 import { resolveOpenClawDocsPath } from "../../docs-path.js";
 import { isTimeoutError } from "../../failover-error.js";
+import { resolveMemorySearchConfig } from "../../memory-search.js";
 import { resolveModelAuthMode } from "../../model-auth.js";
 import { resolveDefaultModelForAgent } from "../../model-selection.js";
 import { createOllamaStreamFn, OLLAMA_NATIVE_BASE_URL } from "../../ollama-stream.js";
@@ -185,6 +187,133 @@ function summarizeMessagePayload(msg: AgentMessage): { textChars: number; imageB
   }
 
   return { textChars, imageBlocks };
+}
+
+const CENTRIS_MEMORY_MAX_SNIPPETS = 2;
+const CENTRIS_MEMORY_MAX_SNIPPET_CHARS = 260;
+const CENTRIS_MEMORY_MAX_TOTAL_CHARS = 1000;
+const CENTRIS_MEMORY_MIN_SCORE = 0.45;
+const CENTRIS_BROWSER_IMPERATIVE_PREFIXES = [
+  "click",
+  "scroll",
+  "open tab",
+  "new tab",
+  "close tab",
+  "switch tab",
+  "press",
+  "type",
+  "go back",
+  "go forward",
+  "refresh",
+];
+const CENTRIS_BROWSER_MEMORY_FORCE_HINTS = [
+  "remember",
+  "last time",
+  "preference",
+  "prefer",
+  "history",
+  "previous",
+  "before",
+  "context",
+];
+
+function formatMemoryLineRange(startLine: number, endLine: number): string {
+  return startLine === endLine ? `#L${startLine}` : `#L${startLine}-L${endLine}`;
+}
+
+function clampMemorySnippet(snippet: string): string {
+  const normalized = snippet.replace(/\s+/g, " ").trim();
+  if (normalized.length <= CENTRIS_MEMORY_MAX_SNIPPET_CHARS) {
+    return normalized;
+  }
+  return `${normalized.slice(0, CENTRIS_MEMORY_MAX_SNIPPET_CHARS)}...`;
+}
+
+export function shouldSkipCentrisAutoMemoryRecall(params: {
+  domain: "browser" | "computer" | "file" | "general";
+  prompt: string;
+}): boolean {
+  if (params.domain !== "browser") {
+    return false;
+  }
+  const lower = params.prompt.trim().toLowerCase();
+  if (!lower) {
+    return true;
+  }
+  if (CENTRIS_BROWSER_MEMORY_FORCE_HINTS.some((hint) => lower.includes(hint))) {
+    return false;
+  }
+  if (lower.includes("?")) {
+    return false;
+  }
+  return CENTRIS_BROWSER_IMPERATIVE_PREFIXES.some(
+    (prefix) => lower === prefix || lower.startsWith(`${prefix} `),
+  );
+}
+
+async function buildCentrisMemoryContext(params: {
+  cfg: EmbeddedRunAttemptParams["config"];
+  sessionKey: string | undefined;
+  sessionId: string;
+  domain: "browser" | "computer" | "file" | "general";
+  prompt: string;
+}): Promise<string | undefined> {
+  const cfg = params.cfg;
+  if (!cfg) {
+    return undefined;
+  }
+  const agentId = resolveSessionAgentId({
+    sessionKey: params.sessionKey ?? params.sessionId,
+    config: cfg,
+  });
+  const memoryConfig = resolveMemorySearchConfig(cfg, agentId);
+  if (!memoryConfig?.enabled) {
+    return undefined;
+  }
+
+  const query = params.prompt.trim();
+  if (query.length < 3) {
+    return undefined;
+  }
+  if (shouldSkipCentrisAutoMemoryRecall({ domain: params.domain, prompt: query })) {
+    return undefined;
+  }
+
+  try {
+    const { manager } = await getMemorySearchManager({ cfg, agentId });
+    if (!manager) {
+      return undefined;
+    }
+    const results = await manager.search(query, {
+      maxResults: CENTRIS_MEMORY_MAX_SNIPPETS,
+      minScore: Math.max(CENTRIS_MEMORY_MIN_SCORE, memoryConfig.query.minScore),
+      sessionKey: params.sessionKey,
+    });
+    if (results.length === 0) {
+      return undefined;
+    }
+
+    const lines: string[] = [];
+    let totalChars = 0;
+    for (const entry of results) {
+      const source = `${entry.path}${formatMemoryLineRange(entry.startLine, entry.endLine)}`;
+      const snippet = clampMemorySnippet(entry.snippet);
+      const line = `- ${source}: ${snippet}`;
+      if (totalChars + line.length + 1 > CENTRIS_MEMORY_MAX_TOTAL_CHARS) {
+        break;
+      }
+      lines.push(line);
+      totalChars += line.length + 1;
+    }
+
+    if (lines.length === 0) {
+      return undefined;
+    }
+    return lines.join("\n");
+  } catch (err) {
+    log.debug(`[centris-memory] auto recall skipped: ${describeUnknownError(err)}`);
+    return undefined;
+  }
 }
 
 function summarizeSessionContext(messages: AgentMessage[]): {
@@ -468,6 +597,7 @@ export async function runEmbeddedAttempt(
         ? resolveHeartbeatPrompt(params.config?.agents?.defaults?.heartbeat?.prompt)
         : undefined,
       skillsPrompt,
+      skillsSelfExtend: params.config?.skills?.selfExtend,
       docsPath: docsPath ?? undefined,
       ttsHint,
       workspaceNotes,
@@ -523,12 +653,24 @@ export async function runEmbeddedAttempt(
     }
     const centrisDomain =
       centrisProfile === "centris" ? classifyCentrisIntent(params.prompt) : undefined;
+    const centrisMemoryContext =
+      centrisProfile === "centris"
+        ? await buildCentrisMemoryContext({
+            cfg: params.config,
+            sessionKey: params.sessionKey,
+            sessionId: params.sessionId,
+            domain: centrisDomain ?? "general",
+            prompt: params.prompt,
+          })
+        : undefined;
     const centrisPrompt = centrisDomain
       ? buildCentrisSystemPrompt({
           domain: centrisDomain,
           profileName: centrisProfile,
           workspaceDir: effectiveWorkspace,
+          memoryContext: centrisMemoryContext,
           skillsPrompt,
+          skillsSelfExtend: params.config?.skills?.selfExtend,
           ttsHint,
           heartbeatPrompt: isDefaultAgent
             ? resolveHeartbeatPrompt(params.config?.agents?.defaults?.heartbeat?.prompt)

@@ -18,6 +18,11 @@ function buildSkillsSection(params: {
   skillsPrompt?: string;
   isMinimal: boolean;
   readToolName: string;
+  selfExtend?: {
+    enabled?: boolean;
+    autoCommit?: boolean;
+    autoPush?: boolean;
+  };
 }) {
   if (params.isMinimal) {
     return [];
@@ -26,16 +31,33 @@ function buildSkillsSection(params: {
   if (!trimmed) {
     return [];
   }
-  return [
+  const lines = [
     "## Skills (mandatory)",
     "Before replying: scan <available_skills> <description> entries.",
     `- If exactly one skill clearly applies: read its SKILL.md at <location> with \`${params.readToolName}\`, then follow it.`,
     "- If multiple could apply: choose the most specific one, then read/follow it.",
     "- If none clearly apply: do not read any SKILL.md.",
     "Constraints: never read more than one skill up front; only read after selecting.",
-    trimmed,
-    "",
   ];
+  if (params.selfExtend?.enabled) {
+    lines.push(
+      "Self-extension (enabled): if no listed skill applies and a capability gap blocks completion, scaffold one new skill under `skills/<skill-name>/SKILL.md`, implement only the minimal steps needed, validate by re-running the blocked task once, then continue.",
+    );
+    lines.push("Do not create more than one new skill per user request.");
+    if (params.selfExtend.autoPush) {
+      lines.push(
+        "VCS automation (enabled): after validation, commit with `scripts/committer` and then push (pull --rebase first).",
+      );
+    } else if (params.selfExtend.autoCommit) {
+      lines.push("VCS automation (enabled): after validation, commit with `scripts/committer`.");
+    } else {
+      lines.push(
+        "VCS automation (disabled): do not commit or push self-extension changes unless the user explicitly asks.",
+      );
+    }
+  }
+  lines.push(trimmed, "");
+  return lines;
 }
 
 function buildMemorySection(params: {
@@ -197,6 +219,11 @@ export function buildAgentSystemPrompt(params: {
   userTimeFormat?: ResolvedTimeFormat;
   contextFiles?: EmbeddedContextFile[];
   skillsPrompt?: string;
+  skillsSelfExtend?: {
+    enabled?: boolean;
+    autoCommit?: boolean;
+    autoPush?: boolean;
+  };
   heartbeatPrompt?: string;
   docsPath?: string;
   workspaceNotes?: string[];
@@ -402,6 +429,7 @@ export function buildAgentSystemPrompt(params: {
     skillsPrompt,
     isMinimal,
     readToolName,
+    selfExtend: params.skillsSelfExtend,
   });
   const memorySection = buildMemorySection({
     isMinimal,

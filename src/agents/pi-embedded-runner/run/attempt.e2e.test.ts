@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
-import { injectHistoryImagesIntoMessages } from "./attempt.js";
+import { injectHistoryImagesIntoMessages, shouldSkipCentrisAutoMemoryRecall } from "./attempt.js";
 
 describe("injectHistoryImagesIntoMessages", () => {
   const image: ImageContent = { type: "image", data: "abc", mimeType: "image/png" };
@@ -54,5 +54,46 @@ describe("injectHistoryImagesIntoMessages", () => {
 
     expect(didMutate).toBe(false);
     expect(messages[0]?.content).toBe("noop");
+  });
+});
+
+describe("shouldSkipCentrisAutoMemoryRecall", () => {
+  it("skips recall for pure imperative browser commands", () => {
+    expect(
+      shouldSkipCentrisAutoMemoryRecall({
+        domain: "browser",
+        prompt: "click 42",
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipCentrisAutoMemoryRecall({
+        domain: "browser",
+        prompt: "scroll down",
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipCentrisAutoMemoryRecall({
+        domain: "browser",
+        prompt: "open tab github.com",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not skip recall for browser prompts with memory hints", () => {
+    expect(
+      shouldSkipCentrisAutoMemoryRecall({
+        domain: "browser",
+        prompt: "click submit and remember my previous preference",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not skip recall for non-browser domains", () => {
+    expect(
+      shouldSkipCentrisAutoMemoryRecall({
+        domain: "file",
+        prompt: "edit config using last time's convention",
+      }),
+    ).toBe(false);
   });
 });

@@ -17,6 +17,11 @@ export function buildEmbeddedSystemPrompt(params: {
   reasoningTagHint: boolean;
   heartbeatPrompt?: string;
   skillsPrompt?: string;
+  skillsSelfExtend?: {
+    enabled?: boolean;
+    autoCommit?: boolean;
+    autoPush?: boolean;
+  };
   docsPath?: string;
   ttsHint?: string;
   reactionGuidance?: {
@@ -58,6 +63,7 @@ export function buildEmbeddedSystemPrompt(params: {
     reasoningTagHint: params.reasoningTagHint,
     heartbeatPrompt: params.heartbeatPrompt,
     skillsPrompt: params.skillsPrompt,
+    skillsSelfExtend: params.skillsSelfExtend,
     docsPath: params.docsPath,
     ttsHint: params.ttsHint,
     workspaceNotes: params.workspaceNotes,

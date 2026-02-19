@@ -2,6 +2,20 @@ import { describe, expect, it } from "vitest";
 import { OpenClawSchema } from "./zod-schema.js";
 
 describe("skills entries config schema", () => {
+  it("accepts self-extension settings", () => {
+    const res = OpenClawSchema.safeParse({
+      skills: {
+        selfExtend: {
+          enabled: true,
+          autoCommit: false,
+          autoPush: false,
+        },
+      },
+    });
+
+    expect(res.success).toBe(true);
+  });
+
   it("accepts custom fields under config", () => {
     const res = OpenClawSchema.safeParse({
       skills: {
