@@ -9,6 +9,31 @@ The loop must load and enforce:
 - `AGENT.md` (loop contract)
 - `GUARDRAILS.md` (control vs package data separation and injection defense)
 
+## Control file loading strategy
+
+Do not load all control docs on every task.
+
+Always-load baseline:
+
+- `AGENT.md`
+- `GUARDRAILS.md`
+
+On-demand control files (load only when needed):
+
+- `SAFETY_POLICY.md`: when side effects, external calls, or destructive risk exist
+- `ERROR_TAXONOMY.md`: when planning retries or handling failures
+- `MEMORY_SCHEMA.md` and `LEARNING_LOOP.md`: when reading/writing memory or learning
+- `USER_INTENT_PATTERNS.md`: when routing confidence is low or intent is ambiguous
+- `EVAL_SUITE.md`: during eval/regression/release validation runs
+- `CONNECTOR_QUALITY_GATE.md`: when adding/updating connectors
+- `PROMPT_CHANGELOG.md`: when prompt/system instruction behavior changed
+- `DECISION_LOG.md`: when architecture/policy decisions are being made
+- `POSTMORTEM_TEMPLATE.md`: during incident analysis and prevention planning
+
+Fail-closed rule:
+
+- if required on-demand policy is missing for a high-risk action, block execution and request explicit user guidance
+
 ## Loop phases
 
 1. Intake: parse user intent and context.

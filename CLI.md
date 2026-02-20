@@ -2,6 +2,15 @@
 
 This file defines the execution contract for all Centris CLI surfaces.
 
+## Control doc loading for CLI loops
+
+CLI runtimes must use selective control-doc loading:
+
+- always load: `CLI.md`, `AGENT.md`, `GUARDRAILS.md`
+- load on demand: `ERROR_TAXONOMY.md`, `SAFETY_POLICY.md`, `MEMORY_SCHEMA.md`, `LEARNING_LOOP.md`, `CONNECTOR_QUALITY_GATE.md`
+
+Do not preload non-required docs for every command.
+
 ## Scope
 
 - `centris` (TypeScript SDK CLI)
