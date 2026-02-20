@@ -138,6 +138,7 @@
 
 ## Agent-Specific Notes
 
+- For Centris architecture and execution contracts, read `CLI.md`, `AGENT.md`, and `skills-graph.md` before planning or implementation.
 - Vocabulary: "makeup" = "mac app".
 - Never edit `node_modules` (global/Homebrew/npm/git installs too). Updates overwrite. Skill notes go in `tools.md` or `AGENTS.md`.
 - When adding a new `AGENTS.md` anywhere in the repo, also add a `CLAUDE.md` symlink pointing to it (example: `ln -s AGENTS.md CLAUDE.md`).

@@ -1,5 +1,6 @@
 import type { TlsOptions } from "node:tls";
 import type { WebSocket, WebSocketServer } from "ws";
+import { randomUUID } from "node:crypto";
 import {
   createServer as createHttpServer,
   type Server as HttpServer,
@@ -18,7 +19,10 @@ import {
   CANVAS_WS_PATH,
   handleA2uiHttpRequest,
 } from "../canvas-host/a2ui.js";
+import { createDefaultDeps } from "../cli/deps.js";
+import { agentCommand } from "../commands/agent.js";
 import { loadConfig } from "../config/config.js";
+import { defaultRuntime } from "../runtime.js";
 import { safeEqualSecret } from "../security/secret-equal.js";
 import { handleSlackHttpRequest } from "../slack/http/index.js";
 import { handleActionApiEnvelope } from "./action-api-authority.js";
@@ -63,7 +67,12 @@ import {
   resolveHookDeliver,
 } from "./hooks.js";
 import { sendGatewayAuthFailure } from "./http-common.js";
-import { getBearerToken, getHeader } from "./http-utils.js";
+import {
+  getBearerToken,
+  getHeader,
+  resolveAgentIdForRequest,
+  resolveSessionKey,
+} from "./http-utils.js";
 import { isPrivateOrLoopbackAddress, resolveGatewayClientIp } from "./net.js";
 import { handleOpenAiHttpRequest } from "./openai-http.js";
 import { handleOpenResponsesHttpRequest } from "./openresponses-http.js";
@@ -77,6 +86,24 @@ const HOOK_AUTH_FAILURE_WINDOW_MS = 60_000;
 const HOOK_AUTH_FAILURE_TRACK_MAX = 2048;
 
 let centrisDesktopMode: "action" | "dictation" = "action";
+const CENTRIS_HTTP_API_VERSION = "2026-01-30";
+const CENTRIS_HTTP_MIN_VERSION = "2026-01-30";
+const CENTRIS_TASK_TTL_MS = 60 * 60 * 1000;
+
+type CentrisTaskStatus = "queued" | "running" | "completed" | "failed";
+type CentrisTaskRecord = {
+  id: string;
+  status: CentrisTaskStatus;
+  createdAtMs: number;
+  updatedAtMs: number;
+  result?: string;
+  actions?: Array<Record<string, unknown>>;
+  usage?: Record<string, unknown>;
+  error?: string;
+  code?: string;
+};
+
+const centrisTasks = new Map<string, CentrisTaskRecord>();
 
 type HookDispatchers = {
   dispatchWakeHook: (value: { text: string; mode: "now" | "next-heartbeat" }) => void;
@@ -100,6 +127,150 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
+}
+
+function sendCentrisJson(res: ServerResponse, status: number, body: unknown, warn?: string) {
+  res.setHeader("X-API-Version", CENTRIS_HTTP_API_VERSION);
+  if (warn) {
+    res.setHeader("X-API-Version-Warning", warn);
+  }
+  sendJson(res, status, body);
+}
+
+function parseRequestedApiVersion(
+  req: IncomingMessage,
+): { ok: true } | { ok: false; value: string } {
+  const requested = getHeader(req, "accept-version")?.trim();
+  if (!requested || requested === CENTRIS_HTTP_API_VERSION) {
+    return { ok: true };
+  }
+  return { ok: false, value: requested };
+}
+
+function pruneCentrisTasks(now = Date.now()): void {
+  for (const [taskId, task] of centrisTasks) {
+    if (now - task.updatedAtMs > CENTRIS_TASK_TTL_MS) {
+      centrisTasks.delete(taskId);
+    }
+  }
+}
+
+function extractAgentText(payloads: Array<{ text?: string }> | undefined): string {
+  if (!Array.isArray(payloads) || payloads.length === 0) {
+    return "";
+  }
+  return payloads
+    .map((p) => (typeof p.text === "string" ? p.text : ""))
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function extractAgentUsage(meta: unknown): Record<string, unknown> {
+  if (!meta || typeof meta !== "object") {
+    return { remaining: null };
+  }
+  const agentMeta = (meta as { agentMeta?: unknown }).agentMeta;
+  if (!agentMeta || typeof agentMeta !== "object") {
+    return { remaining: null };
+  }
+  const usage = (agentMeta as { usage?: unknown }).usage;
+  if (!usage || typeof usage !== "object") {
+    return { remaining: null };
+  }
+  const record = usage as Record<string, unknown>;
+  return {
+    input: typeof record.input === "number" ? record.input : 0,
+    output: typeof record.output === "number" ? record.output : 0,
+    cacheRead: typeof record.cacheRead === "number" ? record.cacheRead : 0,
+    cacheWrite: typeof record.cacheWrite === "number" ? record.cacheWrite : 0,
+    total: typeof record.total === "number" ? record.total : 0,
+    remaining: null,
+  };
+}
+
+function extractContextUser(context: unknown): string | undefined {
+  if (!context || typeof context !== "object") {
+    return undefined;
+  }
+  const direct = (context as { user?: unknown }).user;
+  if (typeof direct === "string" && direct.trim().length > 0) {
+    return direct.trim();
+  }
+  const nested = (context as { user?: { id?: unknown } }).user?.id;
+  if (typeof nested === "string" && nested.trim().length > 0) {
+    return nested.trim();
+  }
+  return undefined;
+}
+
+function recordTaskStatus(task: CentrisTaskRecord, status: CentrisTaskStatus): void {
+  task.status = status;
+  task.updatedAtMs = Date.now();
+}
+
+async function runCentrisDoTask(params: {
+  req: IncomingMessage;
+  command: string;
+  context: unknown;
+  task: CentrisTaskRecord;
+}) {
+  recordTaskStatus(params.task, "running");
+
+  const agentId = resolveAgentIdForRequest({
+    req: params.req,
+    model: undefined,
+  });
+  const sessionKey = resolveSessionKey({
+    req: params.req,
+    agentId,
+    user: extractContextUser(params.context),
+    prefix: "centris",
+  });
+
+  const runId = `ctask_${params.task.id}`;
+  const result = await agentCommand(
+    {
+      message: params.command,
+      sessionKey,
+      runId,
+      deliver: false,
+      messageChannel: "webchat",
+      bestEffortDeliver: false,
+    },
+    defaultRuntime,
+    createDefaultDeps(),
+  );
+
+  const payloads = (result as { payloads?: Array<{ text?: string }> } | null)?.payloads;
+  const meta = (result as { meta?: unknown } | null)?.meta;
+  params.task.result = extractAgentText(payloads) || "Command completed.";
+  params.task.actions = Array.isArray(payloads)
+    ? payloads.map((p) => ({ type: "assistant_text", text: p.text ?? "" }))
+    : [];
+  params.task.usage = extractAgentUsage(meta);
+  recordTaskStatus(params.task, "completed");
+}
+
+async function authorizeCentrisApiRequest(params: {
+  req: IncomingMessage;
+  trustedProxies: string[];
+  auth: ResolvedGatewayAuth;
+  rateLimiter?: AuthRateLimiter;
+}): Promise<GatewayAuthResult> {
+  if (isLocalDirectRequest(params.req, params.trustedProxies)) {
+    return { ok: true };
+  }
+
+  const bearer = getBearerToken(params.req);
+  const keyHeader = getHeader(params.req, "x-centris-key");
+  const token = bearer ?? keyHeader;
+  return authorizeGatewayConnect({
+    auth: params.auth,
+    connectAuth: token ? { token, password: token } : null,
+    req: params.req,
+    trustedProxies: params.trustedProxies,
+    rateLimiter: params.rateLimiter,
+  });
 }
 
 function isCanvasPath(pathname: string): boolean {
@@ -527,6 +698,15 @@ export function createGatewayHttpServer(opts: {
         return;
       }
 
+      if (requestPath === "/api/version" && req.method === "GET") {
+        sendCentrisJson(res, 200, {
+          current_version: CENTRIS_HTTP_API_VERSION,
+          minimum_supported_version: CENTRIS_HTTP_MIN_VERSION,
+          service: "centris-gateway",
+        });
+        return;
+      }
+
       // Desktop mode status — returns current operating mode
       if (requestPath === "/api/mode/status" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -637,6 +817,163 @@ export function createGatewayHttpServer(opts: {
               : undefined,
         });
         sendJson(res, response.ok ? 200 : 400, response);
+        return;
+      }
+
+      if (requestPath === "/api/v1/do" && req.method === "POST") {
+        const version = parseRequestedApiVersion(req);
+        if (!version.ok) {
+          sendCentrisJson(res, 400, {
+            status: "failed",
+            code: "VERSION_NOT_SUPPORTED",
+            error: `Unsupported API version: ${version.value}`,
+          });
+          return;
+        }
+
+        const authResult = await authorizeCentrisApiRequest({
+          req,
+          trustedProxies,
+          auth: resolvedAuth,
+          rateLimiter,
+        });
+        if (!authResult.ok) {
+          sendGatewayAuthFailure(res, authResult);
+          return;
+        }
+
+        const body = await readJsonBody(req, 256 * 1024);
+        if (!body.ok || typeof body.value !== "object" || body.value === null) {
+          sendCentrisJson(res, 400, {
+            status: "failed",
+            code: "INVALID_REQUEST",
+            error: "invalid JSON body",
+          });
+          return;
+        }
+
+        const payload = body.value as Record<string, unknown>;
+        const command = typeof payload.command === "string" ? payload.command.trim() : "";
+        if (!command) {
+          sendCentrisJson(res, 400, {
+            status: "failed",
+            code: "INVALID_REQUEST",
+            error: "command is required",
+          });
+          return;
+        }
+
+        pruneCentrisTasks();
+        const taskId = `ctask_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+        const task: CentrisTaskRecord = {
+          id: taskId,
+          status: "queued",
+          createdAtMs: Date.now(),
+          updatedAtMs: Date.now(),
+        };
+        centrisTasks.set(taskId, task);
+
+        const asyncMode = payload.async === true;
+        const context = payload.context;
+
+        if (asyncMode) {
+          queueMicrotask(() => {
+            void runCentrisDoTask({ req, command, context, task }).catch((err) => {
+              task.error = err instanceof Error ? err.message : String(err);
+              task.code = "TASK_FAILED";
+              recordTaskStatus(task, "failed");
+            });
+          });
+
+          sendCentrisJson(res, 200, {
+            task_id: taskId,
+            status: "queued",
+            result: "",
+            actions: [],
+          });
+          return;
+        }
+
+        try {
+          await runCentrisDoTask({ req, command, context, task });
+          sendCentrisJson(res, 200, {
+            task_id: taskId,
+            status: "completed",
+            result: task.result ?? "",
+            actions: task.actions ?? [],
+            usage: task.usage ?? { remaining: null },
+          });
+        } catch (err) {
+          task.error = err instanceof Error ? err.message : String(err);
+          task.code = "TASK_FAILED";
+          recordTaskStatus(task, "failed");
+          sendCentrisJson(res, 500, {
+            task_id: taskId,
+            status: "failed",
+            error: task.error,
+            code: task.code,
+          });
+        }
+        return;
+      }
+
+      if (requestPath.startsWith("/api/v1/task/") && req.method === "GET") {
+        const authResult = await authorizeCentrisApiRequest({
+          req,
+          trustedProxies,
+          auth: resolvedAuth,
+          rateLimiter,
+        });
+        if (!authResult.ok) {
+          sendGatewayAuthFailure(res, authResult);
+          return;
+        }
+
+        pruneCentrisTasks();
+        const taskId = requestPath.slice("/api/v1/task/".length).trim();
+        const task = taskId ? centrisTasks.get(taskId) : undefined;
+        if (!task) {
+          sendCentrisJson(res, 200, {
+            task_id: taskId,
+            status: "failed",
+            error: "Task not found",
+            code: "TASK_NOT_FOUND",
+          });
+          return;
+        }
+
+        sendCentrisJson(res, 200, {
+          task_id: task.id,
+          status: task.status,
+          result: task.result ?? "",
+          actions: task.actions ?? [],
+          usage: task.usage,
+          error: task.error,
+          code: task.code,
+        });
+        return;
+      }
+
+      if (requestPath === "/api/v1/usage" && req.method === "GET") {
+        const authResult = await authorizeCentrisApiRequest({
+          req,
+          trustedProxies,
+          auth: resolvedAuth,
+          rateLimiter,
+        });
+        if (!authResult.ok) {
+          sendGatewayAuthFailure(res, authResult);
+          return;
+        }
+
+        sendCentrisJson(res, 200, {
+          tier: "local",
+          tasks_remaining: 999999,
+          monthly_limit: 999999,
+          daily_bonus: 0,
+          tasks_used_today: 0,
+          period_ends: null,
+        });
         return;
       }
 

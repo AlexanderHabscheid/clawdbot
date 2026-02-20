@@ -147,7 +147,7 @@ describe("Centris client", () => {
     expect(result.taskId).toBe("ctask_helper");
   });
 
-  it("dispatches action API envelopes for observe/act/verify/route", async () => {
+  it("dispatches action API envelopes for observe/act/verify/route/web-memory", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -193,6 +193,17 @@ describe("Centris client", () => {
           }),
           { status: 200 },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            specVersion: "2026-02-19",
+            method: "web.memory.resolve",
+            ok: true,
+            result: { hit: true, cacheKey: "example.com::login" },
+          }),
+          { status: 200 },
+        ),
       );
 
     const client = new Centris({
@@ -205,8 +216,9 @@ describe("Centris client", () => {
     await client.act({ kind: "click", target: "#submit" });
     await client.verify({ checks: [] });
     await client.routeRun({ routeId: "download_invoice" });
+    await client.webMemory.resolve({ url: "https://example.com", intent: "login" });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
     expect(fetchImpl.mock.calls[0]?.[0]).toContain("/api/v1/action");
     expect(fetchImpl.mock.calls[1]?.[0]).toContain("/api/v1/action");
   });

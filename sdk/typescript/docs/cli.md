@@ -143,6 +143,39 @@ Optional:
 - `--headful`
 - `--slow-mo <ms>`
 
+### `centris route run-runtime`
+
+Run a runtime route through Action API (agent-loop safe).
+
+Options:
+
+- `--route-id <id>` (required)
+- `--url <url>`
+- `--params <json>`
+- `--checks <json>`
+- `--artifacts <json>`
+- `-k, --api-key <key>`
+- `-u, --base-url <url>`
+- `--api-version <version>`
+- `--timeout-ms <ms>`
+- `--json`
+
+### `centris adapter run`
+
+Run an external-system adapter operation with safety enforcement.
+
+Options:
+
+- `--adapter <json>` (required)
+- `--operation <name>` (required)
+- `--input <json>`
+- `--timeout-ms <ms>`
+- `--dry-run`
+- `--allow-external`
+- `--allow-destructive`
+- transport options: `--command/--args/--cwd/--env`, `--url/--method/--headers`, `--module/--export-name`
+- `--json`
+
 ### `centris route test`
 
 Execute route plus verification checks.

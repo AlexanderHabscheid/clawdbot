@@ -19,7 +19,54 @@ Source of truth: `sdk/python/centris_sdk/cli/*`.
 - Discovery/install: `list`, `search`, `install`, `update`
 - Auth: `login`, `logout`, `whoami`
 - Backend management: `run`, `start`, `stop`, `doctor`, `status`, `config`, `onboard`
-- Power user: `agent`, `do`, `exec`, `browser`, `file`, `daemon`, `sandbox`, `elements`, `introspect`, `deprecations`
+- Power user: `agent`, `do`, `exec`, `browser`, `file`, `daemon`, `sandbox`, `elements`, `introspect`, `deprecations`, `adapter`
+
+## `centris-py route` group (Action API)
+
+Subcommands:
+
+- `run`
+  - `--route-id` required
+  - `--url`
+  - `--params` (JSON object)
+  - `--checks` (JSON array)
+  - `--artifacts` (JSON array)
+  - `--timeout`
+  - `--json`
+- `record-start`
+  - `--intent` required
+  - `--url`
+  - `--params` (JSON object)
+  - `--metadata` (JSON object)
+  - `--timeout`
+  - `--json`
+- `record-stop`
+  - `--session-id` required
+  - `--outcome`
+  - `--metadata` (JSON object)
+  - `--timeout`
+  - `--json`
+
+## `centris-py adapter` group
+
+Subcommands:
+
+- `run`
+  - `--adapter` required (JSON adapter spec)
+  - `--operation` required
+  - `--input` (JSON object)
+  - `--timeout-ms`
+  - `--dry-run`
+  - `--allow-external`
+  - `--allow-destructive`
+  - `--command`
+  - `--args` (JSON array)
+  - `--cwd`
+  - `--env` (JSON object)
+  - `--url`
+  - `--method`
+  - `--headers` (JSON object)
+  - `--json`
 
 ## `centris-py browser` group
 

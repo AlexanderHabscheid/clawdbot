@@ -15,6 +15,7 @@ from centris_sdk.kernel import KernelObserveRequest
 from centris_sdk.action_api import (
     ActionRouteRecordStartRequest,
     ActionRouteRecordStopRequest,
+    ActionWebMemoryResolveRequest,
 )
 
 
@@ -183,3 +184,26 @@ class TestActionApiClient:
         assert start.session_id == "sess_123"
         assert stop.ok is True
         assert stop.route_id == "download_invoice"
+
+    def test_web_memory_resolve(self):
+        fake_http = _FakeHttpClient(
+            [
+                _FakeResponse(
+                    {
+                        "specVersion": "2026-02-19",
+                        "method": "web.memory.resolve",
+                        "ok": True,
+                        "result": {"hit": True, "cacheKey": "example.com::login"},
+                    }
+                )
+            ]
+        )
+
+        client = Centris(api_key="ck_test", base_url="https://api.example.com")
+        client._client = fake_http  # type: ignore[assignment]
+
+        resolved = client.web_memory.resolve(
+            ActionWebMemoryResolveRequest(url="https://example.com", intent="login")
+        )
+        assert resolved.hit is True
+        assert resolved.cache_key == "example.com::login"

@@ -132,6 +132,7 @@ export interface RouteRunApiOptions extends CLIOptions {
   url?: string;
   params?: string;
   checks?: string;
+  artifacts?: string;
   json?: boolean;
   apiKey?: string;
   baseUrl?: string;
@@ -155,6 +156,65 @@ export interface RouteRecordStopApiOptions extends CLIOptions {
   sessionId: string;
   outcome?: "success" | "failed" | "cancelled";
   metadata?: string;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
+export interface WebMemoryIndexOptions extends CLIOptions {
+  url: string;
+  intent?: string;
+  playbook?: string;
+  ttlMs?: number;
+  metadata?: string;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
+export interface WebMemoryResolveOptions extends CLIOptions {
+  url: string;
+  intent?: string;
+  maxAgeMs?: number;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
+export interface WebMemoryExecuteOptions extends CLIOptions {
+  url: string;
+  intent?: string;
+  operation?: string;
+  params?: string;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
+export interface WebMemoryInvalidateOptions extends CLIOptions {
+  url?: string;
+  playbookId?: string;
+  scope?: "url" | "domain" | "all";
+  reason?: string;
+  yes?: boolean;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
+export interface WebMemoryStatsOptions extends CLIOptions {
+  url?: string;
+  window?: "1h" | "24h" | "7d" | "30d";
   json?: boolean;
   apiKey?: string;
   baseUrl?: string;
@@ -211,6 +271,26 @@ export interface RouteRunOptions extends CLIOptions {
 }
 
 export interface RouteTestOptions extends RouteRunOptions {}
+
+export interface AdapterRunOptions extends CLIOptions {
+  adapter: string;
+  operation: string;
+  input?: string;
+  timeoutMs?: number;
+  dryRun?: boolean;
+  allowExternal?: boolean;
+  allowDestructive?: boolean;
+  command?: string;
+  args?: string;
+  cwd?: string;
+  env?: string;
+  url?: string;
+  method?: "POST" | "PUT" | "PATCH";
+  headers?: string;
+  module?: string;
+  exportName?: string;
+  json?: boolean;
+}
 
 export interface CLIContext {
   cwd: string;

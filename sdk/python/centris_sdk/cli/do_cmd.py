@@ -30,6 +30,7 @@ from typing import Optional
 from centris_sdk.cli.deps import CLIDeps
 from centris_sdk.cli.theme import theme
 from centris_sdk.cli.errors import CentrisCLIError, ExitCode
+from centris_sdk.cli.result_envelope import build_result_envelope, emit_result_envelope
 
 
 def _get_api_key(ctx: click.Context, key_override: Optional[str] = None) -> str:
@@ -105,6 +106,7 @@ def do_command(
         centris do "Search for flights to Paris on Google"
     """
     import httpx
+    started_at = time.time()
     
     api_key = _get_api_key(ctx, key)
     api_url = _get_api_url(ctx)
@@ -135,7 +137,15 @@ def do_command(
                 task_id = data.get("task_id")
                 
                 if json_output:
-                    click.echo(json.dumps(data, indent=2))
+                    emit_result_envelope(
+                        build_result_envelope(
+                            ok=True,
+                            operation="command.do",
+                            summary=f"Task queued: {task_id}",
+                            data=data if isinstance(data, dict) else {"raw": data},
+                            duration_ms=int((time.time() - started_at) * 1000),
+                        )
+                    )
                     return
                 
                 click.echo(f"{theme.muted('Task queued:')} {task_id}")
@@ -183,14 +193,31 @@ def do_command(
             if data.get("status") == "failed":
                 error = data.get("error", "Unknown error")
                 if json_output:
-                    click.echo(json.dumps(data, indent=2))
+                    emit_result_envelope(
+                        build_result_envelope(
+                            ok=False,
+                            operation="command.do",
+                            summary="Command failed",
+                            data=data if isinstance(data, dict) else {"raw": data},
+                            errors=[str(error)],
+                            duration_ms=int((time.time() - started_at) * 1000),
+                        )
+                    )
                 else:
                     click.echo(f"{theme.error('Error:')} {error}")
                 ctx.exit(1)
             
             # Success!
             if json_output:
-                click.echo(json.dumps(data, indent=2))
+                emit_result_envelope(
+                    build_result_envelope(
+                        ok=True,
+                        operation="command.do",
+                        summary="Command completed",
+                        data=data if isinstance(data, dict) else {"raw": data},
+                        duration_ms=int((time.time() - started_at) * 1000),
+                    )
+                )
             else:
                 result = data.get("result", "")
                 if result:

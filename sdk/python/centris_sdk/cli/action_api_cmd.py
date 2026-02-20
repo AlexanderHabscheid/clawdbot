@@ -4,16 +4,19 @@ Thin CLI client over the runtime Action API seam.
 """
 
 import json
+import time
 from typing import Any, Dict, Optional
 
 import click
 
 from centris_sdk.action_api import (
+    ActionArtifact,
     ActionRouteRecordStartRequest,
     ActionRouteRecordStopRequest,
     ActionRouteRunRequest,
 )
 from centris_sdk.cli.do_cmd import _get_api_key, _get_api_url
+from centris_sdk.cli.result_envelope import build_result_envelope, emit_result_envelope
 from centris_sdk.client import Centris
 from centris_sdk.kernel import (
     KernelActRequest,
@@ -54,6 +57,27 @@ def _parse_checks(raw: Optional[str]) -> list[KernelSuccessCheck]:
     return checks
 
 
+def _parse_artifacts(raw: Optional[str]) -> list[ActionArtifact]:
+    if not raw:
+        return []
+    parsed = json.loads(raw)
+    if not isinstance(parsed, list):
+        raise click.ClickException("artifacts must be a JSON array")
+    artifacts: list[ActionArtifact] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            raise click.ClickException("each artifact must be an object")
+        artifacts.append(
+            ActionArtifact(
+                artifact_type=str(item.get("artifactType", "")),
+                schema=str(item.get("schema", "")),
+                producer_operation=str(item.get("producerOperation", "")),
+                value=item.get("value", {}) if isinstance(item.get("value", {}), dict) else {},
+            )
+        )
+    return artifacts
+
+
 @click.command("observe")
 @click.option("--url", help="Optional URL hint")
 @click.option("--instruction", help="Optional instruction hint")
@@ -71,11 +95,20 @@ def observe_command(
     timeout: int,
     json_output: bool,
 ):
+    started_at = time.time()
     client = _client(ctx, key, base_url, timeout)
     result = client.observe(KernelObserveRequest(url=url, instruction=instruction))
 
     if json_output:
-        click.echo(json.dumps(result.__dict__, indent=2))
+        emit_result_envelope(
+            build_result_envelope(
+                ok=True,
+                operation="action.observe",
+                summary=f"Observed: {result.url}",
+                data=result.__dict__,
+                duration_ms=int((time.time() - started_at) * 1000),
+            )
+        )
         return
 
     click.echo(f"Observed: {result.url}")
@@ -103,6 +136,7 @@ def act_command(
     timeout: int,
     json_output: bool,
 ):
+    started_at = time.time()
     client = _client(ctx, key, base_url, timeout)
     result = client.act(
         KernelActRequest(
@@ -114,7 +148,16 @@ def act_command(
     )
 
     if json_output:
-        click.echo(json.dumps({"ok": result.ok, "details": result.details}, indent=2))
+        emit_result_envelope(
+            build_result_envelope(
+                ok=result.ok,
+                operation="action.act",
+                summary=f"Action executed: {kind}" if result.ok else "Action failed",
+                data={"ok": result.ok, "details": result.details},
+                errors=[] if result.ok else ["Action failed"],
+                duration_ms=int((time.time() - started_at) * 1000),
+            )
+        )
         return
 
     if not result.ok:
@@ -137,19 +180,28 @@ def verify_command(
     timeout: int,
     json_output: bool,
 ):
+    started_at = time.time()
     client = _client(ctx, key, base_url, timeout)
     parsed_checks = _parse_checks(checks)
     result = client.verify(KernelVerifyRequest(checks=parsed_checks))
 
     if json_output:
-        click.echo(
-            json.dumps(
-                {
+        emit_result_envelope(
+            build_result_envelope(
+                ok=result.ok,
+                operation="action.verify",
+                summary=(
+                    f"Verify passed ({len(result.passed)} checks)"
+                    if result.ok
+                    else f"Verify failed ({len(result.failed)} checks)"
+                ),
+                data={
                     "ok": result.ok,
                     "passed": [c.__dict__ for c in result.passed],
                     "failed": [c.__dict__ for c in result.failed],
                 },
-                indent=2,
+                errors=[] if result.ok else [f"{len(result.failed)} checks failed"],
+                duration_ms=int((time.time() - started_at) * 1000),
             )
         )
         return
@@ -170,6 +222,7 @@ def route_group() -> None:
 @click.option("--url", help="Optional URL hint")
 @click.option("--params", help="Route params JSON object")
 @click.option("--checks", help="Success checks JSON array")
+@click.option("--artifacts", help="Input artifacts JSON array")
 @click.option("--key", "key", help="API key override")
 @click.option("--base-url", help="API base URL override")
 @click.option("--timeout", default=120, type=int, show_default=True)
@@ -181,17 +234,20 @@ def route_run_command(
     url: Optional[str],
     params: Optional[str],
     checks: Optional[str],
+    artifacts: Optional[str],
     key: Optional[str],
     base_url: Optional[str],
     timeout: int,
     json_output: bool,
 ):
+    started_at = time.time()
     client = _client(ctx, key, base_url, timeout)
     payload = ActionRouteRunRequest(
         route_id=route_id,
         url=url,
         params={k: str(v) for k, v in _parse_json_object(params, "params").items()},
         checks=_parse_checks(checks),
+        artifacts=_parse_artifacts(artifacts),
     )
     result = client.route_run(payload)
 
@@ -203,7 +259,19 @@ def route_run_command(
                 "passed": [c.__dict__ for c in result.verify.passed],
                 "failed": [c.__dict__ for c in result.verify.failed],
             }
-        click.echo(json.dumps(out, indent=2))
+        out["artifacts"] = [a.__dict__ for a in result.artifacts]
+        emit_result_envelope(
+            build_result_envelope(
+                ok=result.ok,
+                operation="action.route.run",
+                summary=(
+                    f"Route run succeeded: {route_id}" if result.ok else f"Route run failed: {route_id}"
+                ),
+                data=out,
+                errors=[] if result.ok else [f"Route run failed: {route_id}"],
+                duration_ms=int((time.time() - started_at) * 1000),
+            )
+        )
         return
 
     if not result.ok:
@@ -233,6 +301,7 @@ def route_record_start_command(
     timeout: int,
     json_output: bool,
 ):
+    started_at = time.time()
     client = _client(ctx, key, base_url, timeout)
     payload = ActionRouteRecordStartRequest(
         intent=intent,
@@ -243,14 +312,22 @@ def route_record_start_command(
     result = client.route_record_start(payload)
 
     if json_output:
-        click.echo(
-            json.dumps(
-                {
+        emit_result_envelope(
+            build_result_envelope(
+                ok=result.ok,
+                operation="action.route.record.start",
+                summary=(
+                    f"Route recording started: {result.session_id}"
+                    if result.ok
+                    else f"Route record start failed: {intent}"
+                ),
+                data={
                     "ok": result.ok,
                     "sessionId": result.session_id,
                     "startedAt": result.started_at,
                 },
-                indent=2,
+                errors=[] if result.ok else [f"Route record start failed: {intent}"],
+                duration_ms=int((time.time() - started_at) * 1000),
             )
         )
         return
@@ -280,6 +357,7 @@ def route_record_stop_command(
     timeout: int,
     json_output: bool,
 ):
+    started_at = time.time()
     client = _client(ctx, key, base_url, timeout)
     payload = ActionRouteRecordStopRequest(
         session_id=session_id,
@@ -289,14 +367,22 @@ def route_record_stop_command(
     result = client.route_record_stop(payload)
 
     if json_output:
-        click.echo(
-            json.dumps(
-                {
+        emit_result_envelope(
+            build_result_envelope(
+                ok=result.ok,
+                operation="action.route.record.stop",
+                summary=(
+                    f"Route recording stopped: {session_id}"
+                    if result.ok
+                    else f"Route record stop failed: {session_id}"
+                ),
+                data={
                     "ok": result.ok,
                     "routeId": result.route_id,
                     "updatedAt": result.updated_at,
                 },
-                indent=2,
+                errors=[] if result.ok else [f"Route record stop failed: {session_id}"],
+                duration_ms=int((time.time() - started_at) * 1000),
             )
         )
         return

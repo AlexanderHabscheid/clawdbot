@@ -14,6 +14,7 @@ import {
   runRouteRunActionCommand,
   runVerifyActionCommand,
 } from "./commands/action-api.js";
+import { runAdapterCommand } from "./commands/adapter.js";
 import { runDoCommand } from "./commands/do.js";
 import { initConnector } from "./commands/init.js";
 import { initManifest, validateManifestFile } from "./commands/manifest.js";
@@ -22,6 +23,13 @@ import { recordRoute, runRoute, testRoute } from "./commands/route.js";
 import { serveConnector } from "./commands/serve.js";
 import { testConnector } from "./commands/test.js";
 import { validateConnector } from "./commands/validate.js";
+import {
+  runWebMemoryExecuteCommand,
+  runWebMemoryIndexCommand,
+  runWebMemoryInvalidateCommand,
+  runWebMemoryResolveCommand,
+  runWebMemoryStatsCommand,
+} from "./commands/web-memory.js";
 
 /**
  * Create a CLI logger with colored output.
@@ -398,6 +406,7 @@ export function createCLI(): Command {
     .option("--url <url>", "Optional URL hint")
     .option("--params <json>", "Route params JSON object")
     .option("--checks <json>", "Success checks JSON array")
+    .option("--artifacts <json>", "Input artifacts JSON array")
     .option("-k, --api-key <key>", "API key for authentication")
     .option("-u, --base-url <url>", "API base URL override")
     .option("--api-version <version>", "API version override (YYYY-MM-DD)")
@@ -460,6 +469,188 @@ export function createCLI(): Command {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       const ctx = createContext(globalOpts);
       await runRouteRecordStopActionCommand(
+        {
+          ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  const webMemory = program
+    .command("web-memory")
+    .description("Manage cached web playbooks for deterministic browser execution");
+
+  webMemory
+    .command("index")
+    .description("Index or update a cached web playbook")
+    .requiredOption("--url <url>", "Target URL")
+    .option("--intent <intent>", "Intent label for this playbook")
+    .option("--playbook <json>", "Playbook JSON object")
+    .option("--ttl-ms <ms>", "Cache TTL in milliseconds")
+    .option("--metadata <json>", "Metadata JSON object")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runWebMemoryIndexCommand(
+        {
+          ...options,
+          ttlMs: typeof options.ttlMs === "string" ? Number.parseInt(options.ttlMs, 10) : undefined,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  webMemory
+    .command("resolve")
+    .description("Resolve cached web memory for a URL and intent")
+    .requiredOption("--url <url>", "Target URL")
+    .option("--intent <intent>", "Intent label")
+    .option("--max-age-ms <ms>", "Maximum acceptable cache age in milliseconds")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runWebMemoryResolveCommand(
+        {
+          ...options,
+          maxAgeMs:
+            typeof options.maxAgeMs === "string"
+              ? Number.parseInt(options.maxAgeMs, 10)
+              : undefined,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  webMemory
+    .command("execute")
+    .description("Execute using cached web memory playbooks")
+    .requiredOption("--url <url>", "Target URL")
+    .option("--intent <intent>", "Intent label")
+    .option("--operation <name>", "Operation name in the playbook")
+    .option("--params <json>", "Operation params JSON object")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runWebMemoryExecuteCommand(
+        {
+          ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  webMemory
+    .command("invalidate")
+    .description("Invalidate cached web memory entries (destructive)")
+    .option("--url <url>", "Target URL")
+    .option("--playbook-id <id>", "Specific playbook ID")
+    .option("--scope <scope>", "Scope: url|domain|all")
+    .option("--reason <text>", "Reason for invalidation")
+    .option("--yes", "Confirm destructive invalidation")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runWebMemoryInvalidateCommand(
+        {
+          ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  webMemory
+    .command("stats")
+    .description("Show web memory cache stats")
+    .option("--url <url>", "Scope stats to a URL")
+    .option("--window <window>", "Window: 1h|24h|7d|30d")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runWebMemoryStatsCommand(
+        {
+          ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  const adapter = program
+    .command("adapter")
+    .description("Run external-system adapter operations with safety enforcement");
+
+  adapter
+    .command("run")
+    .description("Execute one adapter operation")
+    .requiredOption("--adapter <json>", "Adapter spec JSON")
+    .requiredOption("--operation <name>", "Adapter operation name")
+    .option("--input <json>", "Operation input JSON object")
+    .option("--timeout-ms <ms>", "Operation timeout in milliseconds")
+    .option("--dry-run", "Validate and return without executing")
+    .option("--allow-external", "Allow operations mapped to safety=external")
+    .option("--allow-destructive", "Allow operations mapped to safety=destructive")
+    .option("--command <cmd>", "Subprocess command (for subprocess transport)")
+    .option("--args <json>", "Subprocess args JSON array")
+    .option("--cwd <path>", "Subprocess working directory")
+    .option("--env <json>", "Subprocess env overrides JSON object")
+    .option("--url <url>", "HTTP endpoint (for http transport)")
+    .option("--method <method>", "HTTP method: POST|PUT|PATCH")
+    .option("--headers <json>", "HTTP headers JSON object")
+    .option("--module <path>", "Module path (for sdk transport)")
+    .option("--export-name <name>", "Exported function name (for sdk transport)")
+    .option("--json", "Output structured JSON envelope")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runAdapterCommand(
         {
           ...options,
           timeoutMs:

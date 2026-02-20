@@ -9,6 +9,7 @@ export { ExecutionRouter, createExecutionRouter } from "./router.js";
 export { APIExecutor } from "./executors/api.js";
 export { BrowserExecutor } from "./executors/browser.js";
 export { DesktopExecutor } from "./executors/desktop.js";
+export { AdapterRuntime, createAdapterRuntime } from "./adapter-runtime.js";
 export type {
   ExecutionPlan,
   ExecutionMethod,

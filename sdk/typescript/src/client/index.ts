@@ -75,6 +75,7 @@ export interface CentrisClientOptions {
 
 export type {
   ActionApiMethod,
+  ActionArtifact,
   ActionApiRequestEnvelope,
   ActionApiResponseEnvelope,
   ActionRouteRunRequest,
@@ -83,6 +84,16 @@ export type {
   ActionRouteRecordStartResult,
   ActionRouteRecordStopRequest,
   ActionRouteRecordStopResult,
+  ActionWebMemoryIndexRequest,
+  ActionWebMemoryIndexResult,
+  ActionWebMemoryResolveRequest,
+  ActionWebMemoryResolveResult,
+  ActionWebMemoryExecuteRequest,
+  ActionWebMemoryExecuteResult,
+  ActionWebMemoryInvalidateRequest,
+  ActionWebMemoryInvalidateResult,
+  ActionWebMemoryStatsRequest,
+  ActionWebMemoryStatsResult,
 } from "../action-api/index.js";
 
 import type {
@@ -95,6 +106,16 @@ import type {
   ActionRouteRecordStopResult,
   ActionRouteRunRequest,
   ActionRouteRunResult,
+  ActionWebMemoryIndexRequest,
+  ActionWebMemoryIndexResult,
+  ActionWebMemoryResolveRequest,
+  ActionWebMemoryResolveResult,
+  ActionWebMemoryExecuteRequest,
+  ActionWebMemoryExecuteResult,
+  ActionWebMemoryInvalidateRequest,
+  ActionWebMemoryInvalidateResult,
+  ActionWebMemoryStatsRequest,
+  ActionWebMemoryStatsResult,
 } from "../action-api/index.js";
 import type {
   KernelActRequest,
@@ -156,6 +177,13 @@ export class Centris {
   private readonly fixedBaseUrl?: string;
   private resolvedBaseUrl?: string;
   private readonly deprecationCallbacks: DeprecationCallback[] = [];
+  readonly webMemory = {
+    index: (request: ActionWebMemoryIndexRequest) => this.webMemoryIndex(request),
+    resolve: (request: ActionWebMemoryResolveRequest) => this.webMemoryResolve(request),
+    execute: (request: ActionWebMemoryExecuteRequest) => this.webMemoryExecute(request),
+    invalidate: (request: ActionWebMemoryInvalidateRequest) => this.webMemoryInvalidate(request),
+    stats: (request: ActionWebMemoryStatsRequest = {}) => this.webMemoryStats(request),
+  };
 
   constructor(options: CentrisClientOptions = {}) {
     const envApiKey = process.env.CENTRIS_API_KEY;
@@ -340,6 +368,34 @@ export class Centris {
     request: ActionRouteRecordStopRequest,
   ): Promise<ActionRouteRecordStopResult> {
     return this.callActionApi("route.record.stop", request);
+  }
+
+  async webMemoryIndex(request: ActionWebMemoryIndexRequest): Promise<ActionWebMemoryIndexResult> {
+    return this.callActionApi("web.memory.index", request);
+  }
+
+  async webMemoryResolve(
+    request: ActionWebMemoryResolveRequest,
+  ): Promise<ActionWebMemoryResolveResult> {
+    return this.callActionApi("web.memory.resolve", request);
+  }
+
+  async webMemoryExecute(
+    request: ActionWebMemoryExecuteRequest,
+  ): Promise<ActionWebMemoryExecuteResult> {
+    return this.callActionApi("web.memory.execute", request);
+  }
+
+  async webMemoryInvalidate(
+    request: ActionWebMemoryInvalidateRequest,
+  ): Promise<ActionWebMemoryInvalidateResult> {
+    return this.callActionApi("web.memory.invalidate", request);
+  }
+
+  async webMemoryStats(
+    request: ActionWebMemoryStatsRequest = {},
+  ): Promise<ActionWebMemoryStatsResult> {
+    return this.callActionApi("web.memory.stats", request);
   }
 
   async dispatchActionApi<M extends ActionApiMethod>(

@@ -171,4 +171,41 @@ describe("desktop ipc action api integration", () => {
     expect(response.error?.code).toBe("DOWN");
     expect(response.error?.message).toContain("gateway unavailable");
   });
+
+  it("transcribe-centris-audio fallback calls OpenAI transcription and returns text", async () => {
+    const { IPCHandlers, handlers } = loadIpcHandlersWithMocks();
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ text: "open settings and enable dark mode" }),
+    }));
+    // @ts-expect-error test-only global mock
+    global.fetch = fetchMock;
+
+    new IPCHandlers({
+      environmentManager: {
+        getOpenAIKey: async () => "sk-test-fallback",
+      },
+      databaseManager: {},
+      clipboardManager: {},
+      windowManager: {},
+    });
+
+    const handler = handlers.get("transcribe-centris-audio");
+    expect(handler).toBeTruthy();
+    const audio = new Uint8Array([1, 2, 3, 4, 5]);
+    const response = (await handler?.({}, audio)) as {
+      success: boolean;
+      text?: string;
+      source?: string;
+    };
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/audio/transcriptions");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer sk-test-fallback");
+    expect(response.success).toBe(true);
+    expect(response.text).toBe("open settings and enable dark mode");
+    expect(response.source).toBe("openai-fallback");
+  });
 });

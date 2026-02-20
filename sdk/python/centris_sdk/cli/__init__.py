@@ -81,6 +81,15 @@ from centris_sdk.cli.progress import (
     spinner,
     progress,
 )
+from centris_sdk.cli.adapter_cmd import adapter_group
+from centris_sdk.cli.web_memory_cmd import web_memory_group
+from centris_sdk.cli.result_envelope import (
+    CliResultEnvelope,
+    CliResultMeta,
+    CliArtifact,
+    build_result_envelope,
+    emit_result_envelope,
+)
 
 __all__ = [
     # Main entry points
@@ -123,4 +132,13 @@ __all__ = [
     "with_progress",
     "spinner",
     "progress",
+    # Adapter interop
+    "adapter_group",
+    "web_memory_group",
+    # Shared JSON result envelope
+    "CliResultEnvelope",
+    "CliResultMeta",
+    "CliArtifact",
+    "build_result_envelope",
+    "emit_result_envelope",
 ]

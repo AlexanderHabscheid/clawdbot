@@ -107,3 +107,81 @@ Optional:
 - `--playwright`
 - `--headful`
 - `--slow-mo <ms>`
+
+### `centris route run-runtime`
+
+Required:
+
+- `--route-id <id>`
+
+Optional:
+
+- `--url <url>`
+- `--params <json>`
+- `--checks <json>`
+- `--artifacts <json>`
+- `-k, --api-key <key>`
+- `-u, --base-url <url>`
+- `--api-version <version>`
+- `--timeout-ms <ms>`
+- `--json`
+
+### `centris route record-start`
+
+Required:
+
+- `--intent <intent>`
+
+Optional:
+
+- `--url <url>`
+- `--params <json>`
+- `--metadata <json>`
+- `-k, --api-key <key>`
+- `-u, --base-url <url>`
+- `--api-version <version>`
+- `--timeout-ms <ms>`
+- `--json`
+
+### `centris route record-stop`
+
+Required:
+
+- `--session-id <id>`
+
+Optional:
+
+- `--outcome <outcome>`
+- `--metadata <json>`
+- `-k, --api-key <key>`
+- `-u, --base-url <url>`
+- `--api-version <version>`
+- `--timeout-ms <ms>`
+- `--json`
+
+## `centris adapter` group
+
+### `centris adapter run`
+
+Required:
+
+- `--adapter <json>`
+- `--operation <name>`
+
+Optional:
+
+- `--input <json>`
+- `--timeout-ms <ms>`
+- `--dry-run`
+- `--allow-external`
+- `--allow-destructive`
+- `--command <cmd>`
+- `--args <json>`
+- `--cwd <path>`
+- `--env <json>`
+- `--url <url>`
+- `--method <method>`
+- `--headers <json>`
+- `--module <path>`
+- `--export-name <name>`
+- `--json`

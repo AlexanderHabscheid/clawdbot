@@ -175,18 +175,35 @@ from centris_sdk.action_api import (
     ActionApiRequestEnvelope,
     ActionApiResponseEnvelope,
     ActionApiError,
+    ActionArtifact,
     ActionRouteRunRequest,
     ActionRouteRunResult,
     ActionRouteRecordStartRequest,
     ActionRouteRecordStartResult,
     ActionRouteRecordStopRequest,
     ActionRouteRecordStopResult,
+    ActionWebMemoryIndexRequest,
+    ActionWebMemoryIndexResult,
+    ActionWebMemoryResolveRequest,
+    ActionWebMemoryResolveResult,
+    ActionWebMemoryExecuteRequest,
+    ActionWebMemoryExecuteResult,
+    ActionWebMemoryInvalidateRequest,
+    ActionWebMemoryInvalidateResult,
+    ActionWebMemoryStatsRequest,
+    ActionWebMemoryStatsResult,
 )
 
 # Loader
 from centris_sdk.loader import (
     ConnectorLoader,
     discover_connectors,
+)
+from centris_sdk.adapter_runtime import (
+    AdapterRuntime,
+    AdapterSpec,
+    AdapterOperation,
+    AdapterExecutionResult,
 )
 
 # Testing utilities (optional import - may not be needed in production)
@@ -284,15 +301,31 @@ __all__ = [
     "ActionApiRequestEnvelope",
     "ActionApiResponseEnvelope",
     "ActionApiError",
+    "ActionArtifact",
     "ActionRouteRunRequest",
     "ActionRouteRunResult",
     "ActionRouteRecordStartRequest",
     "ActionRouteRecordStartResult",
     "ActionRouteRecordStopRequest",
     "ActionRouteRecordStopResult",
+    "ActionWebMemoryIndexRequest",
+    "ActionWebMemoryIndexResult",
+    "ActionWebMemoryResolveRequest",
+    "ActionWebMemoryResolveResult",
+    "ActionWebMemoryExecuteRequest",
+    "ActionWebMemoryExecuteResult",
+    "ActionWebMemoryInvalidateRequest",
+    "ActionWebMemoryInvalidateResult",
+    "ActionWebMemoryStatsRequest",
+    "ActionWebMemoryStatsResult",
     # Loader
     "ConnectorLoader",
     "discover_connectors",
+    # Adapter runtime
+    "AdapterRuntime",
+    "AdapterSpec",
+    "AdapterOperation",
+    "AdapterExecutionResult",
     # Testing (optional)
     "MockBrowserBridge",
     "ConnectorTestHarness",

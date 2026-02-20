@@ -62,6 +62,7 @@ Power-user commands:
 - `elements`
 - `introspect`
 - `deprecations`
+- `adapter`
 
 ## Important command behaviors
 
@@ -80,6 +81,18 @@ Power-user commands:
 ### `centris-py browser` and `centris-py file`
 
 These provide direct tool-like controls from CLI (navigation/snapshot/click/type and file operations).
+
+### `centris-py route run`
+
+- supports `--artifacts <json>` for cross-system handoff
+- returns structured envelope in `--json` mode
+
+### `centris-py adapter run`
+
+- run external-system operations through Centris safety model
+- supports subprocess and HTTP transports
+- supports `--dry-run`, `--allow-external`, and `--allow-destructive`
+- returns structured envelope in `--json` mode
 
 ## Recommendation
 

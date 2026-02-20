@@ -1,4 +1,5 @@
 import type {
+  ActionArtifact,
   ActionRouteRecordStartRequest,
   ActionRouteRecordStopRequest,
   ActionRouteRunRequest,
@@ -14,6 +15,7 @@ import type {
   VerifyOptions,
 } from "../types.js";
 import { Centris } from "../../client/index.js";
+import { createCliResultEnvelope, printCliResultEnvelope } from "../result-envelope.js";
 
 function createClient(options: {
   apiKey?: string;
@@ -57,14 +59,15 @@ function parseJsonArray<T>(raw: string | undefined, field: string): T[] {
   return parsed as T[];
 }
 
-function printJson(value: unknown): void {
-  console.log(JSON.stringify(value, null, 2));
+function parseArtifacts(raw: string | undefined): ActionArtifact[] {
+  return parseJsonArray<ActionArtifact>(raw, "artifacts");
 }
 
 export async function runObserveActionCommand(
   options: ObserveOptions,
   ctx: CLIContext,
 ): Promise<void> {
+  const startedAt = Date.now();
   const client = createClient(options);
   const result = await client.observe({
     url: options.url,
@@ -72,7 +75,15 @@ export async function runObserveActionCommand(
   });
 
   if (options.json) {
-    printJson(result);
+    printCliResultEnvelope(
+      createCliResultEnvelope({
+        ok: true,
+        operation: "action.observe",
+        summary: `Observed: ${result.url}`,
+        data: result,
+        durationMs: Date.now() - startedAt,
+      }),
+    );
     return;
   }
 
@@ -84,6 +95,7 @@ export async function runObserveActionCommand(
 }
 
 export async function runActActionCommand(options: ActOptions, ctx: CLIContext): Promise<void> {
+  const startedAt = Date.now();
   const client = createClient(options);
   const result = await client.act({
     kind: options.kind,
@@ -94,7 +106,16 @@ export async function runActActionCommand(options: ActOptions, ctx: CLIContext):
   });
 
   if (options.json) {
-    printJson(result);
+    printCliResultEnvelope(
+      createCliResultEnvelope({
+        ok: result.ok,
+        operation: "action.act",
+        summary: result.ok ? `Action executed: ${options.kind}` : "Action failed",
+        data: result,
+        errors: result.ok ? [] : ["Action failed"],
+        durationMs: Date.now() - startedAt,
+      }),
+    );
     return;
   }
 
@@ -110,12 +131,24 @@ export async function runVerifyActionCommand(
   options: VerifyOptions,
   ctx: CLIContext,
 ): Promise<void> {
+  const startedAt = Date.now();
   const client = createClient(options);
   const checks = parseJsonArray<KernelSuccessCheck>(options.checks, "checks");
   const result = await client.verify({ checks });
 
   if (options.json) {
-    printJson(result);
+    printCliResultEnvelope(
+      createCliResultEnvelope({
+        ok: result.ok,
+        operation: "action.verify",
+        summary: result.ok
+          ? `Verify passed (${result.passed.length} checks)`
+          : `Verify failed (${result.failed.length} checks)`,
+        data: result,
+        errors: result.ok ? [] : [`${result.failed.length} checks failed`],
+        durationMs: Date.now() - startedAt,
+      }),
+    );
     return;
   }
 
@@ -131,21 +164,36 @@ export async function runRouteRunActionCommand(
   options: RouteRunApiOptions,
   ctx: CLIContext,
 ): Promise<void> {
+  const startedAt = Date.now();
   const client = createClient(options);
   const params = parseJsonObject(options.params, "params");
   const checks = parseJsonArray<KernelSuccessCheck>(options.checks, "checks");
+  const artifacts = parseArtifacts(options.artifacts);
 
   const payload: ActionRouteRunRequest = {
     routeId: options.routeId,
     url: options.url,
     ...(Object.keys(params).length > 0 ? { params } : {}),
     ...(checks.length > 0 ? { checks } : {}),
+    ...(artifacts.length > 0 ? { artifacts } : {}),
   };
 
   const result = await client.routeRun(payload);
 
   if (options.json) {
-    printJson(result);
+    printCliResultEnvelope(
+      createCliResultEnvelope({
+        ok: result.ok,
+        operation: "action.route.run",
+        summary: result.ok
+          ? `Route run succeeded: ${options.routeId}`
+          : `Route run failed: ${options.routeId}`,
+        data: result,
+        errors: result.ok ? [] : ["Route run failed"],
+        artifacts: result.artifacts,
+        durationMs: Date.now() - startedAt,
+      }),
+    );
     return;
   }
 
@@ -165,6 +213,7 @@ export async function runRouteRecordStartActionCommand(
   options: RouteRecordStartApiOptions,
   ctx: CLIContext,
 ): Promise<void> {
+  const startedAt = Date.now();
   const client = createClient(options);
   const params = parseJsonObject(options.params, "params");
   const metadata = parseJsonObject(options.metadata, "metadata") as Record<string, unknown>;
@@ -179,7 +228,18 @@ export async function runRouteRecordStartActionCommand(
   const result = await client.routeRecordStart(payload);
 
   if (options.json) {
-    printJson(result);
+    printCliResultEnvelope(
+      createCliResultEnvelope({
+        ok: result.ok,
+        operation: "action.route.record.start",
+        summary: result.ok
+          ? `Route recording started: ${result.sessionId}`
+          : `Route record start failed for intent: ${options.intent}`,
+        data: result,
+        errors: result.ok ? [] : ["Route record start failed"],
+        durationMs: Date.now() - startedAt,
+      }),
+    );
     return;
   }
 
@@ -195,6 +255,7 @@ export async function runRouteRecordStopActionCommand(
   options: RouteRecordStopApiOptions,
   ctx: CLIContext,
 ): Promise<void> {
+  const startedAt = Date.now();
   const client = createClient(options);
   const metadata = parseJsonObject(options.metadata, "metadata") as Record<string, unknown>;
 
@@ -207,7 +268,18 @@ export async function runRouteRecordStopActionCommand(
   const result = await client.routeRecordStop(payload);
 
   if (options.json) {
-    printJson(result);
+    printCliResultEnvelope(
+      createCliResultEnvelope({
+        ok: result.ok,
+        operation: "action.route.record.stop",
+        summary: result.ok
+          ? `Route recording stopped: ${options.sessionId}`
+          : `Route record stop failed for session: ${options.sessionId}`,
+        data: result,
+        errors: result.ok ? [] : ["Route record stop failed"],
+        durationMs: Date.now() - startedAt,
+      }),
+    );
     return;
   }
 

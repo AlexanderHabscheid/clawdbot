@@ -49,6 +49,7 @@ import httpx
 from centris_sdk.action_api import (
     ACTION_API_SPEC_VERSION,
     ActionApiError,
+    ActionArtifact,
     ActionApiRequestEnvelope,
     ActionApiResponseEnvelope,
     ActionRouteRecordStartRequest,
@@ -57,6 +58,16 @@ from centris_sdk.action_api import (
     ActionRouteRecordStopResult,
     ActionRouteRunRequest,
     ActionRouteRunResult,
+    ActionWebMemoryExecuteRequest,
+    ActionWebMemoryExecuteResult,
+    ActionWebMemoryIndexRequest,
+    ActionWebMemoryIndexResult,
+    ActionWebMemoryInvalidateRequest,
+    ActionWebMemoryInvalidateResult,
+    ActionWebMemoryResolveRequest,
+    ActionWebMemoryResolveResult,
+    ActionWebMemoryStatsRequest,
+    ActionWebMemoryStatsResult,
 )
 from centris_sdk.kernel import (
     KernelActRequest,
@@ -135,6 +146,34 @@ class RateLimitError(CentrisError):
     pass
 
 
+class _WebMemoryClient:
+    """Convenience namespace for web memory operations."""
+
+    def __init__(self, client: "Centris"):
+        self._client = client
+
+    def index(self, request: ActionWebMemoryIndexRequest) -> ActionWebMemoryIndexResult:
+        return self._client.web_memory_index(request)
+
+    def resolve(self, request: ActionWebMemoryResolveRequest) -> ActionWebMemoryResolveResult:
+        return self._client.web_memory_resolve(request)
+
+    def execute(self, request: ActionWebMemoryExecuteRequest) -> ActionWebMemoryExecuteResult:
+        return self._client.web_memory_execute(request)
+
+    def invalidate(
+        self,
+        request: ActionWebMemoryInvalidateRequest,
+    ) -> ActionWebMemoryInvalidateResult:
+        return self._client.web_memory_invalidate(request)
+
+    def stats(
+        self,
+        request: Optional[ActionWebMemoryStatsRequest] = None,
+    ) -> ActionWebMemoryStatsResult:
+        return self._client.web_memory_stats(request or ActionWebMemoryStatsRequest())
+
+
 class Centris:
     """Centris API client.
     
@@ -208,6 +247,8 @@ class Centris:
             self._client = httpx.Client(timeout=timeout)
         else:
             self.base_url = None
+
+        self.web_memory = _WebMemoryClient(self)
     
     def _detect_base_url(self) -> str:
         """Detect if local or cloud API should be used."""
@@ -596,6 +637,15 @@ class Centris:
             "url": request.url,
             "params": request.params,
             "checks": [c.__dict__ for c in request.checks],
+            "artifacts": [
+                {
+                    "artifactType": a.artifact_type,
+                    "schema": a.schema,
+                    "producerOperation": a.producer_operation,
+                    "value": a.value,
+                }
+                for a in request.artifacts
+            ],
         }
         result = self._call_action_api("route.run", payload)
         verify = result.get("verify")
@@ -606,10 +656,22 @@ class Centris:
                 passed=[KernelSuccessCheck(**c) for c in verify.get("passed", [])],
                 failed=[KernelSuccessCheck(**c) for c in verify.get("failed", [])],
             )
+        artifacts: list[ActionArtifact] = []
+        for item in result.get("artifacts", []):
+            if isinstance(item, dict):
+                artifacts.append(
+                    ActionArtifact(
+                        artifact_type=str(item.get("artifactType", "")),
+                        schema=str(item.get("schema", "")),
+                        producer_operation=str(item.get("producerOperation", "")),
+                        value=item.get("value", {}) if isinstance(item.get("value"), dict) else {},
+                    )
+                )
         return ActionRouteRunResult(
             ok=bool(result.get("ok", False)),
             executed=int(result.get("executed", 0)),
             verify=verify_result,
+            artifacts=artifacts,
         )
 
     def route_record_start(
@@ -645,6 +707,137 @@ class Centris:
             ok=bool(result.get("ok", False)),
             route_id=result.get("routeId"),
             updated_at=result.get("updatedAt"),
+        )
+
+    def web_memory_index(self, request: ActionWebMemoryIndexRequest) -> ActionWebMemoryIndexResult:
+        """Index or update a cached web playbook via Action API."""
+        payload = {
+            "url": request.url,
+            "intent": request.intent,
+            "playbook": request.playbook,
+            "ttlMs": request.ttl_ms,
+            "metadata": request.metadata,
+        }
+        result = self._call_action_api("web.memory.index", payload)
+        artifact_obj = None
+        artifact_raw = result.get("artifact")
+        if isinstance(artifact_raw, dict):
+            artifact_obj = ActionArtifact(
+                artifact_type=str(artifact_raw.get("artifactType", "")),
+                schema=str(artifact_raw.get("schema", "")),
+                producer_operation=str(artifact_raw.get("producerOperation", "")),
+                value=artifact_raw.get("value", {})
+                if isinstance(artifact_raw.get("value"), dict)
+                else {},
+            )
+        return ActionWebMemoryIndexResult(
+            ok=bool(result.get("ok", False)),
+            cache_key=result.get("cacheKey"),
+            version=result.get("version"),
+            created_at=result.get("createdAt"),
+            expires_at=result.get("expiresAt"),
+            artifact=artifact_obj,
+        )
+
+    def web_memory_resolve(
+        self,
+        request: ActionWebMemoryResolveRequest,
+    ) -> ActionWebMemoryResolveResult:
+        """Resolve cached web playbook for URL + intent via Action API."""
+        payload = {
+            "url": request.url,
+            "intent": request.intent,
+            "maxAgeMs": request.max_age_ms,
+        }
+        result = self._call_action_api("web.memory.resolve", payload)
+        artifact_obj = None
+        artifact_raw = result.get("artifact")
+        if isinstance(artifact_raw, dict):
+            artifact_obj = ActionArtifact(
+                artifact_type=str(artifact_raw.get("artifactType", "")),
+                schema=str(artifact_raw.get("schema", "")),
+                producer_operation=str(artifact_raw.get("producerOperation", "")),
+                value=artifact_raw.get("value", {})
+                if isinstance(artifact_raw.get("value"), dict)
+                else {},
+            )
+        return ActionWebMemoryResolveResult(
+            hit=bool(result.get("hit", False)),
+            cache_key=result.get("cacheKey"),
+            playbook=result.get("playbook", {}) if isinstance(result.get("playbook"), dict) else {},
+            generated_at=result.get("generatedAt"),
+            expires_at=result.get("expiresAt"),
+            artifact=artifact_obj,
+        )
+
+    def web_memory_execute(
+        self,
+        request: ActionWebMemoryExecuteRequest,
+    ) -> ActionWebMemoryExecuteResult:
+        """Execute a web-memory operation via Action API."""
+        payload = {
+            "url": request.url,
+            "intent": request.intent,
+            "operation": request.operation,
+            "params": request.params,
+        }
+        result = self._call_action_api("web.memory.execute", payload)
+        artifacts: list[ActionArtifact] = []
+        for item in result.get("artifacts", []):
+            if isinstance(item, dict):
+                artifacts.append(
+                    ActionArtifact(
+                        artifact_type=str(item.get("artifactType", "")),
+                        schema=str(item.get("schema", "")),
+                        producer_operation=str(item.get("producerOperation", "")),
+                        value=item.get("value", {}) if isinstance(item.get("value"), dict) else {},
+                    )
+                )
+        source_value = result.get("source")
+        source = source_value if source_value in ("cache", "live") else None
+        return ActionWebMemoryExecuteResult(
+            ok=bool(result.get("ok", False)),
+            source=source,
+            executed=int(result["executed"]) if isinstance(result.get("executed"), int) else None,
+            details=result.get("details", {}) if isinstance(result.get("details"), dict) else {},
+            artifacts=artifacts,
+        )
+
+    def web_memory_invalidate(
+        self,
+        request: ActionWebMemoryInvalidateRequest,
+    ) -> ActionWebMemoryInvalidateResult:
+        """Invalidate cached web playbooks via Action API."""
+        payload = {
+            "url": request.url,
+            "playbookId": request.playbook_id,
+            "scope": request.scope,
+            "reason": request.reason,
+        }
+        result = self._call_action_api("web.memory.invalidate", payload)
+        return ActionWebMemoryInvalidateResult(
+            ok=bool(result.get("ok", False)),
+            invalidated=int(result.get("invalidated", 0)),
+        )
+
+    def web_memory_stats(
+        self,
+        request: ActionWebMemoryStatsRequest,
+    ) -> ActionWebMemoryStatsResult:
+        """Fetch web memory cache stats via Action API."""
+        payload = {
+            "url": request.url,
+            "window": request.window,
+        }
+        result = self._call_action_api("web.memory.stats", payload)
+        return ActionWebMemoryStatsResult(
+            entries=int(result.get("entries", 0)),
+            hits=int(result.get("hits", 0)),
+            misses=int(result.get("misses", 0)),
+            hit_rate=float(result["hitRate"]) if isinstance(result.get("hitRate"), (int, float)) else None,
+            avg_resolve_ms=float(result["avgResolveMs"])
+            if isinstance(result.get("avgResolveMs"), (int, float))
+            else None,
         )
 
     def dispatch_action_api(
