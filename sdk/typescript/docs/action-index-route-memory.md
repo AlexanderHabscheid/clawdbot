@@ -49,6 +49,8 @@ Semantic action map, not raw DOM dump.
     "nodeHints": [{ "selector": "a[href='/settings/billing/invoices']", "role": "link" }],
     "anchors": [
       { "anchorType": "label", "value": "Invoices", "weight": 1.0 },
+      { "anchorType": "test_id", "value": "settings-invoices-link", "weight": 0.95 },
+      { "anchorType": "business_id", "value": "open_invoices", "weight": 0.9 },
       { "anchorType": "near_text", "value": "Billing", "weight": 0.6 }
     ],
     "successChecks": [{ "type": "url_contains", "value": "/settings/billing/invoices" }],
@@ -151,6 +153,10 @@ Deterministic route for a user intent.
 ## Execution policy
 
 - Prefer `web.memory.execute` when confidence is high.
+- For each route-memory step, execute a target chain in priority order:
+  - nodeId hints (fast path)
+  - explicit selectors
+  - `test_id` and `business_id` anchor-derived selectors
 - Fall back to live observe/act/verify on miss or drift.
 - On successful live fallback, re-index with updated fingerprint/action anchors.
 - Keep payloads semantic-first (`intent`, `anchors`, `checks`) rather than node-id-first.

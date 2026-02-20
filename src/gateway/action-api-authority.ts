@@ -9,6 +9,7 @@ import {
   updateLearnedRouteOutcome,
 } from "../../sdk/typescript/src/kernel/learned-routes.js";
 import { loadManifests } from "../../sdk/typescript/src/manifest/loader.js";
+import { validateWebMemoryIndexPayload } from "../../sdk/typescript/src/web-memory/ingest.js";
 import { isCentrisDesktopConnected, sendDesktopCommand } from "./centris-desktop-bridge.js";
 import { isCentrisExtensionConnected, sendExtensionCommand } from "./centris-extension-bridge.js";
 
@@ -457,33 +458,91 @@ function computeRouteConfidence(params: {
   return clampConfidence(asNumber(params.pageFingerprint?.confidence), 0.5);
 }
 
-function actionTargetFromEntry(entry: ActionIndexEntry): { nodeId?: number; target?: string } {
-  for (const hint of entry.nodeHints ?? []) {
-    if (typeof hint.nodeId === "number") {
-      return { nodeId: hint.nodeId };
-    }
-    if (hint.selector) {
-      return { target: hint.selector };
-    }
-    if (hint.name) {
-      return { target: hint.name };
-    }
+function selectorCandidatesFromAnchor(anchor: ActionAnchor): string[] {
+  const anchorType = (anchor.anchorType ?? "").trim().toLowerCase();
+  const value = (anchor.value ?? "").trim();
+  if (!value) {
+    return [];
   }
-  for (const anchor of entry.anchors ?? []) {
-    if (anchor.value) {
-      return { target: anchor.value };
-    }
+  if (anchorType === "selector") {
+    return [value];
   }
-  if (entry.semanticLabel) {
-    return { target: entry.semanticLabel };
+  if (anchorType === "test_id") {
+    return [
+      `[data-testid='${value}']`,
+      `[data-test-id='${value}']`,
+      `[data-test='${value}']`,
+      `[testid='${value}']`,
+    ];
   }
-  return {};
+  if (anchorType === "business_id") {
+    return [
+      `[data-centris-action='${value}']`,
+      `[data-centris-id='${value}']`,
+      `[data-action-id='${value}']`,
+      `[data-business-id='${value}']`,
+    ];
+  }
+  return [];
 }
+
+function buildActionTargets(
+  entry: ActionIndexEntry | undefined,
+  explicitTarget: string | undefined,
+): Array<{ nodeId?: number; target?: string }> {
+  const dedupe = new Set<string>();
+  const targets: Array<{ nodeId?: number; target?: string }> = [];
+
+  const addNodeId = (nodeId: number | undefined) => {
+    if (typeof nodeId !== "number") {
+      return;
+    }
+    const key = `node:${nodeId}`;
+    if (dedupe.has(key)) {
+      return;
+    }
+    dedupe.add(key);
+    targets.push({ nodeId });
+  };
+
+  const addSelector = (selector: string | undefined) => {
+    const normalized = (selector ?? "").trim();
+    if (!normalized) {
+      return;
+    }
+    const key = `selector:${normalized}`;
+    if (dedupe.has(key)) {
+      return;
+    }
+    dedupe.add(key);
+    targets.push({ target: normalized });
+  };
+
+  addSelector(explicitTarget);
+  for (const hint of entry?.nodeHints ?? []) {
+    addNodeId(hint.nodeId);
+    addSelector(hint.selector);
+  }
+  for (const anchor of entry?.anchors ?? []) {
+    for (const selector of selectorCandidatesFromAnchor(anchor)) {
+      addSelector(selector);
+    }
+  }
+  return targets;
+}
+
+type ActionAttempt = {
+  kind: "navigate" | "click" | "type" | "press" | "wait" | "scroll";
+  nodeId?: number;
+  target?: string;
+  value?: string;
+  amount?: number;
+};
 
 function routeMemoryStepToActParams(
   step: ActionRouteMemoryStep,
   actionById: Map<string, ActionIndexEntry>,
-): Record<string, unknown> | null {
+): ActionAttempt[] | null {
   const mapped = step.actionId ? actionById.get(step.actionId) : undefined;
   const params = step.params ?? {};
   const operation = deriveActionKind(step.operation ?? mapped?.affordance);
@@ -492,46 +551,47 @@ function routeMemoryStepToActParams(
   }
   if (operation === "navigate") {
     const value = params.value ?? params.url ?? params.target ?? mapped?.semanticLabel;
-    return value ? { kind: "navigate", value } : null;
+    return value ? [{ kind: "navigate", value }] : null;
   }
   if (operation === "type") {
-    const targetHint = mapped ? actionTargetFromEntry(mapped) : {};
-    return {
+    const value = params.value ?? params.text ?? "";
+    const targets = buildActionTargets(mapped, params.target);
+    if (targets.length === 0) {
+      return [{ kind: "type", value }];
+    }
+    return targets.map((candidate) => ({
       kind: "type",
-      ...(typeof targetHint.nodeId === "number" ? { nodeId: targetHint.nodeId } : {}),
-      ...(targetHint.target ? { target: targetHint.target } : {}),
-      value: params.value ?? params.text ?? "",
-    };
+      value,
+      ...(typeof candidate.nodeId === "number" ? { nodeId: candidate.nodeId } : {}),
+      ...(candidate.target ? { target: candidate.target } : {}),
+    }));
   }
   if (operation === "press") {
     const value = params.value ?? params.key ?? mapped?.semanticLabel;
-    return value ? { kind: "press", value } : null;
+    return value ? [{ kind: "press", value }] : null;
   }
   if (operation === "wait") {
     const amount = Number.parseInt(params.amount ?? "250", 10);
-    return { kind: "wait", amount: Number.isFinite(amount) ? amount : 250 };
+    return [{ kind: "wait", amount: Number.isFinite(amount) ? amount : 250 }];
   }
   if (operation === "scroll") {
-    return {
-      kind: "scroll",
-      value: params.value ?? "down",
-      amount: Number.parseInt(params.amount ?? "400", 10),
-    };
+    return [
+      {
+        kind: "scroll",
+        value: params.value ?? "down",
+        amount: Number.parseInt(params.amount ?? "400", 10),
+      },
+    ];
   }
-  const targetHint = mapped ? actionTargetFromEntry(mapped) : {};
-  const clickParams = {
-    kind: "click",
-    ...(typeof targetHint.nodeId === "number" ? { nodeId: targetHint.nodeId } : {}),
-    ...(targetHint.target ? { target: targetHint.target } : {}),
-    ...(params.target ? { target: params.target } : {}),
-  };
-  if (
-    typeof (clickParams as { nodeId?: unknown }).nodeId !== "number" &&
-    !asString((clickParams as { target?: unknown }).target)
-  ) {
+  const clickTargets = buildActionTargets(mapped, params.target);
+  if (clickTargets.length === 0) {
     return null;
   }
-  return clickParams;
+  return clickTargets.map((candidate) => ({
+    kind: "click",
+    ...(typeof candidate.nodeId === "number" ? { nodeId: candidate.nodeId } : {}),
+    ...(candidate.target ? { target: candidate.target } : {}),
+  }));
 }
 
 async function runRouteMemory(params: {
@@ -552,12 +612,25 @@ async function runRouteMemory(params: {
   }
 
   for (const step of params.routeMemory.steps ?? []) {
-    const actParams = routeMemoryStepToActParams(step, actionById);
-    if (!actParams) {
+    const attempts = routeMemoryStepToActParams(step, actionById);
+    if (!attempts || attempts.length === 0) {
       continue;
     }
-    await runAct(actParams);
-    executed++;
+    let succeeded = false;
+    let lastError: unknown;
+    for (const attempt of attempts) {
+      try {
+        await runAct(attempt);
+        executed++;
+        succeeded = true;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!succeeded && lastError) {
+      throw lastError;
+    }
   }
 
   const verify =
@@ -1092,13 +1165,17 @@ async function runRouteWithPolicy(params: {
     params.routeMemory.routeId === params.routeId &&
     confidence >= MEMORY_ROUTE_CONFIDENCE_THRESHOLD
   ) {
-    const memoryResult = await runRouteMemory({
-      routeMemory: params.routeMemory,
-      actionIndex,
-      url: params.url,
-      checks: params.checks,
-    });
-    return { ...memoryResult, source: "memory", confidence };
+    try {
+      const memoryResult = await runRouteMemory({
+        routeMemory: params.routeMemory,
+        actionIndex,
+        url: params.url,
+        checks: params.checks,
+      });
+      return { ...memoryResult, source: "memory", confidence };
+    } catch {
+      // Fallback to manifest/live execution when memory targets drift.
+    }
   }
 
   try {
@@ -1153,6 +1230,7 @@ export async function handleActionApiEnvelope(
     method === "desktop.type" ||
     method === "desktop.apps" ||
     method === "desktop.windows";
+  const isValidationOnlyMethod = method === "web.memory.validate";
   if (isDesktopMethod) {
     if (!isCentrisDesktopConnected()) {
       return actionError(
@@ -1162,7 +1240,7 @@ export async function handleActionApiEnvelope(
         "Centris desktop bridge is not connected.",
       );
     }
-  } else if (!isCentrisExtensionConnected()) {
+  } else if (!isValidationOnlyMethod && !isCentrisExtensionConnected()) {
     return actionError(
       method,
       id,
@@ -1435,6 +1513,33 @@ export async function handleActionApiEnvelope(
       };
     }
 
+    if (method === "web.memory.validate") {
+      const payload = asObject(params.payload);
+      if (!payload) {
+        return actionError(method, id, "INVALID_REQUEST", "payload is required");
+      }
+      const strict = params.strict === true;
+      const validation = validateWebMemoryIndexPayload(
+        payload as Parameters<typeof validateWebMemoryIndexPayload>[0],
+        {
+          strict,
+        },
+      );
+      return {
+        specVersion,
+        method,
+        id,
+        ok: true,
+        result: {
+          ok: validation.ok,
+          errors: validation.errors,
+          warnings: validation.warnings,
+          normalized: validation.normalized,
+          stats: validation.stats,
+        },
+      };
+    }
+
     if (method === "web.memory.resolve") {
       const startedAt = Date.now();
       const url = asString(params.url) ?? "";
@@ -1510,32 +1615,36 @@ export async function handleActionApiEnvelope(
           !requestPageFingerprintId ||
           entry.pageFingerprint?.fingerprintId === requestPageFingerprintId
         ) {
-          const memoryResult = await runRouteMemory({
-            routeMemory: entry.routeMemory,
-            actionIndex: entry.actionIndex,
-            url,
-          });
-          const executeMs = Date.now() - startedAt;
-          webMemoryExecuteMsTotal += executeMs;
-          webMemoryExecuteCount++;
-          return {
-            specVersion,
-            method,
-            id,
-            ok: true,
-            result: {
-              ok: memoryResult.ok,
-              source: "cache",
-              executed: memoryResult.executed,
-              confidence: entry.confidence,
-              ...(entry.pageFingerprint ? { pageFingerprint: entry.pageFingerprint } : {}),
+          try {
+            const memoryResult = await runRouteMemory({
+              routeMemory: entry.routeMemory,
               actionIndex: entry.actionIndex,
-              ...(entry.routeMemory ? { routeMemory: entry.routeMemory } : {}),
-              details: {
-                strategy: "memory",
+              url,
+            });
+            const executeMs = Date.now() - startedAt;
+            webMemoryExecuteMsTotal += executeMs;
+            webMemoryExecuteCount++;
+            return {
+              specVersion,
+              method,
+              id,
+              ok: true,
+              result: {
+                ok: memoryResult.ok,
+                source: "cache",
+                executed: memoryResult.executed,
+                confidence: entry.confidence,
+                ...(entry.pageFingerprint ? { pageFingerprint: entry.pageFingerprint } : {}),
+                actionIndex: entry.actionIndex,
+                ...(entry.routeMemory ? { routeMemory: entry.routeMemory } : {}),
+                details: {
+                  strategy: "memory",
+                },
               },
-            },
-          };
+            };
+          } catch {
+            // Drifted memory should degrade to live execution path.
+          }
         }
       }
 

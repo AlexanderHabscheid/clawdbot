@@ -276,6 +276,17 @@ export {
 } from "./execution/index.js";
 
 // =============================================================================
+// Web Memory Ingestion
+// =============================================================================
+
+export {
+  validateWebMemoryIndexPayload,
+  createWebMemoryIndexPayload,
+  type WebMemoryValidationResult,
+  type WebMemoryEmitterNode,
+} from "./web-memory/index.js";
+
+// =============================================================================
 // Action Kernel
 // =============================================================================
 

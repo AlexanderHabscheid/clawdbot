@@ -86,6 +86,8 @@ export type {
   ActionRouteRecordStopResult,
   ActionWebMemoryIndexRequest,
   ActionWebMemoryIndexResult,
+  ActionWebMemoryValidateRequest,
+  ActionWebMemoryValidateResult,
   ActionWebMemoryResolveRequest,
   ActionWebMemoryResolveResult,
   ActionWebMemoryExecuteRequest,
@@ -119,6 +121,8 @@ import type {
   ActionRouteRunResult,
   ActionWebMemoryIndexRequest,
   ActionWebMemoryIndexResult,
+  ActionWebMemoryValidateRequest,
+  ActionWebMemoryValidateResult,
   ActionWebMemoryResolveRequest,
   ActionWebMemoryResolveResult,
   ActionWebMemoryExecuteRequest,
@@ -411,6 +415,12 @@ export class Centris {
 
   async webMemoryIndex(request: ActionWebMemoryIndexRequest): Promise<ActionWebMemoryIndexResult> {
     return this.callActionApi("web.memory.index", request);
+  }
+
+  async webMemoryValidate(
+    request: ActionWebMemoryValidateRequest,
+  ): Promise<ActionWebMemoryValidateResult> {
+    return this.callActionApi("web.memory.validate", request);
   }
 
   async webMemoryResolve(

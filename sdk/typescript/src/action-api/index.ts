@@ -20,6 +20,8 @@ export {
   type ActionRouteRecordStopResult,
   type ActionWebMemoryIndexRequest,
   type ActionWebMemoryIndexResult,
+  type ActionWebMemoryValidateRequest,
+  type ActionWebMemoryValidateResult,
   type ActionWebMemoryResolveRequest,
   type ActionWebMemoryResolveResult,
   type ActionWebMemoryExecuteRequest,

@@ -31,6 +31,7 @@ export type ActionApiMethod =
   | "route.record.start"
   | "route.record.stop"
   | "web.memory.index"
+  | "web.memory.validate"
   | "web.memory.resolve"
   | "web.memory.execute"
   | "web.memory.invalidate"
@@ -61,6 +62,8 @@ export type ActionAnchorType =
   | "placeholder"
   | "near_text"
   | "selector"
+  | "test_id"
+  | "business_id"
   | "role"
   | "url"
   | "region";
@@ -216,6 +219,24 @@ export interface ActionWebMemoryIndexResult {
   artifact?: ActionArtifact;
 }
 
+export interface ActionWebMemoryValidateRequest {
+  payload: ActionWebMemoryIndexRequest;
+  strict?: boolean;
+}
+
+export interface ActionWebMemoryValidateResult {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  normalized?: ActionWebMemoryIndexRequest;
+  stats?: {
+    actionCount: number;
+    anchorCount: number;
+    nodeHintCount: number;
+    semanticAnchorCount: number;
+  };
+}
+
 export interface ActionWebMemoryResolveRequest {
   url: string;
   intent?: string;
@@ -364,6 +385,7 @@ export type ActionApiParamsByMethod = {
   "route.record.start": ActionRouteRecordStartRequest;
   "route.record.stop": ActionRouteRecordStopRequest;
   "web.memory.index": ActionWebMemoryIndexRequest;
+  "web.memory.validate": ActionWebMemoryValidateRequest;
   "web.memory.resolve": ActionWebMemoryResolveRequest;
   "web.memory.execute": ActionWebMemoryExecuteRequest;
   "web.memory.invalidate": ActionWebMemoryInvalidateRequest;
@@ -384,6 +406,7 @@ export type ActionApiResultByMethod = {
   "route.record.start": ActionRouteRecordStartResult;
   "route.record.stop": ActionRouteRecordStopResult;
   "web.memory.index": ActionWebMemoryIndexResult;
+  "web.memory.validate": ActionWebMemoryValidateResult;
   "web.memory.resolve": ActionWebMemoryResolveResult;
   "web.memory.execute": ActionWebMemoryExecuteResult;
   "web.memory.invalidate": ActionWebMemoryInvalidateResult;

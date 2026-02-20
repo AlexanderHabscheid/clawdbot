@@ -33,6 +33,7 @@ ActionApiMethod = Literal[
     "route.record.start",
     "route.record.stop",
     "web.memory.index",
+    "web.memory.validate",
     "web.memory.resolve",
     "web.memory.execute",
     "web.memory.invalidate",
@@ -48,6 +49,8 @@ ActionAnchorType = Literal[
     "placeholder",
     "near_text",
     "selector",
+    "test_id",
+    "business_id",
     "role",
     "url",
     "region",
@@ -218,6 +221,21 @@ class ActionWebMemoryIndexResult:
     action_index: list[ActionIndexEntry] = field(default_factory=list)
     route_memory: Optional[ActionRouteMemory] = None
     artifact: Optional[ActionArtifact] = None
+
+
+@dataclass
+class ActionWebMemoryValidateRequest:
+    payload: ActionWebMemoryIndexRequest
+    strict: Optional[bool] = None
+
+
+@dataclass
+class ActionWebMemoryValidateResult:
+    ok: bool
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    normalized: Optional[ActionWebMemoryIndexRequest] = None
+    stats: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass

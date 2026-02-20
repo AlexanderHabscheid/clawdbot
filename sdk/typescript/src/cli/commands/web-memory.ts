@@ -81,6 +81,63 @@ function inferAffordanceFromNode(node: Record<string, unknown>): ActionIndexEntr
   return "click";
 }
 
+function readStringArray(record: Record<string, unknown>, key: string): string[] {
+  const value = record[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function pushAnchor(
+  target: ActionAnchor[],
+  seen: Set<string>,
+  anchorType: ActionAnchor["anchorType"],
+  value: string | undefined,
+  weight: number,
+): void {
+  const normalized = (value ?? "").trim();
+  if (!normalized) {
+    return;
+  }
+  const key = `${anchorType}:${normalized}`;
+  if (seen.has(key)) {
+    return;
+  }
+  seen.add(key);
+  target.push({ anchorType, value: normalized, weight });
+}
+
+function deriveAnchors(node: Record<string, unknown>, semanticLabel: string): ActionAnchor[] {
+  const selector = typeof node.selector === "string" ? node.selector : undefined;
+  const role = readString(node, "r", "role");
+  const ariaLabel = readString(node, "ariaLabel", "aria_label");
+  const placeholder = readString(node, "placeholder");
+  const testIds = [
+    readString(node, "testId", "test_id", "dataTestId", "data-testid"),
+    ...readStringArray(node, "testIds"),
+  ];
+  const businessIds = [
+    readString(node, "businessId", "business_id", "actionId", "data-centris-action"),
+    ...readStringArray(node, "businessIds"),
+  ];
+
+  const anchors: ActionAnchor[] = [];
+  const seen = new Set<string>();
+  pushAnchor(anchors, seen, "label", semanticLabel, 1);
+  pushAnchor(anchors, seen, "selector", selector, 0.85);
+  pushAnchor(anchors, seen, "role", role, 0.7);
+  pushAnchor(anchors, seen, "aria_label", ariaLabel, 0.8);
+  pushAnchor(anchors, seen, "placeholder", placeholder, 0.75);
+  for (const testId of testIds) {
+    pushAnchor(anchors, seen, "test_id", testId, 0.9);
+  }
+  for (const businessId of businessIds) {
+    pushAnchor(anchors, seen, "business_id", businessId, 0.92);
+  }
+  return anchors;
+}
+
 async function deriveSnapshotIndexing(params: {
   snapshotFile: string;
   url: string;
@@ -153,11 +210,13 @@ async function deriveSnapshotIndexing(params: {
         return null;
       }
       const selector = typeof node.selector === "string" ? node.selector : undefined;
-      const nodeId = typeof node.id === "number" ? node.id : undefined;
-      const anchors: ActionAnchor[] = [
-        { anchorType: "label" as const, value: semanticLabel, weight: 1 },
-        ...(selector ? [{ anchorType: "selector" as const, value: selector, weight: 0.8 }] : []),
-      ];
+      const nodeId =
+        typeof node.nodeId === "number"
+          ? node.nodeId
+          : typeof node.id === "number"
+            ? node.id
+            : undefined;
+      const anchors = deriveAnchors(node, semanticLabel);
       return {
         actionId: `${slugify(semanticLabel)}_${index + 1}`,
         intent: params.intent ?? semanticLabel,

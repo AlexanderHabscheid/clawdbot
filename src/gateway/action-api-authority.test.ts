@@ -320,6 +320,43 @@ describe("handleActionApiEnvelope", () => {
     expect((invalidated.result as { invalidated: number }).invalidated).toBeGreaterThanOrEqual(1);
   });
 
+  it("retries route memory actions with alternate semantic anchors", async () => {
+    vi.mocked(isCentrisExtensionConnected).mockReturnValue(true);
+    vi.mocked(sendExtensionCommand)
+      .mockRejectedValueOnce(new Error("stale node id"))
+      .mockResolvedValueOnce({ success: true });
+
+    const result = await handleActionApiEnvelope({
+      method: "route.run",
+      params: {
+        routeId: "checkout_submit",
+        actionIndex: [
+          {
+            actionId: "submit_order",
+            affordance: "click",
+            nodeHints: [{ nodeId: 11 }],
+            anchors: [{ anchorType: "test_id", value: "submit-order" }],
+            confidence: 0.95,
+          },
+        ],
+        routeMemory: {
+          routeId: "checkout_submit",
+          confidence: 0.95,
+          steps: [{ actionId: "submit_order", operation: "click" }],
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect((result.result as { source?: string }).source).toBe("memory");
+    expect(vi.mocked(sendExtensionCommand)).toHaveBeenNthCalledWith(1, "click_node", {
+      nodeId: 11,
+    });
+    expect(vi.mocked(sendExtensionCommand)).toHaveBeenNthCalledWith(2, "click_node", {
+      selector: "[data-testid='submit-order']",
+    });
+  });
+
   it("observes snapshot when extension is connected", async () => {
     vi.mocked(isCentrisExtensionConnected).mockReturnValue(true);
     vi.mocked(sendExtensionCommand).mockResolvedValue({

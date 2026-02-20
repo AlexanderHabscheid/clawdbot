@@ -21,6 +21,7 @@ If you are building integrations that make Centris faster, safer, and more capab
 - [MCP and HTTP API](./mcp-http-api.md)
 - [MCP/HTTP endpoint examples](./api-endpoints-examples.md)
 - [Manifest and routes](./manifest-routes.md)
+- [External integration contract](./integration-contract.md)
 - [TypeScript API surface](./api-surface.md)
 - [Auth and config patterns](./auth-config-patterns.md)
 - [Errors and troubleshooting](./errors-troubleshooting.md)
