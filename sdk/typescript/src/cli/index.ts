@@ -14,6 +14,14 @@ export { publishConnector } from "./commands/publish.js";
 export { runDoCommand } from "./commands/do.js";
 export { runAdapterCommand } from "./commands/adapter.js";
 export {
+  runDesktopSnapshotCommand,
+  runDesktopFindCommand,
+  runDesktopClickCommand,
+  runDesktopTypeCommand,
+  runDesktopAppsCommand,
+  runDesktopWindowsCommand,
+} from "./commands/desktop.js";
+export {
   runObserveActionCommand,
   runActActionCommand,
   runVerifyActionCommand,
@@ -47,6 +55,12 @@ export type {
   ObserveOptions,
   ActOptions,
   VerifyOptions,
+  DesktopSnapshotOptions,
+  DesktopFindOptions,
+  DesktopClickOptions,
+  DesktopTypeOptions,
+  DesktopAppsOptions,
+  DesktopWindowsOptions,
   RouteRunApiOptions,
   RouteRecordStartApiOptions,
   RouteRecordStopApiOptions,

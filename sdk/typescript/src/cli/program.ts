@@ -15,6 +15,14 @@ import {
   runVerifyActionCommand,
 } from "./commands/action-api.js";
 import { runAdapterCommand } from "./commands/adapter.js";
+import {
+  runDesktopAppsCommand,
+  runDesktopClickCommand,
+  runDesktopFindCommand,
+  runDesktopSnapshotCommand,
+  runDesktopTypeCommand,
+  runDesktopWindowsCommand,
+} from "./commands/desktop.js";
 import { runDoCommand } from "./commands/do.js";
 import { initConnector } from "./commands/init.js";
 import {
@@ -264,6 +272,168 @@ export function createCLI(): Command {
       await runVerifyActionCommand(
         {
           ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  const desktop = program
+    .command("desktop")
+    .description("Control desktop apps via Centris Accessibility API bridge");
+
+  desktop
+    .command("snapshot")
+    .description("Capture accessibility snapshot for the active desktop app/window")
+    .option("--app-name <name>", "Optional app name")
+    .option("--window-title <title>", "Optional window title filter")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runDesktopSnapshotCommand(
+        {
+          ...options,
+          appName: options.appName,
+          windowTitle: options.windowTitle,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  desktop
+    .command("find")
+    .description("Find desktop accessibility elements by role/name")
+    .option("--app-name <name>", "Optional app name")
+    .option("--window-title <title>", "Optional window title filter")
+    .option("--role <role>", "AX role filter (example: AXButton)")
+    .option("--name <name>", "Element name filter")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runDesktopFindCommand(
+        {
+          ...options,
+          appName: options.appName,
+          windowTitle: options.windowTitle,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  desktop
+    .command("click")
+    .description("Click a desktop element by elementId")
+    .requiredOption("--element-id <id>", "Element ID from desktop snapshot/find")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runDesktopClickCommand(
+        {
+          ...options,
+          elementId: Number.parseInt(options.elementId, 10),
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  desktop
+    .command("type")
+    .description("Type text into a desktop element or current focus")
+    .requiredOption("--text <text>", "Text to type")
+    .option("--element-id <id>", "Optional element ID from desktop snapshot/find")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runDesktopTypeCommand(
+        {
+          ...options,
+          elementId:
+            typeof options.elementId === "string"
+              ? Number.parseInt(options.elementId, 10)
+              : undefined,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  desktop
+    .command("apps")
+    .description("List running desktop applications")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runDesktopAppsCommand(
+        {
+          ...options,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  desktop
+    .command("windows")
+    .description("List desktop windows (optionally filtered by app name)")
+    .option("--app-name <name>", "Optional app name")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runDesktopWindowsCommand(
+        {
+          ...options,
+          appName: options.appName,
           timeoutMs:
             typeof options.timeoutMs === "string"
               ? Number.parseInt(options.timeoutMs, 10)

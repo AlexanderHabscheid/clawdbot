@@ -57,6 +57,7 @@ from centris_sdk.cli.exec_cmd import exec_command
 from centris_sdk.cli.do_cmd import do_command
 from centris_sdk.cli.browser import browser_group
 from centris_sdk.cli.file_cmd import file_group
+from centris_sdk.cli.desktop_cmd import desktop_group
 from centris_sdk.cli.daemon import daemon_group
 from centris_sdk.cli.sandbox import sandbox_group
 from centris_sdk.cli.banner import emit_banner
@@ -447,6 +448,7 @@ cli.add_command(do_command, name="do")
 # Direct tool commands
 cli.add_command(exec_command, name="exec")
 cli.add_command(browser_group, name="browser")
+cli.add_command(desktop_group, name="desktop")
 cli.add_command(file_group, name="file")
 cli.add_command(observe_command, name="observe")
 cli.add_command(act_command, name="act")

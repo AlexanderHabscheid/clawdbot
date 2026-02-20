@@ -61,6 +61,7 @@ from centris_sdk.action_api import (
     ActionDesktopTypeResult,
     ActionDesktopWindowsRequest,
     ActionDesktopWindowsResult,
+    DesktopElement,
     ActionAnchor,
     ActionIndexEntry,
     ActionLandmark,
@@ -224,24 +225,24 @@ def _parse_action_artifact(raw: Any) -> Optional[ActionArtifact]:
     )
 
 
-def _parse_desktop_elements(raw: Any) -> list[dict[str, Any]]:
+def _parse_desktop_elements(raw: Any) -> list[DesktopElement]:
     if not isinstance(raw, list):
         return []
-    elements: list[dict[str, Any]] = []
+    elements: list[DesktopElement] = []
     for item in raw:
         if not isinstance(item, dict):
             continue
         element_id = item.get("id")
         if not isinstance(element_id, int):
             continue
-        element: dict[str, Any] = {"id": element_id}
-        if isinstance(item.get("role"), str):
-            element["role"] = item["role"]
-        if isinstance(item.get("name"), str):
-            element["name"] = item["name"]
-        if isinstance(item.get("value"), str):
-            element["value"] = item["value"]
-        elements.append(element)
+        elements.append(
+            DesktopElement(
+                id=element_id,
+                role=item.get("role") if isinstance(item.get("role"), str) else None,
+                name=item.get("name") if isinstance(item.get("name"), str) else None,
+                value=item.get("value") if isinstance(item.get("value"), str) else None,
+            )
+        )
     return elements
 
 
@@ -948,10 +949,11 @@ class Centris:
 
     def desktop_snapshot(
         self,
-        request: ActionDesktopSnapshotRequest = ActionDesktopSnapshotRequest(),
+        request: Optional[ActionDesktopSnapshotRequest] = None,
     ) -> ActionDesktopSnapshotResult:
         """Capture desktop accessibility snapshot via Action API."""
-        payload = {"appName": request.app_name, "windowTitle": request.window_title}
+        req = request or ActionDesktopSnapshotRequest()
+        payload = {"appName": req.app_name, "windowTitle": req.window_title}
         result = self._call_action_api("desktop.snapshot", payload)
         return ActionDesktopSnapshotResult(
             app_name=result.get("appName") if isinstance(result.get("appName"), str) else None,
@@ -965,14 +967,15 @@ class Centris:
 
     def desktop_find(
         self,
-        request: ActionDesktopFindRequest = ActionDesktopFindRequest(),
+        request: Optional[ActionDesktopFindRequest] = None,
     ) -> ActionDesktopFindResult:
         """Find accessibility elements on desktop via Action API."""
+        req = request or ActionDesktopFindRequest()
         payload = {
-            "appName": request.app_name,
-            "windowTitle": request.window_title,
-            "role": request.role,
-            "name": request.name,
+            "appName": req.app_name,
+            "windowTitle": req.window_title,
+            "role": req.role,
+            "name": req.name,
         }
         result = self._call_action_api("desktop.find", payload)
         return ActionDesktopFindResult(
@@ -1006,10 +1009,11 @@ class Centris:
 
     def desktop_windows(
         self,
-        request: ActionDesktopWindowsRequest = ActionDesktopWindowsRequest(),
+        request: Optional[ActionDesktopWindowsRequest] = None,
     ) -> ActionDesktopWindowsResult:
         """List desktop windows via Action API."""
-        result = self._call_action_api("desktop.windows", {"appName": request.app_name})
+        req = request or ActionDesktopWindowsRequest()
+        result = self._call_action_api("desktop.windows", {"appName": req.app_name})
         windows = result.get("windows")
         return ActionDesktopWindowsResult(windows=windows if isinstance(windows, list) else [])
 
