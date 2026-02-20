@@ -5,38 +5,38 @@ Command-line interface for voice-controlled computer automation.
 
 QUICK START:
     pip install centris-sdk
-    centris onboard                   # Interactive setup wizard
-    centris start                     # Start the backend server
-    centris doctor                    # Check installation health
+    centris-py onboard                   # Interactive setup wizard
+    centris-py start                     # Start the backend server
+    centris-py doctor                    # Check installation health
 
 Backend Management:
-    centris start            - Start the Centris backend server
-    centris stop             - Stop the backend server gracefully
-    centris status           - Show server status and health
-    centris doctor           - Diagnose installation issues
-    centris config show      - Show current configuration
-    centris onboard          - Interactive setup wizard
+    centris-py start            - Start the Centris backend server
+    centris-py stop             - Stop the backend server gracefully
+    centris-py status           - Show server status and health
+    centris-py doctor           - Diagnose installation issues
+    centris-py config show      - Show current configuration
+    centris-py onboard          - Interactive setup wizard
 
 Connector Development:
-    centris init <id>        - Initialize a new connector project
-    centris validate [path]  - Validate connector schema
-    centris test [path]      - Test connector capabilities
-    centris serve [path]     - Start local dev server with playground
+    centris-py init <id>        - Initialize a new connector project
+    centris-py validate [path]  - Validate connector schema
+    centris-py test [path]      - Test connector capabilities
+    centris-py serve [path]     - Start local dev server with playground
 
 Publishing & Distribution:
-    centris publish [path]   - Publish to registry (auto-login)
-    centris package [path]   - Create distributable .connector file
+    centris-py publish [path]   - Publish to registry (auto-login)
+    centris-py package [path]   - Create distributable .connector file
 
 Discovery & Installation:
-    centris search <query>   - Search registry for connectors
-    centris list             - List installed/available connectors
-    centris install <id>     - Install connector from registry
-    centris update           - Update installed connectors
+    centris-py search <query>   - Search registry for connectors
+    centris-py list             - List installed/available connectors
+    centris-py install <id>     - Install connector from registry
+    centris-py update           - Update installed connectors
 
 Authentication (optional):
-    centris login            - Login via browser
-    centris logout           - Clear credentials
-    centris whoami           - Show auth status
+    centris-py login            - Login via browser
+    centris-py logout           - Clear credentials
+    centris-py whoami           - Show auth status
 """
 
 from centris_sdk.cli.main import (

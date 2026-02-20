@@ -1,8 +1,8 @@
 # CLI reference
 
-The Python package exposes the `centris` CLI via:
+The Python package exposes the `centris-py` CLI via:
 
-- `pyproject.toml`: `centris = "centris_sdk.cli:main"`
+- `pyproject.toml`: `centris-py = "centris_sdk.cli:main"`
 
 For a full flag-by-flag map, see [CLI command matrix (exhaustive)](./cli-command-matrix.md).
 
@@ -65,19 +65,19 @@ Power-user commands:
 
 ## Important command behaviors
 
-### `centris do`
+### `centris-py do`
 
 - calls `POST /api/v1/do`
 - supports `--async` with polling `GET /api/v1/task/{task_id}`
 - falls back to local execution when backend is unavailable
 
-### `centris agent`
+### `centris-py agent`
 
 - default backend URL: `http://127.0.0.1:5001`
 - streaming mode by default
 - supports session reuse with `--session`
 
-### `centris browser` and `centris file`
+### `centris-py browser` and `centris-py file`
 
 These provide direct tool-like controls from CLI (navigation/snapshot/click/type and file operations).
 
@@ -86,6 +86,6 @@ These provide direct tool-like controls from CLI (navigation/snapshot/click/type
 For exact flags and subcommands, use built-in help:
 
 ```bash
-centris --help
-centris <command> --help
+centris-py --help
+centris-py <command> --help
 ```

@@ -1302,11 +1302,26 @@ class IPCHandlers {
     // ========================================
     // BACKEND MANAGEMENT HANDLERS
     // ========================================
-    // These handlers manage the Centris backend process (check, start, stop)
+    // These handlers manage the Centris backend (local gateway or cloud Railway).
+
+    // Get the current backend/gateway URL (used by renderer for native audio and health checks)
+    ipcMain.handle("get-backend-url", () => {
+      return this.getActionApiBaseUrl();
+    });
 
     // Check if backend is running and healthy (just check, don't start)
     ipcMain.handle("check-backend-health", async () => {
       try {
+        const baseUrl = this.getActionApiBaseUrl();
+        const isLocal =
+          baseUrl.startsWith("http://127.0.0.1") || baseUrl.startsWith("http://localhost");
+        if (!isLocal) {
+          const res = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
+            method: "GET",
+            signal: AbortSignal.timeout(5000),
+          });
+          return { success: true, healthy: res.ok };
+        }
         const isHealthy = await backendManager.checkBackendHealth();
         return { success: true, healthy: isHealthy };
       } catch (error) {
@@ -1318,6 +1333,16 @@ class IPCHandlers {
     // Check if backend is running (simple check only, no auto-start)
     ipcMain.handle("check-backend-running", async () => {
       try {
+        const baseUrl = this.getActionApiBaseUrl();
+        const isLocal =
+          baseUrl.startsWith("http://127.0.0.1") || baseUrl.startsWith("http://localhost");
+        if (!isLocal) {
+          const res = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
+            method: "GET",
+            signal: AbortSignal.timeout(5000),
+          });
+          return { success: true, running: res.ok };
+        }
         const isRunning = await backendManager.checkBackendRunning();
         return { success: true, running: isRunning };
       } catch (error) {
@@ -1326,9 +1351,19 @@ class IPCHandlers {
       }
     });
 
-    // Ensure backend is running (check and start if needed)
+    // Ensure backend is running (for cloud gateway we only check health; for local we check port)
     ipcMain.handle("ensure-backend-running", async () => {
       try {
+        const baseUrl = this.getActionApiBaseUrl();
+        const isLocal =
+          baseUrl.startsWith("http://127.0.0.1") || baseUrl.startsWith("http://localhost");
+        if (!isLocal) {
+          const res = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
+            method: "GET",
+            signal: AbortSignal.timeout(5000),
+          });
+          return { success: true, running: res.ok };
+        }
         const isRunning = await backendManager.ensureBackendRunning();
         return { success: true, running: isRunning };
       } catch (error) {

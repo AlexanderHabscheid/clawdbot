@@ -52,13 +52,13 @@ pipx install "centris-sdk[all]"
 Verify and start:
 
 ```bash
-centris --version
-centris doctor
-centris init demo-py --template browser --url https://example.com
+centris-py --version
+centris-py doctor
+centris-py init demo-py --template browser --url https://example.com
 cd demo-py
-centris validate .
-centris test .
-centris serve .
+centris-py validate .
+centris-py test .
+centris-py serve .
 ```
 
 ### pip / pipx
@@ -71,8 +71,8 @@ pipx install centris-sdk[all]
 pip install centris-sdk[all]
 
 # Verify installation
-centris --version
-centris doctor
+centris-py --version
+centris-py doctor
 ```
 
 ### From Source (Development)
@@ -105,7 +105,7 @@ If you installed `[browser]` or `[all]`, you also need to install Chromium:
 playwright install chromium
 ```
 
-This enables `centris test . --browser` which verifies your selectors work in a real browser.
+This enables `centris-py test . --browser` which verifies your selectors work in a real browser.
 
 ## Quick Start (5 Minutes)
 
@@ -113,7 +113,7 @@ This enables `centris test . --browser` which verifies your selectors work in a 
 
 ```bash
 # Create a browser connector for your app
-centris init myapp --template browser --url https://myapp.com
+centris-py init myapp --template browser --url https://myapp.com
 
 cd myapp
 ```
@@ -164,10 +164,10 @@ async def myapp_send_message(tool_call_id, params, context):
 
 ```bash
 # Test with mock browser (fast, no setup needed)
-centris test .
+centris-py test .
 
 # See browser operations
-centris test . --show-ops
+centris-py test . --show-ops
 ```
 
 Output:
@@ -193,27 +193,27 @@ Total: 1 | Passed: 1 | Failed: 0
 
 ```bash
 # Publish to the Centris registry (auto-login on first use)
-centris publish .
+centris-py publish .
 ```
 
 Your connector is now available to all Centris users worldwide.
 
 ## CLI Reference
 
-| Command                                  | Description                                            |
-| ---------------------------------------- | ------------------------------------------------------ |
-| `centris init <id>`                      | Create new connector project                           |
-| `centris init <id> --template browser`   | Create browser automation connector                    |
-| `centris validate [path]`                | Validate connector structure                           |
-| `centris test [path]`                    | Test with mock browser (fast, syntax only)             |
-| `centris test [path] --browser`          | Test with real Playwright browser (verifies selectors) |
-| `centris test [path] --browser --headed` | Real browser with visible window                       |
-| `centris test [path] --live`             | Test via Centris backend (requires server running)     |
-| `centris test [path] --show-ops`         | Show browser operations performed                      |
-| `centris serve [path]`                   | Start dev server with playground                       |
-| `centris publish [path]`                 | Publish to registry                                    |
-| `centris search <query>`                 | Search the registry                                    |
-| `centris list`                           | List available connectors                              |
+| Command                                     | Description                                            |
+| ------------------------------------------- | ------------------------------------------------------ |
+| `centris-py init <id>`                      | Create new connector project                           |
+| `centris-py init <id> --template browser`   | Create browser automation connector                    |
+| `centris-py validate [path]`                | Validate connector structure                           |
+| `centris-py test [path]`                    | Test with mock browser (fast, syntax only)             |
+| `centris-py test [path] --browser`          | Test with real Playwright browser (verifies selectors) |
+| `centris-py test [path] --browser --headed` | Real browser with visible window                       |
+| `centris-py test [path] --live`             | Test via Centris backend (requires server running)     |
+| `centris-py test [path] --show-ops`         | Show browser operations performed                      |
+| `centris-py serve [path]`                   | Start dev server with playground                       |
+| `centris-py publish [path]`                 | Publish to registry                                    |
+| `centris-py search <query>`                 | Search the registry                                    |
+| `centris-py list`                           | List available connectors                              |
 
 ## Browser Bridge API
 
@@ -322,10 +322,10 @@ Three testing modes, from fastest to most thorough:
 
 ```bash
 # Fast syntax check - records operations but doesn't verify selectors
-centris test .
+centris-py test .
 
 # With verbose output
-centris test . -v --show-ops
+centris-py test . -v --show-ops
 ```
 
 **Best for**: Quick iteration during development. Verifies your code runs without errors, but does NOT check if selectors actually exist on the page.
@@ -334,13 +334,13 @@ centris test . -v --show-ops
 
 ```bash
 # Launches a real Playwright browser - verifies selectors exist
-centris test . --browser
+centris-py test . --browser
 
 # Watch the browser (headed mode)
-centris test . --browser --headed
+centris-py test . --browser --headed
 
 # Show all operations
-centris test . --browser --show-ops
+centris-py test . --browser --show-ops
 ```
 
 **Best for**: Validating selectors before publishing. If a selector doesn't exist, you get actionable errors:
@@ -361,7 +361,7 @@ centris test . --browser --show-ops
 
 ```bash
 # Tests via Centris backend - uses your actual browser session
-centris test . --live
+centris-py test . --live
 ```
 
 **Best for**: Final validation with real user state. Requires Centris desktop app or backend running.
@@ -479,10 +479,10 @@ result = centris.do("Open Gmail and read my first 3 emails")
 
 ```bash
 # Set default version
-centris config set api_version 2026-01-30
+centris-py config set api_version 2026-01-30
 
 # Per-request version
-centris do "Open Gmail" --api-version 2026-01-30
+centris-py do "Open Gmail" --api-version 2026-01-30
 ```
 
 ### Handling Deprecation Warnings

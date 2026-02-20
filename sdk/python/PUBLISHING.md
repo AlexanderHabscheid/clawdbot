@@ -87,7 +87,7 @@ python -m twine upload dist/*
 
 ```bash
 pip install centris-sdk
-centris --version
+centris-py --version
 ```
 
 ## Version Bumping
@@ -153,7 +153,7 @@ The name `centris-sdk` should be available. If not, use `centris-ai-sdk`.
 
 The package registers:
 
-- **CLI**: `centris` command
+- **CLI**: `centris-py` command
 - **Entry Point Group**: `centris.connectors` for connector discovery
 
 ## Post-Publication

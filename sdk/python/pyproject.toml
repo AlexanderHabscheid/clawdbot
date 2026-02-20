@@ -75,7 +75,7 @@ dev = [
 ]
 
 [project.scripts]
-centris = "centris_sdk.cli:main"
+centris-py = "centris_sdk.cli:main"
 
 [project.entry-points."centris.connectors"]
 # Entry point group for connector discovery

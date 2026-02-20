@@ -20,5 +20,5 @@ Start here:
 The Python SDK in `sdk/python` includes three major surfaces:
 
 - `centris_sdk.client.Centris`: natural-language execution client (`do`, `wait`, `usage`)
-- `centris` CLI: local development, backend control, and power-user commands
+- `centris-py` CLI: local development, backend control, and power-user commands
 - connector framework + gateway runtime: tool registration, execution routing, MCP-compatible serving

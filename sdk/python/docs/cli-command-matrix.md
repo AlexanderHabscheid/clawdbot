@@ -2,7 +2,7 @@
 
 Source of truth: `sdk/python/centris_sdk/cli/*`.
 
-## Global options (`centris`)
+## Global options (`centris-py`)
 
 - `--verbose`, `-v`: enable verbose output
 - `--quiet`, `-q`: suppress non-essential output
@@ -21,7 +21,7 @@ Source of truth: `sdk/python/centris_sdk/cli/*`.
 - Backend management: `run`, `start`, `stop`, `doctor`, `status`, `config`, `onboard`
 - Power user: `agent`, `do`, `exec`, `browser`, `file`, `daemon`, `sandbox`, `elements`, `introspect`, `deprecations`
 
-## `centris browser` group
+## `centris-py browser` group
 
 Group option:
 
@@ -52,7 +52,7 @@ Subcommands:
   - `--output, -o <path>`
   - `--json`
 
-## `centris file` group
+## `centris-py file` group
 
 Subcommands:
 
@@ -78,7 +78,7 @@ Subcommands:
   - `--recursive, -r`
   - `--json`
 
-## `centris daemon` group
+## `centris-py daemon` group
 
 Subcommands:
 
@@ -100,7 +100,7 @@ Subcommands:
   - `--force, -f`
   - `--json`
 
-## `centris sandbox` group
+## `centris-py sandbox` group
 
 Subcommands:
 
@@ -119,7 +119,7 @@ Subcommands:
 - `exec <container_id> <command>`
   - `--json`
 
-## `centris elements` group
+## `centris-py elements` group
 
 Subcommands:
 
@@ -175,7 +175,7 @@ Subcommands:
   - `--skip-keys`
   - `--skip-extension`
 
-## `centris config` subgroup
+## `centris-py config` subgroup
 
 Subcommands:
 

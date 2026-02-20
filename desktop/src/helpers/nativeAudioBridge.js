@@ -13,6 +13,7 @@
 const { ipcMain, Notification } = require("electron");
 const path = require("path");
 const { io } = require("socket.io-client");
+const WebSocket = require("ws");
 
 // Human-readable tool names for notifications
 const TOOL_DISPLAY_NAMES = {
@@ -73,6 +74,20 @@ try {
 /**
  * Native Audio Bridge for Electron
  */
+/** True when backendUrl is the Centris gateway (Railway); use /ws/centris/voice instead of Socket.IO */
+function isCentrisGatewayUrl(backendUrl) {
+  if (!backendUrl || typeof backendUrl !== "string") {
+    return false;
+  }
+  const u = backendUrl.replace(/\/$/, "").toLowerCase();
+  return (
+    u.startsWith("https://") ||
+    u.includes("centris-ai-production") ||
+    u.includes("railway") ||
+    u.includes("up.railway.app")
+  );
+}
+
 class NativeAudioBridge {
   constructor() {
     this.capture = null;
@@ -85,6 +100,8 @@ class NativeAudioBridge {
     this.audioSequence = 0; // Sequence number for audio chunks
     this.ipcHandlersSetup = false;
     this.audioChunkPollingInterval = null; // Interval for polling audio chunks from native module
+    this.centrisVoiceMode = false; // Use Centris gateway /ws/centris/voice (raw WebSocket)
+    this.centrisVoiceWs = null; // WebSocket for Centris voice when centrisVoiceMode is true
 
     // CRITICAL: Set up IPC handlers immediately in constructor
     this.setupIPCHandlers();
@@ -376,9 +393,22 @@ class NativeAudioBridge {
           this.capture.shutdown();
         }
 
-        // Setup WebSocket connection for streaming transcription
+        if (this.centrisVoiceWs) {
+          try {
+            this.centrisVoiceWs.close();
+          } catch (e) {}
+          this.centrisVoiceWs = null;
+        }
+        this.centrisVoiceMode = false;
+
+        // Centris gateway (Railway): use /ws/centris/voice; otherwise Socket.IO
         if (config.backendUrl) {
-          await this.setupWebSocketConnection(config.backendUrl, config.authToken || "");
+          if (isCentrisGatewayUrl(config.backendUrl)) {
+            this.centrisVoiceMode = true;
+            await this.setupCentrisVoiceConnection(config.backendUrl, config.authToken || "");
+          } else {
+            await this.setupWebSocketConnection(config.backendUrl, config.authToken || "");
+          }
         }
 
         this.capture = new NativeAudioCapture();
@@ -414,7 +444,17 @@ class NativeAudioBridge {
         }
 
         // PREPRIMING: Send recording_start to backend BEFORE starting capture
-        if (this.wsClient && this.wsClient.connected) {
+        if (this.centrisVoiceMode && this.centrisVoiceWs && this.centrisVoiceWs.readyState === 1) {
+          this.centrisVoiceWs.send(
+            JSON.stringify({
+              type: "recording_start",
+              sessionId: `voice-${Date.now()}`,
+              sampleRate: 16000,
+              channels: 1,
+              mode: "action",
+            }),
+          );
+        } else if (this.wsClient && this.wsClient.connected) {
           this.wsClient.emit("recording_start", {
             context: userContext
               ? {
@@ -462,7 +502,9 @@ class NativeAudioBridge {
         this.isCapturing = false;
 
         // CRITICAL: Manually send voice_end to finalize transcription
-        if (this.wsClient && this.wsClient.connected) {
+        if (this.centrisVoiceMode && this.centrisVoiceWs && this.centrisVoiceWs.readyState === 1) {
+          this.centrisVoiceWs.send(JSON.stringify({ type: "voice_end" }));
+        } else if (this.wsClient && this.wsClient.connected) {
           this.wsClient.emit("voice_end");
         }
 
@@ -498,6 +540,73 @@ class NativeAudioBridge {
     // Check if capturing
     ipcMain.handle("native-audio-is-capturing", () => {
       return this.isCapturing;
+    });
+  }
+
+  /**
+   * Setup Centris gateway voice WebSocket (/ws/centris/voice).
+   * Used when backendUrl is the Railway gateway; protocol is JSON (recording_start, audio, voice_end).
+   */
+  async setupCentrisVoiceConnection(backendUrl, authToken = "") {
+    const base = backendUrl.replace(/\/$/, "").trim();
+    const wssBase = base.startsWith("https")
+      ? base.replace(/^https/, "wss")
+      : base.replace(/^http/, "ws");
+    let wssUrl = `${wssBase}/ws/centris/voice`;
+    if (authToken) {
+      wssUrl += `?token=${encodeURIComponent(authToken)}`;
+    }
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("Centris voice WebSocket connection timeout"));
+      }, 10000);
+      try {
+        this.centrisVoiceWs = new WebSocket(wssUrl);
+        this.centrisVoiceWs.on("open", () => {
+          clearTimeout(timeout);
+          this.sendToWindows("native-audio-ws-connected", {});
+          resolve();
+        });
+        this.centrisVoiceWs.on("message", (data) => {
+          try {
+            const msg = typeof data === "string" ? JSON.parse(data) : JSON.parse(data.toString());
+            const type = msg.type;
+            if (type === "result") {
+              this.sendToWindows("native-audio-voice-result", {
+                text: msg.text || "",
+                mode: msg.mode === "dictation" ? "dictation" : "action",
+              });
+            } else if (type === "transcript") {
+              this.sendToWindows(
+                "native-audio-transcript",
+                {
+                  text: msg.text || "",
+                  isFinal: msg.partial === false,
+                  timestamp: Date.now(),
+                  mode: msg.mode || null,
+                },
+                true,
+              );
+            } else if (type === "error") {
+              this.sendToWindows("native-audio-error", { message: msg.message || "Voice error" });
+            }
+            // session_started: no need to forward
+          } catch (err) {
+            console.error("[NativeAudioBridge] Centris voice message parse error:", err.message);
+          }
+        });
+        this.centrisVoiceWs.on("error", (err) => {
+          this.sendToWindows("native-audio-error", {
+            message: `Centris voice error: ${err.message || err}`,
+          });
+        });
+        this.centrisVoiceWs.on("close", () => {
+          this.sendToWindows("native-audio-ws-disconnected", { reason: "close" });
+        });
+      } catch (err) {
+        clearTimeout(timeout);
+        reject(err);
+      }
     });
   }
 
@@ -747,9 +856,19 @@ class NativeAudioBridge {
   }
 
   /**
-   * Send audio chunk to backend via Socket.IO
+   * Send audio chunk to backend (Socket.IO or Centris voice WebSocket)
    */
   sendAudioChunk(audioData) {
+    if (this.centrisVoiceMode && this.centrisVoiceWs && this.centrisVoiceWs.readyState === 1) {
+      try {
+        this.centrisVoiceWs.send(
+          JSON.stringify({ type: "audio", data: audioData.toString("base64") }),
+        );
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }
     if (!this.wsClient || !this.wsClient.connected) {
       return false;
     }
@@ -891,14 +1010,16 @@ class NativeAudioBridge {
       this._pollDebugCounter = 0;
     }
 
-    if (!this.capture || !this.wsClient || !this.wsClient.connected) {
+    const wsReady = this.centrisVoiceMode
+      ? this.centrisVoiceWs && this.centrisVoiceWs.readyState === 1
+      : this.wsClient && this.wsClient.connected;
+    if (!this.capture || !wsReady) {
       this._pollDebugCounter++;
-      // Log why polling is skipping (only first time and every 100 times)
       if (this._pollDebugCounter === 1 || this._pollDebugCounter % 100 === 0) {
         console.log("[NativeAudioBridge] ⚠️ pollAndSendAudioChunks skip:", {
           hasCapture: !!this.capture,
-          hasWsClient: !!this.wsClient,
-          wsConnected: this.wsClient?.connected,
+          centrisVoice: this.centrisVoiceMode,
+          wsReady,
           pollCount: this._pollDebugCounter,
         });
       }
@@ -919,14 +1040,19 @@ class NativeAudioBridge {
       const chunks = this.capture.getQueuedAudioChunks();
 
       for (const chunk of chunks) {
-        const message = {
-          type: "audio",
-          sequence: chunk.sequence,
-          data: chunk.data.toString("base64"),
-          timestamp: Date.now(),
-        };
-
-        this.wsClient.emit("audio", message);
+        if (this.centrisVoiceMode && this.centrisVoiceWs && this.centrisVoiceWs.readyState === 1) {
+          this.centrisVoiceWs.send(
+            JSON.stringify({ type: "audio", data: chunk.data.toString("base64") }),
+          );
+        } else {
+          const message = {
+            type: "audio",
+            sequence: chunk.sequence,
+            data: chunk.data.toString("base64"),
+            timestamp: Date.now(),
+          };
+          this.wsClient.emit("audio", message);
+        }
         this._totalBytesSent = (this._totalBytesSent || 0) + chunk.data.length;
       }
 

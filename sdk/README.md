@@ -4,7 +4,7 @@ SDK docs are organized per language/runtime.
 
 ## Quick install and startup
 
-Use the language-specific one-liners below to install both SDKs and the `centris` CLI.
+Use the language-specific one-liners below to install both SDKs and their CLIs (`centris` for TypeScript and `centris-py` for Python).
 
 ### Python SDK + CLI + API runtime
 
@@ -15,13 +15,13 @@ pipx install "centris-sdk[all]"
 Sanity check and run:
 
 ```bash
-centris --version
-centris doctor
-centris init demo-py --template browser --url https://example.com
+centris-py --version
+centris-py doctor
+centris-py init demo-py --template browser --url https://example.com
 cd demo-py
-centris validate .
-centris test .
-centris serve .
+centris-py validate .
+centris-py test .
+centris-py serve .
 ```
 
 ### TypeScript SDK + CLI

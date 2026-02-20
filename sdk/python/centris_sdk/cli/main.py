@@ -254,7 +254,7 @@ class CentrisGroup(click.Group):
 
 
 @click.group(cls=CentrisGroup)
-@click.version_option(version=SDK_VERSION, prog_name="centris")
+@click.version_option(version=SDK_VERSION, prog_name="centris-py")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
 @click.option("--quiet", "-q", is_flag=True, help="Suppress non-essential output")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON (for scripting/CI)")
@@ -283,43 +283,43 @@ def cli(
     LOCAL-FIRST: No cloud registry required. Just init, code, test, publish.
     
     Quick Start:
-        centris onboard                  Interactive setup wizard
-        centris start                    Start the backend server
-        centris doctor                   Check installation health
+        centris-py onboard                  Interactive setup wizard
+        centris-py start                    Start the backend server
+        centris-py doctor                   Check installation health
     
     Agent Execution (run tasks directly):
-        centris agent "Open Gmail"       Execute a task via multi-agent system
-        centris agent --session myproj   Continue with session context
-        centris agent --json "..."       Output as JSON for scripting
+        centris-py agent "Open Gmail"       Execute a task via multi-agent system
+        centris-py agent --session myproj   Continue with session context
+        centris-py agent --json "..."       Output as JSON for scripting
     
     Direct Tool Commands:
-        centris exec "git status"        Execute shell command
-        centris browser navigate URL     Navigate browser
-        centris browser snapshot         Get page elements
-        centris file read ./config.json  Read file contents
-        centris file search "TODO"       Search in files
+        centris-py exec "git status"        Execute shell command
+        centris-py browser navigate URL     Navigate browser
+        centris-py browser snapshot         Get page elements
+        centris-py file read ./config.json  Read file contents
+        centris-py file search "TODO"       Search in files
     
     Daemon Mode (background service):
-        centris daemon install           Install as system service
-        centris daemon start             Start background server
-        centris daemon status            Check if running
-        centris daemon logs              View server logs
+        centris-py daemon install           Install as system service
+        centris-py daemon start             Start background server
+        centris-py daemon status            Check if running
+        centris-py daemon logs              View server logs
     
     Backend Management:
-        centris start                    Start the backend server
-        centris stop                     Stop the backend server  
-        centris status                   Show server status
-        centris doctor                   Check installation health
+        centris-py start                    Start the backend server
+        centris-py stop                     Stop the backend server  
+        centris-py status                   Show server status
+        centris-py doctor                   Check installation health
     
     Connector Development:
-        centris init my-connector        Create new connector
-        centris validate .               Validate connector
-        centris test . --live            Test with real browser
-        centris publish .                Install locally
+        centris-py init my-connector        Create new connector
+        centris-py validate .               Validate connector
+        centris-py test . --live            Test with real browser
+        centris-py publish .                Install locally
     
     Profiles (isolated environments):
-        centris --dev start              Use development profile
-        centris --profile staging start  Use named profile
+        centris-py --dev start              Use development profile
+        centris-py --profile staging start  Use named profile
     """
     ctx.ensure_object(dict)
     

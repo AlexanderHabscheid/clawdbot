@@ -11,10 +11,10 @@ Token resolution order:
 
 Commands:
 
-- `centris login` (browser OAuth callback flow)
-- `centris login --token <token>`
-- `centris logout`
-- `centris whoami`
+- `centris-py login` (browser OAuth callback flow)
+- `centris-py login --token <token>`
+- `centris-py logout`
+- `centris-py whoami`
 
 Credential file defaults:
 
@@ -40,14 +40,14 @@ Environment variables set for active profile:
 
 ## Config commands
 
-Use `centris config` subcommands for runtime and migration checks:
+Use `centris-py config` subcommands for runtime and migration checks:
 
-- `centris config show [section]`
-- `centris config env [--all]`
-- `centris config validate`
-- `centris config migrate [--dry-run --force --no-backup]`
-- `centris config version`
-- `centris config history --limit <n>`
+- `centris-py config show [section]`
+- `centris-py config env [--all]`
+- `centris-py config validate`
+- `centris-py config migrate [--dry-run --force --no-backup]`
+- `centris-py config version`
+- `centris-py config history --limit <n>`
 
 ## Production patterns
 
@@ -56,7 +56,7 @@ Use `centris config` subcommands for runtime and migration checks:
 - Keep secrets out of shell history:
   - use `CENTRIS_API_KEY` via env injection, not literal command args
 - Run health checks in CI before deployments:
-  - `centris doctor --json`
-  - `centris status --json`
+  - `centris-py doctor --json`
+  - `centris-py status --json`
 - Use migration dry runs before config upgrades:
-  - `centris config migrate --dry-run`
+  - `centris-py config migrate --dry-run`

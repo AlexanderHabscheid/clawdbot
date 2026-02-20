@@ -50,15 +50,15 @@ From `sdk/python/centris_sdk/gateway/gateway.py`:
 
 ## Troubleshooting matrix
 
-- Symptom: `centris do` fails with auth error
-  - Check: `CENTRIS_API_KEY` or `centris login`
+- Symptom: `centris-py do` fails with auth error
+  - Check: `CENTRIS_API_KEY` or `centris-py login`
   - Fix: set valid key or re-authenticate
-- Symptom: `centris do` times out
+- Symptom: `centris-py do` times out
   - Check: backend or API availability; timeout setting
-  - Fix: increase `--timeout`, verify backend with `centris status`
+  - Fix: increase `--timeout`, verify backend with `centris-py status`
 - Symptom: browser commands fail
   - Check: backend running, extension connected, target page loaded
-  - Fix: `centris start`, then `centris browser snapshot`
+  - Fix: `centris-py start`, then `centris-py browser snapshot`
 - Symptom: `NO_EXECUTOR`
   - Check: capability execution methods and executor setup
   - Fix: register required executor or provide capability metadata

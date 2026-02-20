@@ -37,11 +37,11 @@ print(result.text)
 ## Quickstart: connector development
 
 ```bash
-centris init my-connector
+centris-py init my-connector
 cd my-connector
-centris validate .
-centris test .
-centris serve .
+centris-py validate .
+centris-py test .
+centris-py serve .
 ```
 
 ## Quickstart: local-first mode
