@@ -194,6 +194,7 @@ export class Centris {
   private readonly deprecationCallbacks: DeprecationCallback[] = [];
   readonly webMemory = {
     index: (request: ActionWebMemoryIndexRequest) => this.webMemoryIndex(request),
+    validate: (request: ActionWebMemoryValidateRequest) => this.webMemoryValidate(request),
     resolve: (request: ActionWebMemoryResolveRequest) => this.webMemoryResolve(request),
     execute: (request: ActionWebMemoryExecuteRequest) => this.webMemoryExecute(request),
     invalidate: (request: ActionWebMemoryInvalidateRequest) => this.webMemoryInvalidate(request),

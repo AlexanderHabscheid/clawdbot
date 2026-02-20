@@ -42,6 +42,7 @@ import {
   runWebMemoryInvalidateCommand,
   runWebMemoryResolveCommand,
   runWebMemoryStatsCommand,
+  runWebMemoryValidateCommand,
 } from "./commands/web-memory.js";
 
 /**
@@ -708,6 +709,32 @@ export function createCLI(): Command {
         {
           ...options,
           ttlMs: typeof options.ttlMs === "string" ? Number.parseInt(options.ttlMs, 10) : undefined,
+          timeoutMs:
+            typeof options.timeoutMs === "string"
+              ? Number.parseInt(options.timeoutMs, 10)
+              : undefined,
+        },
+        ctx,
+      );
+    });
+
+  webMemory
+    .command("validate")
+    .description("Validate a web-memory index payload for ingestion")
+    .option("--payload <json>", "Raw ActionWebMemoryIndexRequest JSON payload")
+    .option("--payload-file <path>", "Path to ActionWebMemoryIndexRequest JSON file")
+    .option("--strict", "Require at least one semantic anchor")
+    .option("-k, --api-key <key>", "API key for authentication")
+    .option("-u, --base-url <url>", "API base URL override")
+    .option("--api-version <version>", "API version override (YYYY-MM-DD)")
+    .option("--timeout-ms <ms>", "Request timeout in milliseconds")
+    .option("--json", "Output raw JSON")
+    .action(async (options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await runWebMemoryValidateCommand(
+        {
+          ...options,
           timeoutMs:
             typeof options.timeoutMs === "string"
               ? Number.parseInt(options.timeoutMs, 10)

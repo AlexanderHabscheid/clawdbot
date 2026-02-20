@@ -6,6 +6,7 @@ import type {
   ActionPageFingerprint,
   ActionWebMemoryExecuteRequest,
   ActionWebMemoryIndexRequest,
+  ActionWebMemoryValidateRequest,
   ActionWebMemoryInvalidateRequest,
   ActionWebMemoryResolveRequest,
   ActionWebMemoryStatsRequest,
@@ -16,6 +17,7 @@ import type {
   WebMemoryIndexOptions,
   WebMemoryInvalidateOptions,
   WebMemoryResolveOptions,
+  WebMemoryValidateOptions,
   WebMemoryStatsOptions,
 } from "../types.js";
 import { Centris } from "../../client/index.js";
@@ -342,6 +344,65 @@ export async function runWebMemoryResolveCommand(
   ctx.logger.success(`Resolved cached playbook for ${options.url}`);
   if (result.cacheKey) {
     ctx.logger.info(`Cache key: ${result.cacheKey}`);
+  }
+}
+
+export async function runWebMemoryValidateCommand(
+  options: WebMemoryValidateOptions,
+  ctx: CLIContext,
+): Promise<void> {
+  const startedAt = Date.now();
+  const client = createClient(options);
+  let payloadRaw = options.payload;
+  if ((!payloadRaw || payloadRaw.trim().length === 0) && options.payloadFile) {
+    payloadRaw = await readFile(options.payloadFile, "utf8");
+  }
+  if (!payloadRaw || payloadRaw.trim().length === 0) {
+    throw new Error("Provide --payload or --payload-file");
+  }
+  const parsed = JSON.parse(payloadRaw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("payload must be a JSON object");
+  }
+
+  const payload: ActionWebMemoryValidateRequest = {
+    payload: parsed as ActionWebMemoryIndexRequest,
+    strict: options.strict === true,
+  };
+  const result = await client.webMemoryValidate(payload);
+
+  if (options.json) {
+    printCliResultEnvelope(
+      createCliResultEnvelope({
+        ok: result.ok,
+        operation: "web.memory.validate",
+        summary: result.ok ? "web memory payload is valid" : "web memory payload is invalid",
+        data: result,
+        errors: result.errors,
+        warnings: result.warnings,
+        durationMs: Date.now() - startedAt,
+        safetyLevel: "read",
+      }),
+    );
+    return;
+  }
+
+  if (!result.ok) {
+    ctx.logger.error("Web memory payload is invalid");
+    for (const error of result.errors) {
+      ctx.logger.error(`- ${error}`);
+    }
+    process.exit(1);
+  }
+
+  ctx.logger.success("Web memory payload is valid");
+  if (result.stats) {
+    ctx.logger.info(
+      `actions=${result.stats.actionCount}, anchors=${result.stats.anchorCount}, nodeHints=${result.stats.nodeHintCount}, semanticAnchors=${result.stats.semanticAnchorCount}`,
+    );
+  }
+  for (const warning of result.warnings) {
+    ctx.logger.warn(warning);
   }
 }
 

@@ -47,6 +47,53 @@ Subcommands:
   - `--timeout`
   - `--json`
 
+## `centris-py web-memory` group
+
+Subcommands:
+
+- `index`
+  - `--url` required
+  - `--intent`
+  - `--playbook` (JSON object)
+  - `--snapshot-file`
+  - `--fingerprint-id`
+  - `--ttl-ms`
+  - `--metadata` (JSON object)
+  - `--timeout`
+  - `--json`
+- `validate`
+  - `--payload` (JSON object)
+  - `--payload-file`
+  - `--strict`
+  - `--timeout`
+  - `--json`
+- `resolve`
+  - `--url` required
+  - `--intent`
+  - `--max-age-ms`
+  - `--timeout`
+  - `--json`
+- `execute`
+  - `--url` required
+  - `--intent`
+  - `--operation`
+  - `--params` (JSON object)
+  - `--timeout`
+  - `--json`
+- `invalidate`
+  - `--url`
+  - `--playbook-id`
+  - `--scope`
+  - `--reason`
+  - `--yes`
+  - `--timeout`
+  - `--json`
+- `stats`
+  - `--url`
+  - `--window`
+  - `--timeout`
+  - `--json`
+
 ## `centris-py adapter` group
 
 Subcommands:

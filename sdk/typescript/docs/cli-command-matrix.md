@@ -186,3 +186,77 @@ Optional:
 - `--module <path>`
 - `--export-name <name>`
 - `--json`
+
+## `centris web-memory` group
+
+### `centris web-memory index`
+
+- `--url <url>` required
+- `--intent <intent>`
+- `--playbook <json>`
+- `--snapshot-file <path>`
+- `--fingerprint-id <id>`
+- `--ttl-ms <ms>`
+- `--metadata <json>`
+- `-k, --api-key <key>`
+- `-u, --base-url <url>`
+- `--api-version <version>`
+- `--timeout-ms <ms>`
+- `--json`
+
+### `centris web-memory validate`
+
+- `--payload <json>`
+- `--payload-file <path>`
+- `--strict`
+- `-k, --api-key <key>`
+- `-u, --base-url <url>`
+- `--api-version <version>`
+- `--timeout-ms <ms>`
+- `--json`
+
+### `centris web-memory resolve`
+
+- `--url <url>` required
+- `--intent <intent>`
+- `--max-age-ms <ms>`
+- `-k, --api-key <key>`
+- `-u, --base-url <url>`
+- `--api-version <version>`
+- `--timeout-ms <ms>`
+- `--json`
+
+### `centris web-memory execute`
+
+- `--url <url>` required
+- `--intent <intent>`
+- `--operation <name>`
+- `--params <json>`
+- `-k, --api-key <key>`
+- `-u, --base-url <url>`
+- `--api-version <version>`
+- `--timeout-ms <ms>`
+- `--json`
+
+### `centris web-memory invalidate`
+
+- `--url <url>`
+- `--playbook-id <id>`
+- `--scope <scope>`
+- `--reason <text>`
+- `--yes`
+- `-k, --api-key <key>`
+- `-u, --base-url <url>`
+- `--api-version <version>`
+- `--timeout-ms <ms>`
+- `--json`
+
+### `centris web-memory stats`
+
+- `--url <url>`
+- `--window <window>`
+- `-k, --api-key <key>`
+- `-u, --base-url <url>`
+- `--api-version <version>`
+- `--timeout-ms <ms>`
+- `--json`

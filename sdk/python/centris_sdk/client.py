@@ -81,6 +81,8 @@ from centris_sdk.action_api import (
     ActionWebMemoryExecuteResult,
     ActionWebMemoryIndexRequest,
     ActionWebMemoryIndexResult,
+    ActionWebMemoryValidateRequest,
+    ActionWebMemoryValidateResult,
     ActionWebMemoryInvalidateRequest,
     ActionWebMemoryInvalidateResult,
     ActionWebMemoryResolveRequest,
@@ -474,6 +476,9 @@ class _WebMemoryClient:
 
     def resolve(self, request: ActionWebMemoryResolveRequest) -> ActionWebMemoryResolveResult:
         return self._client.web_memory_resolve(request)
+
+    def validate(self, request: ActionWebMemoryValidateRequest) -> ActionWebMemoryValidateResult:
+        return self._client.web_memory_validate(request)
 
     def execute(self, request: ActionWebMemoryExecuteRequest) -> ActionWebMemoryExecuteResult:
         return self._client.web_memory_execute(request)
@@ -1125,6 +1130,64 @@ class Centris:
             action_index=_parse_action_index_entries(result.get("actionIndex")),
             route_memory=_parse_route_memory(result.get("routeMemory")),
             artifact=artifact_obj,
+        )
+
+    def web_memory_validate(
+        self,
+        request: ActionWebMemoryValidateRequest,
+    ) -> ActionWebMemoryValidateResult:
+        """Validate and normalize a web-memory index payload via Action API."""
+        payload = {
+            "payload": {
+                "url": request.payload.url,
+                "intent": request.payload.intent,
+                "playbook": request.payload.playbook,
+                "pageFingerprint": (
+                    _page_fingerprint_to_dict(request.payload.page_fingerprint)
+                    if request.payload.page_fingerprint
+                    else None
+                ),
+                "actionIndex": [
+                    _action_index_entry_to_dict(item) for item in request.payload.action_index
+                ],
+                "routeMemory": (
+                    _route_memory_to_dict(request.payload.route_memory)
+                    if request.payload.route_memory
+                    else None
+                ),
+                "ttlMs": request.payload.ttl_ms,
+                "metadata": request.payload.metadata,
+            },
+            "strict": request.strict,
+        }
+        result = self._call_action_api("web.memory.validate", payload)
+
+        normalized_raw = result.get("normalized")
+        normalized_payload = None
+        if isinstance(normalized_raw, dict):
+            normalized_payload = ActionWebMemoryIndexRequest(
+                url=normalized_raw.get("url") if isinstance(normalized_raw.get("url"), str) else "",
+                intent=normalized_raw.get("intent")
+                if isinstance(normalized_raw.get("intent"), str)
+                else None,
+                playbook=normalized_raw.get("playbook")
+                if isinstance(normalized_raw.get("playbook"), dict)
+                else {},
+                page_fingerprint=_parse_page_fingerprint(normalized_raw.get("pageFingerprint")),
+                action_index=_parse_action_index_entries(normalized_raw.get("actionIndex")),
+                route_memory=_parse_route_memory(normalized_raw.get("routeMemory")),
+                ttl_ms=int(normalized_raw["ttlMs"]) if isinstance(normalized_raw.get("ttlMs"), int) else None,
+                metadata=normalized_raw.get("metadata")
+                if isinstance(normalized_raw.get("metadata"), dict)
+                else {},
+            )
+
+        return ActionWebMemoryValidateResult(
+            ok=bool(result.get("ok", False)),
+            errors=result.get("errors", []) if isinstance(result.get("errors"), list) else [],
+            warnings=result.get("warnings", []) if isinstance(result.get("warnings"), list) else [],
+            normalized=normalized_payload,
+            stats=result.get("stats", {}) if isinstance(result.get("stats"), dict) else {},
         )
 
     def web_memory_resolve(

@@ -128,6 +128,31 @@ describe("handleActionApiEnvelope", () => {
     expect(result.error?.code).toBe("BRIDGE_NOT_CONNECTED");
   });
 
+  it("validates web memory payloads without requiring browser bridge", async () => {
+    vi.mocked(isCentrisExtensionConnected).mockReturnValue(false);
+
+    const result = await handleActionApiEnvelope({
+      method: "web.memory.validate",
+      params: {
+        strict: true,
+        payload: {
+          url: "https://example.com/billing",
+          actionIndex: [
+            {
+              actionId: "open_invoices",
+              intent: "open invoices",
+              affordance: "click",
+              anchors: [{ anchorType: "test_id", value: "invoices-link" }],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect((result.result as { ok: boolean }).ok).toBe(true);
+  });
+
   it("returns desktop bridge error when desktop is disconnected", async () => {
     vi.mocked(isCentrisDesktopConnected).mockReturnValue(false);
 

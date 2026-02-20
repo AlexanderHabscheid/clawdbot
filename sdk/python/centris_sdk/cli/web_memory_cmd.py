@@ -16,8 +16,11 @@ from centris_sdk.action_api import (
     ActionIndexEntry,
     ActionNodeHint,
     ActionPageFingerprint,
+    ActionRouteMemory,
+    ActionRouteMemoryStep,
     ActionWebMemoryExecuteRequest,
     ActionWebMemoryIndexRequest,
+    ActionWebMemoryValidateRequest,
     ActionWebMemoryInvalidateRequest,
     ActionWebMemoryResolveRequest,
     ActionWebMemoryStatsRequest,
@@ -305,6 +308,182 @@ def web_memory_resolve_command(
     click.echo(f"Resolved cached playbook for {url}")
     if result.cache_key:
         click.echo(f"Cache key: {result.cache_key}")
+
+
+@web_memory_group.command("validate")
+@click.option("--payload", help="Raw ActionWebMemoryIndexRequest JSON payload")
+@click.option("--payload-file", help="Path to ActionWebMemoryIndexRequest JSON file")
+@click.option("--strict", is_flag=True, help="Require semantic anchors")
+@click.option("--key", "key", help="API key override")
+@click.option("--base-url", help="API base URL override")
+@click.option("--timeout", default=120, type=int, show_default=True)
+@click.option("--json", "json_output", is_flag=True, help="Output raw JSON")
+@click.pass_context
+def web_memory_validate_command(
+    ctx: click.Context,
+    payload: Optional[str],
+    payload_file: Optional[str],
+    strict: bool,
+    key: Optional[str],
+    base_url: Optional[str],
+    timeout: int,
+    json_output: bool,
+):
+    started_at = time.time()
+    client = _client(ctx, key, base_url, timeout)
+
+    payload_raw = payload
+    if (not payload_raw or not payload_raw.strip()) and payload_file:
+        with open(payload_file, "r", encoding="utf-8") as handle:
+            payload_raw = handle.read()
+
+    if not payload_raw or not payload_raw.strip():
+        raise click.ClickException("Provide --payload or --payload-file")
+
+    parsed = json.loads(payload_raw)
+    if not isinstance(parsed, dict):
+        raise click.ClickException("payload must be a JSON object")
+
+    parsed_action_index = parsed.get("actionIndex")
+    action_index: list[ActionIndexEntry] = []
+    if isinstance(parsed_action_index, list):
+        for item in parsed_action_index:
+            if not isinstance(item, dict):
+                continue
+            action_id = item.get("actionId")
+            intent = item.get("intent")
+            affordance = item.get("affordance")
+            if not (isinstance(action_id, str) and isinstance(intent, str) and isinstance(affordance, str)):
+                continue
+            anchors: list[ActionAnchor] = []
+            for anchor in item.get("anchors", []):
+                if (
+                    isinstance(anchor, dict)
+                    and isinstance(anchor.get("anchorType"), str)
+                    and isinstance(anchor.get("value"), str)
+                ):
+                    anchors.append(
+                        ActionAnchor(
+                            anchor_type=anchor["anchorType"],
+                            value=anchor["value"],
+                            weight=float(anchor["weight"])
+                            if isinstance(anchor.get("weight"), (int, float))
+                            else None,
+                        )
+                    )
+            node_hints: list[ActionNodeHint] = []
+            for hint in item.get("nodeHints", []):
+                if isinstance(hint, dict):
+                    node_hints.append(
+                        ActionNodeHint(
+                            node_id=hint.get("nodeId") if isinstance(hint.get("nodeId"), int) else None,
+                            selector=hint.get("selector") if isinstance(hint.get("selector"), str) else None,
+                            role=hint.get("role") if isinstance(hint.get("role"), str) else None,
+                            name=hint.get("name") if isinstance(hint.get("name"), str) else None,
+                        )
+                    )
+            action_index.append(
+                ActionIndexEntry(
+                    action_id=action_id,
+                    intent=intent,
+                    affordance=affordance,  # type: ignore[arg-type]
+                    semantic_label=item.get("semanticLabel")
+                    if isinstance(item.get("semanticLabel"), str)
+                    else None,
+                    node_hints=node_hints,
+                    anchors=anchors,
+                    confidence=float(item["confidence"])
+                    if isinstance(item.get("confidence"), (int, float))
+                    else None,
+                )
+            )
+
+    route_memory = None
+    raw_route_memory = parsed.get("routeMemory")
+    if isinstance(raw_route_memory, dict) and isinstance(raw_route_memory.get("routeId"), str):
+        steps: list[ActionRouteMemoryStep] = []
+        raw_steps = raw_route_memory.get("steps")
+        if isinstance(raw_steps, list):
+            for step in raw_steps:
+                if isinstance(step, dict):
+                    params = step.get("params") if isinstance(step.get("params"), dict) else {}
+                    steps.append(
+                        ActionRouteMemoryStep(
+                            action_id=step.get("actionId")
+                            if isinstance(step.get("actionId"), str)
+                            else None,
+                            operation=step.get("operation")
+                            if isinstance(step.get("operation"), str)
+                            else None,
+                            params={k: str(v) for k, v in params.items()},
+                        )
+                    )
+        route_memory = ActionRouteMemory(
+            route_id=raw_route_memory["routeId"],
+            steps=steps,
+            confidence=float(raw_route_memory["confidence"])
+            if isinstance(raw_route_memory.get("confidence"), (int, float))
+            else None,
+        )
+
+    payload_request = ActionWebMemoryIndexRequest(
+        url=str(parsed.get("url", "")),
+        intent=parsed.get("intent") if isinstance(parsed.get("intent"), str) else None,
+        playbook=parsed.get("playbook") if isinstance(parsed.get("playbook"), dict) else {},
+        page_fingerprint=(
+            ActionPageFingerprint(
+                fingerprint_id=parsed.get("pageFingerprint", {}).get("fingerprintId")
+                if isinstance(parsed.get("pageFingerprint"), dict)
+                else None
+            )
+            if isinstance(parsed.get("pageFingerprint"), dict)
+            else None
+        ),
+        action_index=action_index,
+        route_memory=route_memory,
+        ttl_ms=parsed.get("ttlMs") if isinstance(parsed.get("ttlMs"), int) else None,
+        metadata=parsed.get("metadata") if isinstance(parsed.get("metadata"), dict) else {},
+    )
+
+    result = client.web_memory.validate(
+        ActionWebMemoryValidateRequest(
+            payload=payload_request,
+            strict=strict,
+        )
+    )
+
+    if json_output:
+        emit_result_envelope(
+            build_result_envelope(
+                ok=result.ok,
+                operation="web.memory.validate",
+                summary="web memory payload is valid" if result.ok else "web memory payload is invalid",
+                data={
+                    "ok": result.ok,
+                    "errors": result.errors,
+                    "warnings": result.warnings,
+                    "stats": result.stats,
+                },
+                errors=result.errors,
+                warnings=result.warnings,
+                duration_ms=int((time.time() - started_at) * 1000),
+                safety_level="read",
+            )
+        )
+        if not result.ok:
+            ctx.exit(1)
+        return
+
+    if not result.ok:
+        raise click.ClickException("; ".join(result.errors))
+    click.echo("Web memory payload is valid")
+    if result.stats:
+        click.echo(
+            f"actions={result.stats.get('actionCount', 0)}, anchors={result.stats.get('anchorCount', 0)}, "
+            f"nodeHints={result.stats.get('nodeHintCount', 0)}, semanticAnchors={result.stats.get('semanticAnchorCount', 0)}"
+        )
+    for warning in result.warnings:
+        click.echo(f"warning: {warning}")
 
 
 @web_memory_group.command("execute")

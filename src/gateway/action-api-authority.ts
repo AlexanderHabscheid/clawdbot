@@ -1520,7 +1520,7 @@ export async function handleActionApiEnvelope(
       }
       const strict = params.strict === true;
       const validation = validateWebMemoryIndexPayload(
-        payload as Parameters<typeof validateWebMemoryIndexPayload>[0],
+        payload as unknown as Parameters<typeof validateWebMemoryIndexPayload>[0],
         {
           strict,
         },

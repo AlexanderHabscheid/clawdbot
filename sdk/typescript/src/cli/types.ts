@@ -247,6 +247,17 @@ export interface WebMemoryResolveOptions extends CLIOptions {
   timeoutMs?: number;
 }
 
+export interface WebMemoryValidateOptions extends CLIOptions {
+  payload?: string;
+  payloadFile?: string;
+  strict?: boolean;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
 export interface WebMemoryExecuteOptions extends CLIOptions {
   url: string;
   intent?: string;
