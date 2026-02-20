@@ -198,6 +198,14 @@ class CentrisBackendService {
    * Should be called from the main process only.
    */
   connectDesktopBridge() {
+    if (
+      process.platform !== "darwin" &&
+      process.env.CENTRIS_ENABLE_NON_MAC_BRIDGE !== "1" &&
+      process.env.NODE_ENV !== "development"
+    ) {
+      logger.warn("Desktop bridge disabled: Centris GA currently supports macOS only");
+      return;
+    }
     if (!DesktopBridgeClient) {
       logger.debug("Desktop bridge not available (renderer process or module not found)");
       return;

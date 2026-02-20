@@ -51,6 +51,11 @@ if [ -f "$CONFIG_FILE" ]; then
       if (!c.agents.defaults.model) c.agents.defaults.model = {};
       const m = c.agents.defaults.model.primary || '';
       if (!m || m.includes('claude-opus')) c.agents.defaults.model.primary = 'google/gemini-2.5-flash-lite';
+      if (!c.gateway) c.gateway = {};
+      if (!c.gateway.http) c.gateway.http = {};
+      if (!c.gateway.http.endpoints) c.gateway.http.endpoints = {};
+      if (!c.gateway.http.endpoints.chatCompletions) c.gateway.http.endpoints.chatCompletions = {};
+      c.gateway.http.endpoints.chatCompletions.enabled = true;
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
     "
   fi
@@ -69,8 +74,17 @@ else
         "primary": "google/gemini-2.5-flash-lite"
       }
     }
+  },
+  "gateway": {
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
+    }
   }
 }
 CONF
-  echo "[centris-init] Created config with tools.profile=centris, model=google/gemini-2.5-flash-lite"
+  echo "[centris-init] Created config with centris profile, Gemini default model, and /v1/chat/completions enabled"
 fi

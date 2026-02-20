@@ -31,6 +31,74 @@ const NATIVE_HOST_NAME = "com.centris.host";
 // The actual ID is saved to ~/.centris/extension_id.txt by the backend
 const EXTENSION_ID_PLACEHOLDER = "EXTENSION_ID_PLACEHOLDER";
 
+function getBridgeTokenPath() {
+  const homeDir = app.getPath("home");
+  return path.join(homeDir, ".centris", "bridge_token.txt");
+}
+
+function extractBridgeToken(tokens) {
+  if (!tokens || typeof tokens !== "object") {
+    return null;
+  }
+  if (typeof tokens.gateway_token === "string" && tokens.gateway_token.trim().length > 0) {
+    return tokens.gateway_token.trim();
+  }
+  if (typeof tokens.access_token === "string" && tokens.access_token.trim().length > 0) {
+    return tokens.access_token.trim();
+  }
+  return null;
+}
+
+function syncBridgeToken(tokens) {
+  const token = extractBridgeToken(tokens);
+  if (!token) {
+    return { success: false, reason: "missing-token" };
+  }
+  try {
+    const tokenPath = getBridgeTokenPath();
+    const tokenDir = path.dirname(tokenPath);
+    fs.mkdirSync(tokenDir, { recursive: true });
+    fs.writeFileSync(tokenPath, token, { mode: 0o600 });
+    logger.log("[NativeMessagingInstaller] ✅ Bridge token synced for extension onboarding");
+    return { success: true, path: tokenPath };
+  } catch (error) {
+    logger.warn("[NativeMessagingInstaller] Failed to sync bridge token:", error.message);
+    return { success: false, reason: error.message };
+  }
+}
+
+function clearBridgeToken() {
+  try {
+    const tokenPath = getBridgeTokenPath();
+    if (fs.existsSync(tokenPath)) {
+      fs.unlinkSync(tokenPath);
+      logger.log("[NativeMessagingInstaller] Bridge token cleared");
+    }
+    return { success: true };
+  } catch (error) {
+    logger.warn("[NativeMessagingInstaller] Failed to clear bridge token:", error.message);
+    return { success: false, reason: error.message };
+  }
+}
+
+function getBridgeTokenStatus() {
+  try {
+    const tokenPath = getBridgeTokenPath();
+    if (!fs.existsSync(tokenPath)) {
+      return { present: false, path: tokenPath, updatedAtMs: null };
+    }
+    const stats = fs.statSync(tokenPath);
+    const token = fs.readFileSync(tokenPath, "utf8").trim();
+    return {
+      present: token.length > 0,
+      path: tokenPath,
+      updatedAtMs: stats.mtimeMs,
+    };
+  } catch {
+    return { present: false, path: getBridgeTokenPath(), updatedAtMs: null };
+  }
+}
+
 /**
  * Get the saved extension ID (if available)
  * The backend saves this when the extension connects
@@ -613,6 +681,9 @@ module.exports = {
   getSavedExtensionId,
   checkAndUpdateExtensionId,
   startExtensionIdMonitor,
+  syncBridgeToken,
+  clearBridgeToken,
+  getBridgeTokenStatus,
   NATIVE_HOST_NAME,
   EXTENSION_ID_PLACEHOLDER,
 };

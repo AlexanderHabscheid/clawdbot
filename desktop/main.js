@@ -1052,6 +1052,18 @@ app.whenReady().then(() => {
         }
       }
 
+      // Sync bridge token from secure auth storage so the extension can connect
+      // to cloud gateway without manual token entry.
+      try {
+        const authTokens = store.get("auth_tokens");
+        const syncResult = NativeMessagingInstaller.syncBridgeToken(authTokens);
+        if (!syncResult.success) {
+          logger.log("[main.js] Bridge token sync skipped:", syncResult.reason || "not available");
+        }
+      } catch (error) {
+        logger.warn("[main.js] Bridge token sync failed:", error.message);
+      }
+
       // Start monitoring for extension ID (in case extension hasn't connected yet)
       // This will auto-update manifests when the extension first connects
       NativeMessagingInstaller.startExtensionIdMonitor(30000); // Check every 30 seconds

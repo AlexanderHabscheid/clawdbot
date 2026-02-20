@@ -9,10 +9,6 @@ import {
   Check,
   Globe,
   Command,
-  Play,
-  Square,
-  Volume2,
-  RotateCcw,
   Monitor,
   Eye,
   ChevronRight,
@@ -29,18 +25,12 @@ import { useAuth } from "../contexts/AuthContext";
 import CentrisBackendService from "../services/centrisBackendService";
 import {
   PERMISSION_CHECK_INTERVAL_MS,
-  PERMISSION_AUTO_ADVANCE_DELAY_MS,
   DEFAULT_MACOS_HOTKEY,
   DEFAULT_OTHER_HOTKEY,
   STORAGE_KEYS,
   DEFAULT_BACKEND_URL,
 } from "../utils/constants";
-import {
-  LANGUAGE_OPTIONS,
-  getLanguageLabel,
-  getLanguageByCode,
-  POPULAR_LANGUAGES,
-} from "../utils/languages";
+import { LANGUAGE_OPTIONS, getLanguageByCode, POPULAR_LANGUAGES } from "../utils/languages";
 import AuthStep from "./AuthStep";
 import GalaxyBackground from "./GalaxyBackground";
 
@@ -48,7 +38,7 @@ const steps = [
   { title: "Sign In", icon: User },
   { title: "Welcome", icon: Sparkles },
   { title: "Language", icon: Languages },
-  { title: "Permissions & Test", icon: Mic },
+  { title: "Permissions", icon: Mic },
   { title: "Voice ID", icon: Shield }, // NEW: Voice enrollment step
   { title: "Advanced", icon: Monitor },
   { title: "Browser", icon: Chrome },
@@ -340,7 +330,7 @@ const LanguageStep = ({ onNext, selectedLanguage, setSelectedLanguage }) => {
   );
 };
 
-// Step 3: Combined Permissions & Testing Step
+// Step 3: Combined Permissions & Automatic Readiness Gate
 const PermissionsAndTestStep = ({
   onNext,
   micPermissionGranted,
@@ -348,37 +338,13 @@ const PermissionsAndTestStep = ({
   onRequestMicPermission,
   onRequestAccessibilityPermission,
   isDev,
-  selectedHotkey,
-  setSelectedHotkey,
-  isMacOS,
 }) => {
-  // Permission states
   const [micGranted, setMicGranted] = useState(false);
   const [accessibilityGranted, setAccessibilityGranted] = useState(false);
+  const [runtimeReady, setRuntimeReady] = useState(false);
+  const [runtimeProbeError, setRuntimeProbeError] = useState(null);
+  const [isProbingRuntime, setIsProbingRuntime] = useState(false);
 
-  // Mic test states
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordedAudio, setRecordedAudio] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [micTestPassed, setMicTestPassed] = useState(false);
-
-  // Accessibility test states
-  const [accessibilityTestText, setAccessibilityTestText] = useState("");
-  const [accessibilityTestPassed, setAccessibilityTestPassed] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-
-  // Refs for audio
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const audioPlayerRef = useRef(null);
-  const streamRef = useRef(null);
-  const textareaRef = useRef(null);
-  const recordedAudioMimeTypeRef = useRef(null); // Store the actual MIME type from MediaRecorder
-
-  // Test phase: 'permissions' -> 'testing'
-  const [testPhase, setTestPhase] = useState("permissions");
-
-  // Update permission states from props
   useEffect(() => {
     setMicGranted(micPermissionGranted);
   }, [micPermissionGranted]);
@@ -387,835 +353,61 @@ const PermissionsAndTestStep = ({
     setAccessibilityGranted(accessibilityPermissionGranted);
   }, [accessibilityPermissionGranted]);
 
-  // When both permissions are granted, move to testing phase and create pill UI
+  const bothPermissionsGranted = micGranted && accessibilityGranted;
+  const canContinue = bothPermissionsGranted && runtimeReady;
+
+  // After required OS permissions are granted, prove runtime path is alive in background.
   useEffect(() => {
-    if (micGranted && accessibilityGranted && testPhase === "permissions") {
-      setTimeout(async () => {
-        setTestPhase("testing");
-
-        // Create pill UI window so user can see visual feedback during testing
-        // This matches the user's expectation that the pill should be visible during dictation test
-        console.log("[Onboarding] Creating pill UI window for testing phase...");
-        try {
-          const result = await window.electronAPI?.createPillUIWindow?.();
-          if (result?.success) {
-            console.log("[Onboarding] ✅ Pill UI window created for testing");
-          } else {
-            console.log("[Onboarding] Pill UI creation result:", result);
-          }
-        } catch (error) {
-          console.error("[Onboarding] Error creating pill UI:", error);
-        }
-      }, 500);
-    }
-  }, [micGranted, accessibilityGranted, testPhase]);
-
-  // Grant microphone permission
-  const handleGrantMicrophone = async () => {
-    console.log("[Onboarding] Requesting microphone permission...");
-
-    try {
-      // First, try to use Electron's native permission request
-      const electronResult = await window.electronAPI?.requestMicrophonePermission?.();
-      console.log("[Onboarding] Electron permission request result:", electronResult);
-
-      if (electronResult?.granted) {
-        setMicGranted(true);
-        console.log("[Onboarding] ✅ Microphone permission granted via Electron API");
-        return;
-      }
-
-      // If Electron didn't grant, try getUserMedia to trigger browser prompt
-      console.log("[Onboarding] Trying getUserMedia to trigger system prompt...");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((track) => track.stop());
-      setMicGranted(true);
-      console.log("[Onboarding] ✅ Microphone permission granted via getUserMedia");
-    } catch (err) {
-      console.error("[Onboarding] Microphone permission request failed:", err);
-
-      // Permission denied or error - open System Settings
-      console.log("[Onboarding] Opening System Settings for microphone...");
-      await window.electronAPI?.openSystemPreferences?.("microphone");
-
-      // Show instructions
-      alert(
-        "Microphone permission required!\n\n" +
-          "1. System Settings should open automatically\n" +
-          "2. Go to Privacy & Security → Microphone\n" +
-          '3. Find "Sentris" and enable it\n' +
-          '4. Return here and click "Grant Access" again',
-      );
-    }
-  };
-
-  // Grant accessibility permission
-  const handleGrantAccessibility = async () => {
-    console.log("[Onboarding] Opening accessibility settings...");
-
-    // Accessibility can only be granted via System Settings
-    await window.electronAPI?.openSystemPreferences?.("accessibility");
-
-    // Start polling for permission status
-    let attempts = 0;
-    const maxAttempts = 30; // Poll for up to 60 seconds
-
-    const pollPermission = setInterval(async () => {
-      attempts++;
-      const status = await window.electronAPI?.checkAccessibilityPermission?.();
-      console.log(`[Onboarding] Accessibility check attempt ${attempts}:`, status?.granted);
-
-      if (status?.granted) {
-        setAccessibilityGranted(true);
-        clearInterval(pollPermission);
-        console.log("[Onboarding] ✅ Accessibility permission granted!");
-      } else if (attempts >= maxAttempts) {
-        clearInterval(pollPermission);
-        console.log("[Onboarding] Accessibility polling timed out");
-      }
-    }, 2000);
-  };
-
-  // Microphone test error state
-  const [micTestError, setMicTestError] = useState(null);
-
-  // ========== MICROPHONE TEST: Record and Playback ==========
-  // Using the same simple approach as open-whispr
-  const startRecording = async () => {
-    setMicTestError(null);
-
-    // Prevent double-click
-    if (isRecording) {
-      console.log("[Onboarding] Already recording, ignoring");
-      return;
+    if (!bothPermissionsGranted) {
+      setRuntimeReady(false);
+      setRuntimeProbeError(null);
+      return undefined;
     }
 
-    try {
-      console.log("[Onboarding] Starting microphone recording...");
-      console.log("[Onboarding] Checking navigator.mediaDevices:", !!navigator.mediaDevices);
-      console.log(
-        "[Onboarding] Checking getUserMedia:",
-        typeof navigator.mediaDevices?.getUserMedia,
-      );
+    let cancelled = false;
 
-      // Check if getUserMedia is available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error(
-          "getUserMedia is not available. This may be a browser compatibility issue.",
-        );
-      }
-
-      // Simple getUserMedia call - same as open-whispr
-      // The session permission handler in main.js will handle the permission request
-      // Just try getUserMedia directly - if permission is needed, it will prompt
-      console.log("[Onboarding] Calling getUserMedia with audio constraint...");
-      console.log("[Onboarding] navigator.mediaDevices:", navigator.mediaDevices);
-      console.log("[Onboarding] getUserMedia function:", navigator.mediaDevices?.getUserMedia);
-      console.log("[Onboarding] Window location:", window.location.href);
-      console.log("[Onboarding] Is secure context:", window.isSecureContext);
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      console.log("[Onboarding] ✅ Got microphone stream");
-      console.log("[Onboarding] Stream tracks:", stream.getAudioTracks().length);
-      console.log("[Onboarding] Track enabled:", stream.getAudioTracks()[0]?.enabled);
-      console.log("[Onboarding] Track readyState:", stream.getAudioTracks()[0]?.readyState);
-
-      streamRef.current = stream;
-      audioChunksRef.current = [];
-
-      // Check if MediaRecorder is available
-      if (!window.MediaRecorder) {
-        throw new Error(
-          "MediaRecorder is not available. This may be a browser compatibility issue.",
-        );
-      }
-
-      // Simple MediaRecorder - no mimeType specification, let browser choose
-      // Try to use a preferred format, but fallback to browser default
-      let mediaRecorder;
-      const preferredMimeTypes = [
-        "audio/webm",
-        "audio/webm;codecs=opus",
-        "audio/ogg;codecs=opus",
-        "audio/mp4",
-      ];
-      let selectedMimeType = null;
-
-      // Find the first supported MIME type
-      for (const mimeType of preferredMimeTypes) {
-        if (MediaRecorder.isTypeSupported(mimeType)) {
-          selectedMimeType = mimeType;
-          break;
-        }
-      }
-
-      if (selectedMimeType) {
-        console.log("[Onboarding] Using preferred MIME type:", selectedMimeType);
-        mediaRecorder = new MediaRecorder(stream, { mimeType: selectedMimeType });
-      } else {
-        console.log("[Onboarding] Using browser default MIME type");
-        mediaRecorder = new MediaRecorder(stream);
-      }
-
-      mediaRecorderRef.current = mediaRecorder;
-
-      // Store the actual MIME type that MediaRecorder is using (Zoom-style approach)
-      const actualMimeType = mediaRecorder.mimeType || selectedMimeType || "audio/webm";
-      recordedAudioMimeTypeRef.current = actualMimeType;
-
-      console.log("[Onboarding] MediaRecorder created, state:", mediaRecorder.state);
-      console.log("[Onboarding] MediaRecorder mimeType:", actualMimeType);
-
-      mediaRecorder.ondataavailable = (event) => {
-        console.log("[Onboarding] Data available:", event.data.size, "bytes");
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-          console.log("[Onboarding] Total chunks:", audioChunksRef.current.length);
-        }
-      };
-
-      mediaRecorder.onstop = () => {
-        console.log("[Onboarding] Recording stopped");
-        console.log("[Onboarding] Total chunks collected:", audioChunksRef.current.length);
-
-        // Create blob with the ACTUAL MIME type from MediaRecorder (Zoom-style approach)
-        // This ensures the blob type matches the actual data format
-        const audioBlob = new Blob(audioChunksRef.current, { type: actualMimeType });
-        console.log("[Onboarding] Audio blob size:", audioBlob.size, "bytes");
-        console.log("[Onboarding] Audio blob MIME type:", actualMimeType);
-
-        if (audioBlob.size > 0) {
-          const audioUrl = URL.createObjectURL(audioBlob);
-          setRecordedAudio(audioUrl);
-          setMicTestError(null);
-          console.log("[Onboarding] ✅ Recording successful! Audio URL created:", audioUrl);
-        } else {
-          console.error("[Onboarding] Recording produced empty blob");
-          setMicTestError("Recording produced no audio. Please speak while recording.");
-        }
-        setIsRecording(false);
-
-        // Cleanup stream
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((track) => {
-            track.stop();
-            console.log("[Onboarding] Stopped track:", track.label);
-          });
-        }
-      };
-
-      mediaRecorder.onerror = (event) => {
-        console.error("[Onboarding] MediaRecorder error:", event.error);
-        setMicTestError("Recording error: " + (event.error?.message || "Unknown error"));
-        setIsRecording(false);
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((track) => track.stop());
-        }
-      };
-
-      // Start recording with timeslice to ensure data is collected
-      console.log("[Onboarding] Starting MediaRecorder...");
-      mediaRecorder.start(100); // Collect data every 100ms
-
-      // Verify recording actually started
-      setTimeout(() => {
-        if (mediaRecorder.state === "recording") {
-          console.log("[Onboarding] ✅ Recording confirmed active! State:", mediaRecorder.state);
-        } else {
-          console.error("[Onboarding] ❌ Recording failed to start! State:", mediaRecorder.state);
-          setMicTestError("Recording failed to start. State: " + mediaRecorder.state);
-          setIsRecording(false);
-          if (streamRef.current) {
-            streamRef.current.getTracks().forEach((track) => track.stop());
-          }
-        }
-      }, 200);
-
-      setIsRecording(true);
-      setRecordedAudio(null);
-      setMicTestPassed(false);
-      console.log("[Onboarding] ✅ Recording started! State:", mediaRecorder.state);
-    } catch (err) {
-      console.error("[Onboarding] Failed to start recording:", err);
-      console.error("[Onboarding] Error name:", err.name);
-      console.error("[Onboarding] Error message:", err.message);
-      console.error("[Onboarding] Error stack:", err.stack);
-
-      // Specific error messages - same approach as open-whispr
-      let errorTitle = "Recording Error";
-      let errorDescription = `Failed to access microphone: ${err.message}`;
-
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        errorTitle = "Microphone Access Denied";
-        errorDescription =
-          "Please grant microphone permission in System Settings > Privacy & Security > Microphone. Look for 'Sentris' and enable it.";
-        setMicGranted(false);
-      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-        errorTitle = "No Microphone Found";
-        errorDescription = "No microphone was detected. Please connect a microphone and try again.";
-      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
-        errorTitle = "Microphone In Use";
-        errorDescription =
-          "The microphone is being used by another application. Please close other apps and try again.";
-      } else if (err.message.includes("getUserMedia is not available")) {
-        errorTitle = "Browser Compatibility Issue";
-        errorDescription =
-          "Your browser doesn't support microphone access. Please use a modern browser or update Electron.";
-      }
-
-      setMicTestError(`${errorTitle}: ${errorDescription}`);
-      setIsRecording(false);
-    }
-  };
-
-  const stopRecording = () => {
-    console.log("[Onboarding] stopRecording called");
-    console.log("[Onboarding] mediaRecorderRef.current:", !!mediaRecorderRef.current);
-    console.log("[Onboarding] isRecording:", isRecording);
-
-    if (mediaRecorderRef.current) {
-      console.log("[Onboarding] MediaRecorder state:", mediaRecorderRef.current.state);
-
-      if (mediaRecorderRef.current.state === "recording") {
-        console.log("[Onboarding] Stopping MediaRecorder...");
-        mediaRecorderRef.current.stop();
-        console.log("[Onboarding] MediaRecorder stop() called");
-      } else if (mediaRecorderRef.current.state === "inactive") {
-        console.log("[Onboarding] MediaRecorder already stopped");
-        setIsRecording(false);
-      } else {
-        console.log(
-          "[Onboarding] MediaRecorder in unexpected state:",
-          mediaRecorderRef.current.state,
-        );
-        // Try to stop anyway
-        try {
-          mediaRecorderRef.current.stop();
-        } catch (err) {
-          console.error("[Onboarding] Error stopping MediaRecorder:", err);
-        }
-      }
-    } else {
-      console.warn("[Onboarding] No MediaRecorder reference available");
-      setIsRecording(false);
-    }
-  };
-
-  const playRecording = async () => {
-    if (recordedAudio && audioPlayerRef.current) {
+    const runProbe = async () => {
+      setIsProbingRuntime(true);
       try {
-        console.log("[Onboarding] Starting playback of recorded audio...");
-        console.log("[Onboarding] Audio URL:", recordedAudio);
-        console.log("[Onboarding] Audio MIME type:", recordedAudioMimeTypeRef.current);
-
-        // Reset the audio element (Zoom-style approach: ensure clean state)
-        audioPlayerRef.current.pause();
-        audioPlayerRef.current.currentTime = 0;
-
-        // Clear any previous source
-        audioPlayerRef.current.src = "";
-
-        // Set the new source
-        audioPlayerRef.current.src = recordedAudio;
-
-        // Wait for audio to be loaded (Zoom-style: wait for canplaythrough)
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            audioPlayerRef.current.removeEventListener("canplaythrough", handleCanPlay);
-            audioPlayerRef.current.removeEventListener("loadeddata", handleCanPlay);
-            audioPlayerRef.current.removeEventListener("error", handleError);
-            reject(new Error("Audio loading timeout"));
-          }, 5000); // 5 second timeout
-
-          const handleCanPlay = () => {
-            clearTimeout(timeout);
-            audioPlayerRef.current.removeEventListener("canplaythrough", handleCanPlay);
-            audioPlayerRef.current.removeEventListener("loadeddata", handleCanPlay);
-            audioPlayerRef.current.removeEventListener("error", handleError);
-            console.log("[Onboarding] ✅ Audio loaded and ready to play");
-            resolve();
-          };
-
-          const handleError = (e) => {
-            clearTimeout(timeout);
-            audioPlayerRef.current.removeEventListener("canplaythrough", handleCanPlay);
-            audioPlayerRef.current.removeEventListener("loadeddata", handleCanPlay);
-            audioPlayerRef.current.removeEventListener("error", handleError);
-            const errorMsg = audioPlayerRef.current.error
-              ? `Audio error: ${audioPlayerRef.current.error.code} - ${audioPlayerRef.current.error.message}`
-              : "Failed to load audio";
-            console.error("[Onboarding] ❌", errorMsg);
-            reject(new Error(errorMsg));
-          };
-
-          // Listen for both canplaythrough (preferred) and loadeddata (fallback)
-          audioPlayerRef.current.addEventListener("canplaythrough", handleCanPlay);
-          audioPlayerRef.current.addEventListener("loadeddata", handleCanPlay);
-          audioPlayerRef.current.addEventListener("error", handleError);
-
-          // If already loaded, resolve immediately
-          if (audioPlayerRef.current.readyState >= 2) {
-            clearTimeout(timeout);
-            audioPlayerRef.current.removeEventListener("canplaythrough", handleCanPlay);
-            audioPlayerRef.current.removeEventListener("loadeddata", handleCanPlay);
-            audioPlayerRef.current.removeEventListener("error", handleError);
-            resolve();
-          } else {
-            // Trigger load if not already loading
-            audioPlayerRef.current.load();
+        if (!window.electronAPI?.observeRuntime) {
+          if (!cancelled) {
+            setRuntimeReady(true);
+            setRuntimeProbeError(null);
           }
-        });
-
-        // Play the audio (Zoom-style: use play() promise)
-        console.log("[Onboarding] Playing audio...");
-        await audioPlayerRef.current.play();
-        setIsPlaying(true);
-        console.log("[Onboarding] ✅ Audio playback started");
-      } catch (err) {
-        console.error("[Onboarding] Failed to play recording:", err);
-        console.error("[Onboarding] Error details:", {
-          name: err.name,
-          message: err.message,
-          stack: err.stack,
-          audioSrc: recordedAudio,
-          audioMimeType: recordedAudioMimeTypeRef.current,
-          readyState: audioPlayerRef.current?.readyState,
-          error: audioPlayerRef.current?.error,
-        });
-
-        // Set error message for user feedback
-        setMicTestError(
-          `Playback failed: ${err.message}. Recording was successful, but playback encountered an issue.`,
-        );
-
-        // Even if playback fails, mark the test as passed since recording worked
-        // (This matches Zoom's behavior - if recording works, microphone is functional)
-        setMicTestPassed(true);
-      }
-    } else {
-      console.error("[Onboarding] Cannot play: recordedAudio or audioPlayerRef not available");
-      setMicTestError("Cannot play recording: audio data not available");
-    }
-  };
-
-  const handleAudioEnded = () => {
-    setIsPlaying(false);
-    setMicTestPassed(true);
-    console.log("[Onboarding] ✅ Microphone test passed - audio played successfully");
-  };
-
-  // Also mark test as passed after a successful recording (even if playback doesn't work)
-  useEffect(() => {
-    if (recordedAudio && !isRecording && !micTestPassed) {
-      // Give user time to play back, but mark as passed after 5 seconds
-      // since successful recording is the main test
-      const timer = setTimeout(() => {
-        if (!micTestPassed) {
-          console.log("[Onboarding] ✅ Microphone test auto-passed - recording succeeded");
-          setMicTestPassed(true);
-        }
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [recordedAudio, isRecording, micTestPassed]);
-
-  // Cleanup: Revoke object URL when component unmounts or recordedAudio changes (Zoom-style cleanup)
-  useEffect(() => {
-    return () => {
-      if (recordedAudio) {
-        URL.revokeObjectURL(recordedAudio);
-        console.log("[Onboarding] Cleaned up audio object URL");
-      }
-    };
-  }, [recordedAudio]);
-
-  const resetMicTest = () => {
-    // Clean up audio URL to prevent memory leaks (Zoom-style cleanup)
-    if (recordedAudio) {
-      URL.revokeObjectURL(recordedAudio);
-    }
-    setRecordedAudio(null);
-    setMicTestPassed(false);
-    setMicTestError(null);
-    recordedAudioMimeTypeRef.current = null;
-
-    // Reset audio player
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-      audioPlayerRef.current.currentTime = 0;
-      audioPlayerRef.current.src = "";
-    }
-    setIsPlaying(false);
-  };
-
-  // Voice typing error state
-  const [voiceTypingError, setVoiceTypingError] = useState(null);
-
-  // Track if we're in the testing phase for voice typing
-  const isInVoiceTestRef = useRef(false);
-  const voiceRecorderRef = useRef(null);
-  const voiceStreamRef = useRef(null);
-  const voiceChunksRef = useRef([]);
-
-  // Track if globe key is ready (accessibility granted and listener active)
-  const [globeKeyReady, setGlobeKeyReady] = useState(false);
-
-  // ========== GLOBE KEY LISTENER FOR ONBOARDING ==========
-  // Listen to globe key events so the hotkey works during onboarding
-  // IMPORTANT: Only respond when the Centris window is focused to avoid
-  // capturing text from other apps (like Google text boxes)
-  const [windowFocused, setWindowFocused] = useState(true);
-
-  // Track window focus state
-  useEffect(() => {
-    const handleFocus = () => {
-      console.log("[Onboarding] Window focused");
-      setWindowFocused(true);
-    };
-    const handleBlur = () => {
-      console.log("[Onboarding] Window blurred");
-      setWindowFocused(false);
-    };
-
-    window.addEventListener("focus", handleFocus);
-    window.addEventListener("blur", handleBlur);
-
-    // Check initial focus state
-    setWindowFocused(document.hasFocus());
-
-    return () => {
-      window.removeEventListener("focus", handleFocus);
-      window.removeEventListener("blur", handleBlur);
-    };
-  }, []);
-
-  useEffect(() => {
-    // Only listen when in testing phase
-    if (testPhase !== "testing") {
-      return;
-    }
-
-    // Verify accessibility is granted (required for globe key)
-    const checkGlobeKeyStatus = async () => {
-      try {
-        const accessStatus = await window.electronAPI?.checkAccessibilityPermission?.();
-        console.log("[Onboarding] Globe key status check - accessibility:", accessStatus?.granted);
-        if (accessStatus?.granted) {
-          setGlobeKeyReady(true);
-          console.log("[Onboarding] ✅ Globe key should be ready (accessibility granted)");
-        } else {
-          setGlobeKeyReady(false);
-          console.log("[Onboarding] ⚠️ Globe key may not work (accessibility not granted)");
-        }
-      } catch (error) {
-        console.error("[Onboarding] Error checking accessibility:", error);
-      }
-    };
-    checkGlobeKeyStatus();
-
-    const handleStartDictation = () => {
-      // CRITICAL: Only respond if the Centris window is focused
-      // This prevents capturing text when user is typing in other apps (like Google)
-      if (!document.hasFocus()) {
-        console.log("[Onboarding] Ignoring globe key - window not focused");
-        return;
-      }
-
-      // Only respond if we're on the testing phase and textarea is present
-      if (testPhase === "testing" && textareaRef.current) {
-        textareaRef.current.focus();
-        startVoiceRecordingForGlobeKey();
-      }
-    };
-
-    const handleStopDictation = () => {
-      if (testPhase === "testing") {
-        stopVoiceRecordingForGlobeKey();
-      }
-    };
-
-    // Subscribe to dictation events
-    let unsubStart, unsubStop;
-
-    if (window.electronAPI?.onStartDictation) {
-      unsubStart = window.electronAPI.onStartDictation(handleStartDictation);
-    }
-
-    if (window.electronAPI?.onStopDictation) {
-      unsubStop = window.electronAPI.onStopDictation(handleStopDictation);
-      console.log("[Onboarding] ✅ Subscribed to stop-dictation events");
-    } else {
-      console.error("[Onboarding] ❌ onStopDictation not available!");
-    }
-
-    return () => {
-      // Cleanup listeners
-      console.log("[Onboarding] Cleaning up globe key listeners");
-      if (typeof unsubStart === "function") {
-        unsubStart();
-        console.log("[Onboarding] Unsubscribed from start-dictation");
-      }
-      if (typeof unsubStop === "function") {
-        unsubStop();
-        console.log("[Onboarding] Unsubscribed from stop-dictation");
-      }
-    };
-  }, [testPhase]);
-
-  // Start recording when globe key is pressed - using simple approach like open-whispr
-  const startVoiceRecordingForGlobeKey = async () => {
-    if (isInVoiceTestRef.current) {
-      console.log("[Onboarding] Already recording, ignoring");
-      return;
-    }
-
-    setVoiceTypingError(null);
-    setIsListening(true);
-    isInVoiceTestRef.current = true;
-    voiceChunksRef.current = [];
-
-    try {
-      // Simple getUserMedia - same as open-whispr
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      voiceStreamRef.current = stream;
-
-      // Simple MediaRecorder - no mimeType specification
-      const mediaRecorder = new MediaRecorder(stream);
-      voiceRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          voiceChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        console.log("[Onboarding] Globe key recording stopped, processing...");
-
-        // Cleanup stream
-        if (voiceStreamRef.current) {
-          voiceStreamRef.current.getTracks().forEach((track) => track.stop());
-          voiceStreamRef.current = null;
-        }
-
-        // Process recording
-        if (voiceChunksRef.current.length > 0) {
-          // Use audio/wav type like open-whispr
-          const audioBlob = new Blob(voiceChunksRef.current, { type: "audio/wav" });
-
-          // Minimum size check - need at least ~2KB for meaningful audio
-          // Very short recordings (< 2KB) are likely accidental key presses
-          const MIN_AUDIO_SIZE_BYTES = 2000;
-
-          if (audioBlob.size < MIN_AUDIO_SIZE_BYTES) {
-            console.log("[Onboarding] Audio too short (", audioBlob.size, "bytes), skipping");
-            // Don't show error for very short recordings - just skip silently
-            setIsListening(false);
-            isInVoiceTestRef.current = false;
-            return;
-          }
-
-          console.log("[Onboarding] Processing audio blob:", audioBlob.size, "bytes");
-
-          try {
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            // Use Uint8Array instead of Buffer (Buffer not available in renderer)
-            const uint8Array = new Uint8Array(arrayBuffer);
-            const result = await window.electronAPI?.transcribeCentrisAudio?.(uint8Array);
-
-            if (result?.success && result?.text) {
-              const transcribedText = result.text.trim();
-              console.log("[Onboarding] ✅ Transcribed:", transcribedText);
-
-              // Set the text in the textarea
-              setAccessibilityTestText(transcribedText);
-              if (textareaRef.current) {
-                textareaRef.current.value = transcribedText;
-              }
-              setAccessibilityTestPassed(true);
-            } else {
-              // Check if it's a "too short" error and handle gracefully
-              const errorMsg = result?.error || "";
-              if (errorMsg.includes("too short")) {
-                console.log("[Onboarding] Audio too short for transcription, skipping");
-              } else {
-                console.log("[Onboarding] Transcription failed:", result);
-                setVoiceTypingError(
-                  "Could not transcribe audio. Please speak clearly and try again.",
-                );
-              }
-            }
-          } catch (err) {
-            console.error("[Onboarding] Transcription error:", err);
-            // Don't show error for "too short" errors
-            if (!err.message?.includes("too short")) {
-              setVoiceTypingError("Transcription error: " + err.message);
-            }
-          }
-        }
-
-        setIsListening(false);
-        isInVoiceTestRef.current = false;
-      };
-
-      mediaRecorder.start(100);
-      console.log("[Onboarding] ✅ Globe key recording started");
-    } catch (err) {
-      console.error("[Onboarding] Failed to start globe key recording:", err);
-      setIsListening(false);
-      isInVoiceTestRef.current = false;
-
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        setVoiceTypingError("Microphone access denied. Please grant permission first.");
-      } else {
-        setVoiceTypingError("Failed to start recording: " + err.message);
-      }
-    }
-  };
-
-  // Stop recording when globe key is released
-  const stopVoiceRecordingForGlobeKey = () => {
-    if (voiceRecorderRef.current && voiceRecorderRef.current.state === "recording") {
-      console.log("[Onboarding] Stopping globe key recorder...");
-      voiceRecorderRef.current.stop();
-    }
-  };
-
-  // ========== ACCESSIBILITY TEST: Voice Typing ==========
-  // This simulates the actual usage - click button OR hold globe key
-  // Using simple approach like open-whispr
-  const startVoiceTypingTest = async () => {
-    setIsListening(true);
-    setAccessibilityTestText("");
-    setVoiceTypingError(null);
-
-    // Focus the textarea
-    if (textareaRef.current) {
-      textareaRef.current.focus();
-    }
-
-    try {
-      console.log("[Onboarding] Starting voice typing test...");
-
-      // Simple getUserMedia - same as open-whispr
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      console.log("[Onboarding] ✅ Got microphone stream for voice typing");
-
-      // Simple MediaRecorder - no mimeType specification
-      const mediaRecorder = new MediaRecorder(stream);
-
-      const chunks = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunks.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-
-        // Use audio/wav type like open-whispr
-        const audioBlob = new Blob(chunks, { type: "audio/wav" });
-
-        if (audioBlob.size === 0) {
-          setIsListening(false);
           return;
         }
 
-        // Transcribe via Centris backend
-        try {
-          const arrayBuffer = await audioBlob.arrayBuffer();
-          const result = await window.electronAPI?.transcribeCentrisAudio?.(arrayBuffer);
+        const result = await window.electronAPI.observeRuntime({
+          instruction: "onboarding runtime health probe",
+        });
 
-          if (result?.success && result?.text) {
-            const transcribedText = result.text.trim();
-
-            // Test accessibility by pasting into the textarea
-            // This simulates the real workflow
-            if (textareaRef.current) {
-              textareaRef.current.focus();
-
-              // Try to paste via accessibility API
-              try {
-                await window.electronAPI?.pasteText?.(transcribedText);
-
-                // If paste worked, the text should appear in the focused element
-                // Give a short delay for the paste to complete
-                setTimeout(() => {
-                  // If text was pasted successfully, mark as passed
-                  if (textareaRef.current && textareaRef.current.value.trim().length > 0) {
-                    setAccessibilityTestPassed(true);
-                  } else {
-                    // Fallback: just set the text directly if paste didn't work
-                    setAccessibilityTestText(transcribedText);
-                  }
-                }, 200);
-              } catch (pasteErr) {
-                console.error("Paste failed:", pasteErr);
-                // Just set the text directly as fallback
-                setAccessibilityTestText(transcribedText);
-              }
-            } else {
-              setAccessibilityTestText(transcribedText);
-            }
-          }
-        } catch (err) {
-          console.error("Transcription failed:", err);
+        if (cancelled) {
+          return;
         }
 
-        setIsListening(false);
-      };
-
-      // Record for 3 seconds
-      mediaRecorder.start(100);
-
-      setTimeout(() => {
-        if (mediaRecorder.state === "recording") {
-          mediaRecorder.stop();
+        const ok = result?.ok === true;
+        setRuntimeReady(ok);
+        setRuntimeProbeError(ok ? null : (result?.error ?? "Centris runtime is still starting."));
+      } catch (_error) {
+        if (!cancelled) {
+          setRuntimeReady(false);
+          setRuntimeProbeError("Centris runtime is still starting.");
         }
-      }, 3000);
-    } catch (err) {
-      console.error("[Onboarding] Voice typing test failed:", err);
-      setIsListening(false);
-
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        setVoiceTypingError("Microphone access denied. Please grant permission first.");
-      } else {
-        setVoiceTypingError("Failed to start voice test: " + err.message);
+      } finally {
+        if (!cancelled) {
+          setIsProbingRuntime(false);
+        }
       }
-    }
-  };
+    };
 
-  // Handle manual text input (for accessibility test)
-  const handleTextareaChange = (e) => {
-    setAccessibilityTestText(e.target.value);
-    if (e.target.value.trim().length > 0) {
-      setAccessibilityTestPassed(true);
-    }
-  };
+    runProbe();
+    const probeInterval = setInterval(runProbe, 3000);
 
-  const resetAccessibilityTest = () => {
-    setAccessibilityTestText("");
-    setAccessibilityTestPassed(false);
-    setVoiceTypingError(null);
-    if (textareaRef.current) {
-      textareaRef.current.value = "";
-    }
-  };
-
-  // Check if both tests are passed
-  const allTestsPassed = micTestPassed && accessibilityTestPassed;
-  const bothPermissionsGranted = micGranted && accessibilityGranted;
-
-  // Hotkey options for the quick select
-  const hotkeyOptions = [
-    ...(isMacOS ? [{ id: "GLOBE", label: "Fn/🌐 Key" }] : []),
-    { id: "`", label: "Backtick (`)" },
-  ];
+    return () => {
+      cancelled = true;
+      clearInterval(probeInterval);
+    };
+  }, [bothPermissionsGranted]);
 
   return (
     <motion.div
@@ -1224,368 +416,152 @@ const PermissionsAndTestStep = ({
       exit={{ opacity: 0, x: -20 }}
       className="flex flex-col items-center text-center space-y-6 max-w-lg mx-auto py-4"
     >
-      {/* Hidden audio player for playback */}
-      <audio ref={audioPlayerRef} onEnded={handleAudioEnded} className="hidden" />
-
-      {/* Header */}
       <div className="space-y-2">
-        <h2 className="text-2xl font-bold">
-          {testPhase === "permissions" ? "Grant Permissions" : "Test Your Setup"}
-        </h2>
+        <h2 className="text-2xl font-bold">Enable Computer Control</h2>
         <p className="text-muted-foreground">
-          {testPhase === "permissions"
-            ? "Centris needs microphone and accessibility access to work properly."
-            : "Let's make sure everything is working correctly."}
+          Grant required macOS permissions. Centris validates runtime readiness automatically.
         </p>
       </div>
 
-      {/* PERMISSIONS PHASE */}
-      {testPhase === "permissions" && (
-        <div className="w-full space-y-4">
-          {/* Microphone Permission Card */}
-          <div
-            className={`glass-card p-5 rounded-xl border transition-all ${micGranted ? "border-green-500/50 bg-green-500/5" : "border-orange-500/30"}`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`p-2 rounded-lg ${micGranted ? "bg-green-500/20" : "bg-orange-500/20"}`}
-                >
-                  <Mic className={`w-6 h-6 ${micGranted ? "text-green-500" : "text-orange-500"}`} />
-                </div>
-                <div className="text-left">
-                  <h3 className="font-semibold">Microphone Access</h3>
-                  <p className="text-sm text-muted-foreground">Required for voice commands</p>
-                </div>
+      <div className="w-full space-y-4">
+        <div
+          className={`glass-card p-5 rounded-xl border transition-all ${micGranted ? "border-green-500/50 bg-green-500/5" : "border-orange-500/30"}`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`p-2 rounded-lg ${micGranted ? "bg-green-500/20" : "bg-orange-500/20"}`}
+              >
+                <Mic className={`w-6 h-6 ${micGranted ? "text-green-500" : "text-orange-500"}`} />
               </div>
-              {micGranted ? (
-                <Check className="w-6 h-6 text-green-500" />
-              ) : (
-                <button
-                  onClick={handleGrantMicrophone}
-                  className="px-4 py-2 rounded-lg font-medium bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 text-white text-sm"
-                >
-                  Grant Access
-                </button>
-              )}
+              <div className="text-left">
+                <h3 className="font-semibold">Microphone Access</h3>
+                <p className="text-sm text-muted-foreground">Required for voice command capture</p>
+              </div>
             </div>
+            {micGranted ? (
+              <Check className="w-6 h-6 text-green-500" />
+            ) : (
+              <button
+                onClick={onRequestMicPermission}
+                className="px-4 py-2 rounded-lg font-medium bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 text-white text-sm"
+              >
+                Grant Access
+              </button>
+            )}
           </div>
+        </div>
 
-          {/* Accessibility Permission Card */}
-          <div
-            className={`glass-card p-5 rounded-xl border transition-all ${accessibilityGranted ? "border-green-500/50 bg-green-500/5" : "border-purple-500/30"}`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`p-2 rounded-lg ${accessibilityGranted ? "bg-green-500/20" : "bg-purple-500/20"}`}
-                >
-                  <Shield
-                    className={`w-6 h-6 ${accessibilityGranted ? "text-green-500" : "text-purple-500"}`}
-                  />
-                </div>
-                <div className="text-left">
-                  <h3 className="font-semibold">Accessibility Access</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Required to insert text & detect hotkey
-                  </p>
-                </div>
+        <div
+          className={`glass-card p-5 rounded-xl border transition-all ${accessibilityGranted ? "border-green-500/50 bg-green-500/5" : "border-purple-500/30"}`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`p-2 rounded-lg ${accessibilityGranted ? "bg-green-500/20" : "bg-purple-500/20"}`}
+              >
+                <Shield
+                  className={`w-6 h-6 ${accessibilityGranted ? "text-green-500" : "text-purple-500"}`}
+                />
               </div>
-              {accessibilityGranted ? (
-                <Check className="w-6 h-6 text-green-500" />
-              ) : (
-                <button
-                  onClick={handleGrantAccessibility}
-                  className="px-4 py-2 rounded-lg font-medium bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white text-sm"
-                >
-                  Open Settings
-                </button>
-              )}
+              <div className="text-left">
+                <h3 className="font-semibold">Accessibility Access</h3>
+                <p className="text-sm text-muted-foreground">
+                  Required for keyboard and mouse control across the computer
+                </p>
+              </div>
             </div>
-
-            {!accessibilityGranted && (
-              <div className="mt-3 text-xs text-left text-muted-foreground bg-white/5 p-3 rounded-lg space-y-2">
-                <p className="font-medium text-white/80">
-                  In System Settings → Privacy & Security → Accessibility:
-                </p>
-                <ol className="list-decimal list-inside space-y-1 ml-1">
-                  <li>Click the lock icon 🔒 to make changes</li>
-                  <li>
-                    Find{" "}
-                    <strong className="text-orange-400">
-                      {isDev ? '"Electron"' : '"Sentris"'}
-                    </strong>{" "}
-                    in the list
-                  </li>
-                  <li>Toggle the switch ON to enable</li>
-                </ol>
-                {isDev && (
-                  <p className="text-yellow-400/80 mt-2 pt-2 border-t border-white/10">
-                    ⚠️ Dev mode: Look for "Electron" or your Terminal app (e.g., Terminal, iTerm)
-                  </p>
-                )}
-                <p className="text-white/60 mt-1">
-                  💡 If you don't see the app, try running it again after enabling
-                </p>
-              </div>
+            {accessibilityGranted ? (
+              <Check className="w-6 h-6 text-green-500" />
+            ) : (
+              <button
+                onClick={onRequestAccessibilityPermission}
+                className="px-4 py-2 rounded-lg font-medium bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white text-sm"
+              >
+                Open Settings
+              </button>
             )}
           </div>
 
-          {/* Skip to testing if permissions already granted */}
-          {bothPermissionsGranted && (
-            <button
-              onClick={() => setTestPhase("testing")}
-              className="w-full px-6 py-3 rounded-lg font-semibold bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white border-0 flex items-center justify-center gap-2"
-            >
-              Continue to Testing <ArrowRight className="w-4 h-4" />
-            </button>
+          {!accessibilityGranted && (
+            <div className="mt-3 text-xs text-left text-muted-foreground bg-white/5 p-3 rounded-lg space-y-2">
+              <p className="font-medium text-white/80">
+                In System Settings → Privacy & Security → Accessibility:
+              </p>
+              <ol className="list-decimal list-inside space-y-1 ml-1">
+                <li>Click the lock icon to make changes</li>
+                <li>
+                  Find{" "}
+                  <strong className="text-orange-400">{isDev ? '"Electron"' : '"Sentris"'}</strong>{" "}
+                  in the list
+                </li>
+                <li>Turn it ON</li>
+              </ol>
+            </div>
           )}
         </div>
-      )}
 
-      {/* TESTING PHASE */}
-      {testPhase === "testing" && (
-        <div className="w-full space-y-6">
-          {/* MICROPHONE TEST: Record and Playback */}
-          <div
-            className={`glass-card p-5 rounded-xl border transition-all ${micTestPassed ? "border-green-500/50 bg-green-500/5" : "border-orange-500/30"}`}
-          >
-            <div className="flex items-center gap-3 mb-4">
+        <div
+          className={`glass-card p-5 rounded-xl border transition-all ${
+            canContinue ? "border-green-500/50 bg-green-500/5" : "border-cyan-500/30"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
               <div
-                className={`p-2 rounded-lg ${micTestPassed ? "bg-green-500/20" : "bg-orange-500/20"}`}
+                className={`p-2 rounded-lg ${canContinue ? "bg-green-500/20" : "bg-cyan-500/20"}`}
               >
-                <Mic
-                  className={`w-5 h-5 ${micTestPassed ? "text-green-500" : "text-orange-500"}`}
-                />
-              </div>
-              <div className="text-left flex-1">
-                <h3 className="font-semibold flex items-center gap-2">
-                  Microphone Test
-                  {micTestPassed && <Check className="w-4 h-4 text-green-500" />}
-                </h3>
-                <p className="text-xs text-muted-foreground">Record your voice and hear it back</p>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              {!isRecording && !recordedAudio && (
-                <button
-                  onClick={startRecording}
-                  className="flex-1 px-4 py-3 rounded-lg font-medium bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 text-white flex items-center justify-center gap-2"
-                >
-                  <Mic className="w-4 h-4" />
-                  Record Voice
-                </button>
-              )}
-
-              {isRecording && (
-                <button
-                  onClick={stopRecording}
-                  className="flex-1 px-4 py-3 rounded-lg font-medium bg-red-600 hover:bg-red-500 text-white flex items-center justify-center gap-2 animate-pulse"
-                >
-                  <Square className="w-4 h-4" />
-                  Stop Recording
-                </button>
-              )}
-
-              {recordedAudio && !isRecording && (
-                <>
-                  <button
-                    onClick={playRecording}
-                    disabled={isPlaying}
-                    className="flex-1 px-4 py-3 rounded-lg font-medium bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {isPlaying ? (
-                      <>
-                        <Volume2 className="w-4 h-4 animate-pulse" /> Playing...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4" /> Play Back
-                      </>
-                    )}
-                  </button>
-                  <button
-                    onClick={resetMicTest}
-                    className="px-4 py-3 rounded-lg font-medium border border-white/10 hover:bg-white/5 text-white flex items-center justify-center"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-            </div>
-
-            {micTestPassed && (
-              <p className="mt-3 text-sm text-green-400">✅ Microphone is working perfectly!</p>
-            )}
-
-            {micTestError && (
-              <div className="mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-lg">
-                <p className="text-sm text-red-300">❌ {micTestError}</p>
-                <button
-                  onClick={() => window.electronAPI?.openSystemPreferences?.("microphone")}
-                  className="mt-2 text-xs text-orange-400 hover:text-orange-300 underline"
-                >
-                  Open Microphone Settings
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* ACCESSIBILITY TEST: Voice Typing */}
-          <div
-            className={`glass-card p-5 rounded-xl border transition-all ${accessibilityTestPassed ? "border-green-500/50 bg-green-500/5" : "border-purple-500/30"}`}
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <div
-                className={`p-2 rounded-lg ${accessibilityTestPassed ? "bg-green-500/20" : "bg-purple-500/20"}`}
-              >
-                <Keyboard
-                  className={`w-5 h-5 ${accessibilityTestPassed ? "text-green-500" : "text-purple-500"}`}
-                />
-              </div>
-              <div className="text-left flex-1">
-                <h3 className="font-semibold flex items-center gap-2">
-                  Voice Typing Test
-                  {accessibilityTestPassed && <Check className="w-4 h-4 text-green-500" />}
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  <strong>Hold {selectedHotkey === "GLOBE" ? "Fn/🌐 key" : selectedHotkey}</strong>{" "}
-                  and speak, OR click "Speak Now" button
-                </p>
-              </div>
-            </div>
-
-            {/* Hotkey quick-select for the test */}
-            <div className="mb-3 flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Activation Key:</span>
-              <div className="flex gap-1">
-                {hotkeyOptions.map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => {
-                      setSelectedHotkey(opt.id);
-                      if (window.localStorage) {
-                        window.localStorage.setItem(STORAGE_KEYS.DICTATION_KEY, opt.id);
-                      }
-                    }}
-                    className={`px-3 py-1 rounded text-xs font-medium transition-all ${
-                      selectedHotkey === opt.id
-                        ? "bg-purple-500/30 border-purple-500/50 border text-purple-300"
-                        : "bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Test textarea */}
-            <textarea
-              ref={textareaRef}
-              value={accessibilityTestText}
-              onChange={handleTextareaChange}
-              placeholder="Your voice will appear here..."
-              className="w-full h-20 p-3 rounded-lg bg-black/50 border border-white/10 text-white placeholder:text-muted-foreground resize-none focus:outline-none focus:border-purple-500/50 text-sm"
-            />
-
-            <div className="flex gap-2 mt-3">
-              <button
-                onClick={startVoiceTypingTest}
-                disabled={isListening}
-                className="flex-1 px-4 py-3 rounded-lg font-medium bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isListening ? (
-                  <>
-                    <Mic className="w-4 h-4 animate-pulse" /> Listening (3s)...
-                  </>
+                {canContinue ? (
+                  <Check className="w-6 h-6 text-green-500" />
                 ) : (
-                  <>
-                    <Mic className="w-4 h-4" /> Speak Now
-                  </>
+                  <Loader2
+                    className={`w-6 h-6 text-cyan-400 ${isProbingRuntime ? "animate-spin" : ""}`}
+                  />
                 )}
-              </button>
-              {accessibilityTestText && (
-                <button
-                  onClick={resetAccessibilityTest}
-                  className="px-4 py-3 rounded-lg font-medium border border-white/10 hover:bg-white/5 text-white flex items-center justify-center"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-
-            {accessibilityTestPassed && (
-              <p className="mt-3 text-sm text-green-400">
-                ✅ Voice typing is working! Text was successfully inserted.
-              </p>
-            )}
-
-            {voiceTypingError && (
-              <div className="mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-lg">
-                <p className="text-sm text-red-300">❌ {voiceTypingError}</p>
               </div>
-            )}
-
-            <div
-              className={`mt-3 text-xs p-3 rounded transition-all ${
-                isListening
-                  ? "bg-purple-500/30 border border-purple-500/50 text-purple-200"
-                  : "bg-white/5 text-muted-foreground"
-              }`}
-            >
-              {isListening ? (
-                <p className="flex items-center gap-2">
-                  <Mic className="w-4 h-4 animate-pulse" />
-                  <strong>
-                    Recording... Release {selectedHotkey === "GLOBE" ? "Fn/🌐" : selectedHotkey}{" "}
-                    when done speaking
-                  </strong>
+              <div className="text-left">
+                <h3 className="font-semibold">Runtime Readiness</h3>
+                <p className="text-sm text-muted-foreground">
+                  Automatic live probe for the voice runtime path
                 </p>
-              ) : (
-                <p>
-                  💡 <strong>Try it now:</strong> Hold{" "}
-                  <strong>{selectedHotkey === "GLOBE" ? "Fn/🌐 key" : selectedHotkey}</strong> and
-                  speak, then release. Your words will appear in the box above!
-                </p>
-              )}
+              </div>
             </div>
           </div>
 
-          {/* Continue button */}
-          <div className="flex gap-3">
-            <button
-              onClick={onNext}
-              className={`flex-1 px-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${
-                allTestsPassed
-                  ? "bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white"
-                  : "bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-500 hover:to-cyan-600 text-white"
-              }`}
-            >
-              {allTestsPassed ? (
-                <>
-                  Continue <ArrowRight className="w-4 h-4" />
-                </>
-              ) : (
-                <>
-                  Continue Anyway <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </div>
+          {!bothPermissionsGranted && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Grant microphone and accessibility first to start automatic readiness validation.
+            </p>
+          )}
 
-          {!allTestsPassed && (
-            <p className="text-xs text-center text-muted-foreground">
-              ⚠️ Tests not completed. You can continue, but some features may not work correctly.
+          {bothPermissionsGranted && !runtimeReady && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {runtimeProbeError || "Centris is finalizing startup in the background."}
+            </p>
+          )}
+
+          {canContinue && (
+            <p className="mt-3 text-sm text-green-400">
+              Ready. Core voice control runtime is online.
             </p>
           )}
         </div>
-      )}
+
+        <button
+          onClick={onNext}
+          disabled={!canContinue}
+          className={`w-full px-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
+            canContinue
+              ? "bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white"
+              : "bg-white/5 text-white/50 border border-white/10 cursor-not-allowed"
+          }`}
+        >
+          Continue <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
     </motion.div>
   );
 };
-
 // Step 4: Voice Enrollment (Speaker Verification)
 // Train Sentris to recognize YOUR voice only - prevents others from triggering your assistant
 const VoiceEnrollmentStep = ({ onNext, onSkip }) => {
@@ -2143,8 +1119,9 @@ const AdvancedPermissionsStep = ({ onNext, onSkip, isMacOS }) => {
 };
 
 // Step 4: Browser Extension Installation
-const BrowserExtensionStep = ({ onNext, onSkip }) => {
+const BrowserExtensionStep = ({ onNext }) => {
   const [extensionConnected, setExtensionConnected] = useState(false);
+  const [tokenProvisioned, setTokenProvisioned] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
   const [checkCount, setCheckCount] = useState(0);
 
@@ -2156,6 +1133,10 @@ const BrowserExtensionStep = ({ onNext, onSkip }) => {
           instruction: "extension connection probe",
         });
         setExtensionConnected(result?.ok === true);
+        if (window.electronAPI?.getBridgeTokenStatus) {
+          const tokenStatus = await window.electronAPI.getBridgeTokenStatus();
+          setTokenProvisioned(tokenStatus?.present === true);
+        }
         return;
       }
 
@@ -2169,9 +1150,14 @@ const BrowserExtensionStep = ({ onNext, onSkip }) => {
         const data = await response.json();
         setExtensionConnected(data.connected === true);
       }
+      if (window.electronAPI?.getBridgeTokenStatus) {
+        const tokenStatus = await window.electronAPI.getBridgeTokenStatus();
+        setTokenProvisioned(tokenStatus?.present === true);
+      }
     } catch (error) {
       console.log("[Onboarding] Extension status check failed (backend may not be ready)");
       setExtensionConnected(false);
+      setTokenProvisioned(false);
     } finally {
       setIsChecking(false);
       setCheckCount((prev) => prev + 1);
@@ -2289,21 +1275,23 @@ const BrowserExtensionStep = ({ onNext, onSkip }) => {
         )}
       </div>
 
-      <div className="w-full flex gap-3">
-        <button
-          onClick={onSkip}
-          className="flex-1 px-6 py-3 rounded-lg font-semibold bg-white/5 hover:bg-white/10 text-white border border-white/10 flex items-center justify-center gap-2"
-        >
-          Continue
-        </button>
-        {extensionConnected && (
-          <button
-            onClick={onNext}
-            className="flex-1 px-6 py-3 rounded-lg font-semibold bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white flex items-center justify-center gap-2"
-          >
-            Continue <ChevronRight className="w-4 h-4" />
-          </button>
+      <div className="w-full space-y-3">
+        {!tokenProvisioned && (
+          <div className="bg-amber-500/10 border border-amber-500/40 rounded-lg p-3 text-left text-xs text-amber-200">
+            Waiting for secure bridge token provisioning from the desktop app.
+          </div>
         )}
+        <button
+          onClick={onNext}
+          disabled={!(extensionConnected && tokenProvisioned)}
+          className={`w-full px-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
+            extensionConnected && tokenProvisioned
+              ? "bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white"
+              : "bg-white/5 text-white/50 border border-white/10 cursor-not-allowed"
+          }`}
+        >
+          Continue <ChevronRight className="w-4 h-4" />
+        </button>
       </div>
     </motion.div>
   );
@@ -2449,6 +1437,20 @@ export default function Onboarding({ onComplete }) {
     (window.electronAPI?.isDev?.() === true ||
       window.location.hostname === "localhost" ||
       window.location.port === "5173");
+
+  if (!isMacOS && !isDev) {
+    return (
+      <div className="onboarding-container flex items-center justify-center min-h-screen bg-black text-white">
+        <div className="max-w-md mx-auto text-center space-y-4 p-6 border border-white/10 rounded-xl bg-white/5">
+          <h2 className="text-2xl font-bold">macOS Required For Launch</h2>
+          <p className="text-sm text-muted-foreground">
+            Centris desktop computer control is currently GA on macOS only. Install on macOS to
+            continue full-computer voice control.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Enable scrolling on body during onboarding
   useEffect(() => {
@@ -2762,7 +1764,7 @@ export default function Onboarding({ onComplete }) {
               />
             )}
 
-            {/* Step 3: Combined Permissions & Testing */}
+            {/* Step 3: Permissions + automatic runtime readiness */}
             {currentStep === 3 && (
               <PermissionsAndTestStep
                 key="step3"
@@ -2772,9 +1774,6 @@ export default function Onboarding({ onComplete }) {
                 onRequestMicPermission={handleRequestMicrophonePermission}
                 onRequestAccessibilityPermission={handleOpenAccessibilitySettings}
                 isDev={isDev}
-                selectedHotkey={selectedHotkey}
-                setSelectedHotkey={setSelectedHotkey}
-                isMacOS={isMacOS}
               />
             )}
 
@@ -2799,11 +1798,7 @@ export default function Onboarding({ onComplete }) {
 
             {/* Step 6: Browser Extension */}
             {currentStep === 6 && (
-              <BrowserExtensionStep
-                key="step6"
-                onNext={() => setCurrentStep(7)}
-                onSkip={() => setCurrentStep(7)}
-              />
+              <BrowserExtensionStep key="step6" onNext={() => setCurrentStep(7)} />
             )}
 
             {/* Step 7: Hotkey Selection */}

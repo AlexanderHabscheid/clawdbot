@@ -8,6 +8,7 @@ const path = require("path");
 // CentrisBackendService is loaded dynamically where needed (ES module)
 const AudioTestService = require(path.join(__dirname, "../services/audioTestService"));
 const { backendManager } = require("./backendManager");
+const NativeMessagingInstaller = require("./nativeMessagingInstaller");
 
 const ACTION_API_SPEC_VERSION = "2026-02-19";
 const ACTION_API_TIMEOUT_MS = 30000;
@@ -1486,6 +1487,7 @@ class IPCHandlers {
         const Store = require("electron-store");
         const store = new Store();
         store.set("auth_tokens", tokens);
+        NativeMessagingInstaller.syncBridgeToken(tokens);
         logger.log("[IPC] ✅ Auth tokens saved to secure storage");
         return { success: true };
       } catch (error) {
@@ -1500,12 +1502,17 @@ class IPCHandlers {
         const Store = require("electron-store");
         const store = new Store();
         store.delete("auth_tokens");
+        NativeMessagingInstaller.clearBridgeToken();
         logger.log("[IPC] ✅ Auth session cleared");
         return { success: true };
       } catch (error) {
         logger.error("[IPC] Error clearing auth session:", error);
         return { success: false, error: error.message };
       }
+    });
+
+    ipcMain.handle("get-bridge-token-status", async () => {
+      return NativeMessagingInstaller.getBridgeTokenStatus();
     });
 
     // ========================================

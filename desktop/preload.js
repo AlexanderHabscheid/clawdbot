@@ -141,6 +141,7 @@ const electronAPI = {
 
   // Save auth tokens (for persistence)
   saveAuthTokens: (tokens) => ipcRenderer.invoke("save-auth-tokens", tokens),
+  getBridgeTokenStatus: () => ipcRenderer.invoke("get-bridge-token-status"),
 
   // Permission functions
   checkMicrophonePermission: () => ipcRenderer.invoke("check-microphone-permission"),

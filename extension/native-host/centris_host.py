@@ -34,9 +34,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-BACKEND_SOCKET_PATH = '/tmp/centris_backend.sock'  # Unix socket for backend communication
-BACKEND_HOST = 'localhost'
-BACKEND_PORT = 8766  # Different from WebSocket port (8765) to avoid conflicts
+# Native host relay is optional: when relay is unavailable, extension falls back to
+# direct gateway WebSocket (/ws/centris/extension) automatically.
+BACKEND_SOCKET_PATH = os.getenv('CENTRIS_NATIVE_HOST_SOCKET_PATH', '/tmp/centris_backend.sock')
+BACKEND_HOST = os.getenv('CENTRIS_NATIVE_HOST_BACKEND_HOST', '127.0.0.1')
+BACKEND_PORT = int(os.getenv('CENTRIS_NATIVE_HOST_BACKEND_PORT', '8766'))
+BRIDGE_TOKEN_FILE = os.getenv(
+    'CENTRIS_EXTENSION_TOKEN_FILE',
+    os.path.join(os.path.expanduser('~'), '.centris', 'bridge_token.txt')
+)
 
 
 class NativeMessagingHost:
@@ -54,6 +60,25 @@ class NativeMessagingHost:
         self.extension_id = None
         
         logger.info("Native Messaging Host initialized")
+
+    def _read_bridge_token(self) -> Optional[str]:
+        env_token = (
+            os.getenv('CENTRIS_EXTENSION_TOKEN')
+            or os.getenv('OPENCLAW_GATEWAY_TOKEN')
+            or os.getenv('CENTRIS_GATEWAY_TOKEN')
+        )
+        if env_token:
+            token = env_token.strip()
+            if token:
+                return token
+        try:
+            if os.path.exists(BRIDGE_TOKEN_FILE):
+                token = open(BRIDGE_TOKEN_FILE, 'r', encoding='utf-8').read().strip()
+                if token:
+                    return token
+        except Exception as e:
+            logger.warning(f"Failed to read bridge token file: {e}")
+        return None
     
     def read_message(self) -> Optional[Dict[str, Any]]:
         """Read a message from Chrome (stdin).
@@ -238,11 +263,13 @@ class NativeMessagingHost:
         self.connect_to_backend()
         
         # Send initial ready message
+        bridge_token = self._read_bridge_token()
         self.send_message({
             'type': 'host_ready',
             'version': '1.0.0',
             'backend_connected': self.backend_connected,
-            'pid': os.getpid()
+            'pid': os.getpid(),
+            'bridge_token': bridge_token
         })
         
         while self.running:
@@ -294,4 +321,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

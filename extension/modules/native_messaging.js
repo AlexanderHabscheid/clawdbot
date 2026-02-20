@@ -269,6 +269,17 @@ function handleNativeMessage(message) {
 
   // Handle host_ready message (initial handshake from host)
   if (message.type === "host_ready") {
+    const bridgeToken = typeof message.bridge_token === "string" ? message.bridge_token.trim() : "";
+    if (
+      bridgeToken &&
+      typeof CONFIG !== "undefined" &&
+      typeof CONFIG.setExtensionToken === "function"
+    ) {
+      CONFIG.setExtensionToken(bridgeToken);
+      if (typeof logWithTimestamp === "function") {
+        logWithTimestamp("info", "🔐 Bridge token provisioned from native host");
+      }
+    }
     if (typeof logWithTimestamp === "function") {
       logWithTimestamp("info", "✅ Native host ready", {
         version: message.version,
