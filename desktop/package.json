@@ -40,6 +40,7 @@
     "dev:win": "cross-env NODE_ENV=development npm run dev",
     "lint": "cd src && eslint .",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "predev": "node scripts/ensure-desktop-dev-deps.js",
     "publish": "npm run build:renderer && npm run compile:all && electron-builder --mac --publish always",
     "publish:win": "npm run build:renderer && electron-builder --win --publish always",
     "release": "./scripts/release-macos.sh",
