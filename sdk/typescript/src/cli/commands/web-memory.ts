@@ -1,4 +1,8 @@
+import crypto from "node:crypto";
+import { readFile } from "node:fs/promises";
 import type {
+  ActionIndexEntry,
+  ActionPageFingerprint,
   ActionWebMemoryExecuteRequest,
   ActionWebMemoryIndexRequest,
   ActionWebMemoryInvalidateRequest,
@@ -41,18 +45,163 @@ function parseJsonObject(raw: string | undefined, field: string): Record<string,
   return parsed as Record<string, unknown>;
 }
 
+function readString(record: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+  return "";
+}
+
+function slugify(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || "action";
+}
+
+function inferAffordanceFromNode(node: Record<string, unknown>): ActionIndexEntry["affordance"] {
+  const role = readString(node, "r", "role").toLowerCase();
+  const type = readString(node, "t", "type").toLowerCase();
+  const name = readString(node, "n", "name").toLowerCase();
+  if (type.includes("input") || role === "textbox") {
+    return "type";
+  }
+  if (role === "link" || type.includes("link")) {
+    return "navigate";
+  }
+  if (name.includes("submit")) {
+    return "submit";
+  }
+  return "click";
+}
+
+async function deriveSnapshotIndexing(params: {
+  snapshotFile: string;
+  url: string;
+  fingerprintId?: string;
+  intent?: string;
+}): Promise<{
+  pageFingerprint: ActionPageFingerprint;
+  actionIndex: ActionIndexEntry[];
+}> {
+  const raw = await readFile(params.snapshotFile, "utf8");
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("snapshot file must contain a JSON object");
+  }
+  const snapshot = parsed as Record<string, unknown>;
+  const metadata =
+    typeof snapshot.metadata === "object" && snapshot.metadata && !Array.isArray(snapshot.metadata)
+      ? (snapshot.metadata as Record<string, unknown>)
+      : {};
+  const interactiveNodes = Array.isArray(snapshot.interactiveNodes)
+    ? (snapshot.interactiveNodes as Array<Record<string, unknown>>)
+    : [];
+  const headings = Array.isArray(snapshot.headings)
+    ? (snapshot.headings as unknown[]).filter((item): item is string => typeof item === "string")
+    : [];
+  const navLabels = Array.isArray(snapshot.navLabels)
+    ? (snapshot.navLabels as unknown[]).filter((item): item is string => typeof item === "string")
+    : [];
+  const primaryActions = interactiveNodes
+    .map((node) => readString(node, "n", "name").trim())
+    .filter((item) => item.length > 0)
+    .slice(0, 12);
+  const signatureHash = `sha256:${crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        url: params.url,
+        title: metadata.title,
+        headings,
+        navLabels,
+        count: interactiveNodes.length,
+      }),
+    )
+    .digest("hex")}`;
+
+  const pageFingerprint: ActionPageFingerprint = {
+    fingerprintId: params.fingerprintId,
+    urlPattern: params.url,
+    titleHints: typeof metadata.title === "string" ? [metadata.title] : [],
+    headings,
+    navLabels,
+    primaryActions,
+    interactiveSummary: {
+      total: interactiveNodes.length,
+      buttons: interactiveNodes.filter((node) => readString(node, "r", "role") === "button").length,
+      links: interactiveNodes.filter((node) => readString(node, "r", "role") === "link").length,
+      inputs: interactiveNodes.filter((node) =>
+        readString(node, "t", "type").toLowerCase().includes("input"),
+      ).length,
+    },
+    signatureHash,
+    generatedAt: new Date().toISOString(),
+    confidence: 0.7,
+  };
+
+  const actionIndex: ActionIndexEntry[] = interactiveNodes
+    .map((node, index) => {
+      const semanticLabel = readString(node, "n", "name").trim();
+      if (!semanticLabel) {
+        return null;
+      }
+      const selector = typeof node.selector === "string" ? node.selector : undefined;
+      const nodeId = typeof node.id === "number" ? node.id : undefined;
+      return {
+        actionId: `${slugify(semanticLabel)}_${index + 1}`,
+        intent: params.intent ?? semanticLabel,
+        affordance: inferAffordanceFromNode(node),
+        semanticLabel,
+        nodeHints: [
+          {
+            nodeId,
+            selector,
+            role: typeof node.r === "string" ? node.r : undefined,
+            name: semanticLabel,
+          },
+        ],
+        anchors: [
+          { anchorType: "label", value: semanticLabel, weight: 1 },
+          ...(selector ? [{ anchorType: "selector", value: selector, weight: 0.8 }] : []),
+        ],
+        confidence: 0.65,
+        updatedAt: new Date().toISOString(),
+      } satisfies ActionIndexEntry;
+    })
+    .filter((item): item is ActionIndexEntry => Boolean(item));
+
+  return { pageFingerprint, actionIndex };
+}
+
 export async function runWebMemoryIndexCommand(
   options: WebMemoryIndexOptions,
   ctx: CLIContext,
 ): Promise<void> {
   const startedAt = Date.now();
   const client = createClient(options);
+  const derived =
+    options.snapshotFile && options.snapshotFile.trim().length > 0
+      ? await deriveSnapshotIndexing({
+          snapshotFile: options.snapshotFile,
+          url: options.url,
+          fingerprintId: options.fingerprintId,
+          intent: options.intent,
+        })
+      : undefined;
   const payload: ActionWebMemoryIndexRequest = {
     url: options.url,
     intent: options.intent,
     ttlMs: options.ttlMs,
     ...(options.playbook ? { playbook: parseJsonObject(options.playbook, "playbook") } : {}),
     ...(options.metadata ? { metadata: parseJsonObject(options.metadata, "metadata") } : {}),
+    ...(derived?.pageFingerprint ? { pageFingerprint: derived.pageFingerprint } : {}),
+    ...(derived ? { actionIndex: derived.actionIndex } : {}),
   };
   const result = await client.webMemory.index(payload);
 
@@ -82,6 +231,11 @@ export async function runWebMemoryIndexCommand(
   ctx.logger.success(`Indexed web memory for ${options.url}`);
   if (result.cacheKey) {
     ctx.logger.info(`Cache key: ${result.cacheKey}`);
+  }
+  if (derived) {
+    ctx.logger.info(
+      `Derived page fingerprint + ${derived.actionIndex.length} action index entries`,
+    );
   }
 }
 

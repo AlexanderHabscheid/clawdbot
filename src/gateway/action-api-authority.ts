@@ -9,6 +9,7 @@ import {
   updateLearnedRouteOutcome,
 } from "../../sdk/typescript/src/kernel/learned-routes.js";
 import { loadManifests } from "../../sdk/typescript/src/manifest/loader.js";
+import { isCentrisDesktopConnected, sendDesktopCommand } from "./centris-desktop-bridge.js";
 import { isCentrisExtensionConnected, sendExtensionCommand } from "./centris-extension-bridge.js";
 
 type KernelSuccessCheck =
@@ -53,10 +54,76 @@ type RecordedRoute = {
   urlPattern?: string;
 };
 
+type ActionPageFingerprint = {
+  fingerprintId?: string;
+  urlPattern?: string;
+  confidence?: number;
+};
+
+type ActionNodeHint = {
+  nodeId?: number;
+  selector?: string;
+  role?: string;
+  name?: string;
+};
+
+type ActionAnchor = {
+  anchorType?: string;
+  value?: string;
+};
+
+type ActionIndexEntry = {
+  actionId: string;
+  affordance?: string;
+  semanticLabel?: string;
+  nodeHints?: ActionNodeHint[];
+  anchors?: ActionAnchor[];
+  confidence?: number;
+};
+
+type ActionRouteMemoryStep = {
+  actionId?: string;
+  operation?: string;
+  params?: Record<string, string>;
+};
+
+type ActionRouteMemory = {
+  routeId: string;
+  steps?: ActionRouteMemoryStep[];
+  confidence?: number;
+};
+
+type WebMemoryEntry = {
+  cacheKey: string;
+  url: string;
+  normalizedUrl: string;
+  domain: string;
+  intent?: string;
+  playbook?: Record<string, unknown>;
+  pageFingerprint?: ActionPageFingerprint;
+  actionIndex: ActionIndexEntry[];
+  routeMemory?: ActionRouteMemory;
+  confidence: number;
+  createdAt: string;
+  expiresAt: string;
+  resolveHits: number;
+};
+
 const ACTION_SPEC_VERSION = "2026-02-19";
 const sessions = new Map<string, RecordedSession>();
 const routes = new Map<string, RecordedRoute>();
+const webMemory = new Map<string, WebMemoryEntry>();
 let activeRecordingSessionId: string | null = null;
+let webMemoryHits = 0;
+let webMemoryMisses = 0;
+let webMemoryResolveMsTotal = 0;
+let webMemoryResolveCount = 0;
+let webMemoryExecuteMsTotal = 0;
+let webMemoryExecuteCount = 0;
+
+const WEB_MEMORY_DEFAULT_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const MEMORY_ROUTE_CONFIDENCE_THRESHOLD = 0.75;
+const MAX_DESKTOP_ELEMENTS_CHARS = 4000;
 
 function actionError(
   method: string,
@@ -80,6 +147,40 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asArrayOfObjects(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: Array<Record<string, unknown>> = [];
+  for (const item of value) {
+    const rec = asObject(item);
+    if (rec) {
+      out.push(rec);
+    }
+  }
+  return out;
+}
+
+function clampConfidence(value: number | undefined, fallback = 0.5): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  if (value < 0) {
+    return 0;
+  }
+  if (value > 1) {
+    return 1;
+  }
+  return value;
 }
 
 function toSafeChecks(value: unknown): KernelSuccessCheck[] | undefined {
@@ -220,6 +321,304 @@ function urlPatternMatches(patterns: string[], url: string): boolean {
   return false;
 }
 
+function normalizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return url.trim();
+  }
+}
+
+function toDomain(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function deriveActionKind(operation: string | undefined): string | undefined {
+  const normalized = (operation ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "submit" || normalized === "select") {
+    return "click";
+  }
+  if (
+    normalized === "click" ||
+    normalized === "type" ||
+    normalized === "navigate" ||
+    normalized === "press" ||
+    normalized === "wait" ||
+    normalized === "scroll"
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+function toActionIndexEntries(value: unknown): ActionIndexEntry[] {
+  const entries: ActionIndexEntry[] = [];
+  for (const item of asArrayOfObjects(value)) {
+    const actionId = asString(item.actionId);
+    if (!actionId) {
+      continue;
+    }
+    const nodeHints: ActionNodeHint[] = [];
+    for (const hint of asArrayOfObjects(item.nodeHints)) {
+      nodeHints.push({
+        nodeId: asNumber(hint.nodeId),
+        selector: asString(hint.selector),
+        role: asString(hint.role),
+        name: asString(hint.name),
+      });
+    }
+    const anchors: ActionAnchor[] = [];
+    for (const anchor of asArrayOfObjects(item.anchors)) {
+      anchors.push({
+        anchorType: asString(anchor.anchorType),
+        value: asString(anchor.value),
+      });
+    }
+    entries.push({
+      actionId,
+      affordance: asString(item.affordance),
+      semanticLabel: asString(item.semanticLabel),
+      nodeHints,
+      anchors,
+      confidence: asNumber(item.confidence),
+    });
+  }
+  return entries;
+}
+
+function toRouteMemory(value: unknown): ActionRouteMemory | undefined {
+  const rec = asObject(value);
+  if (!rec) {
+    return undefined;
+  }
+  const routeId = asString(rec.routeId);
+  if (!routeId) {
+    return undefined;
+  }
+  const steps: ActionRouteMemoryStep[] = [];
+  for (const step of asArrayOfObjects(rec.steps)) {
+    const rawParams = asObject(step.params);
+    const params: Record<string, string> = {};
+    if (rawParams) {
+      for (const [k, v] of Object.entries(rawParams)) {
+        params[k] = String(v);
+      }
+    }
+    steps.push({
+      actionId: asString(step.actionId),
+      operation: asString(step.operation),
+      ...(Object.keys(params).length > 0 ? { params } : {}),
+    });
+  }
+  return {
+    routeId,
+    steps,
+    confidence: asNumber(rec.confidence),
+  };
+}
+
+function toPageFingerprint(value: unknown): ActionPageFingerprint | undefined {
+  const rec = asObject(value);
+  if (!rec) {
+    return undefined;
+  }
+  return {
+    fingerprintId: asString(rec.fingerprintId),
+    urlPattern: asString(rec.urlPattern),
+    confidence: asNumber(rec.confidence),
+  };
+}
+
+function computeRouteConfidence(params: {
+  pageFingerprint?: ActionPageFingerprint;
+  actionIndex?: ActionIndexEntry[];
+  routeMemory?: ActionRouteMemory;
+}): number {
+  const routeScore = asNumber(params.routeMemory?.confidence);
+  if (typeof routeScore === "number") {
+    return clampConfidence(routeScore);
+  }
+  const actionScores = (params.actionIndex ?? [])
+    .map((item) => asNumber(item.confidence))
+    .filter((item): item is number => typeof item === "number");
+  if (actionScores.length > 0) {
+    const avg = actionScores.reduce((sum, score) => sum + score, 0) / actionScores.length;
+    return clampConfidence(avg);
+  }
+  return clampConfidence(asNumber(params.pageFingerprint?.confidence), 0.5);
+}
+
+function actionTargetFromEntry(entry: ActionIndexEntry): { nodeId?: number; target?: string } {
+  for (const hint of entry.nodeHints ?? []) {
+    if (typeof hint.nodeId === "number") {
+      return { nodeId: hint.nodeId };
+    }
+    if (hint.selector) {
+      return { target: hint.selector };
+    }
+    if (hint.name) {
+      return { target: hint.name };
+    }
+  }
+  for (const anchor of entry.anchors ?? []) {
+    if (anchor.value) {
+      return { target: anchor.value };
+    }
+  }
+  if (entry.semanticLabel) {
+    return { target: entry.semanticLabel };
+  }
+  return {};
+}
+
+function routeMemoryStepToActParams(
+  step: ActionRouteMemoryStep,
+  actionById: Map<string, ActionIndexEntry>,
+): Record<string, unknown> | null {
+  const mapped = step.actionId ? actionById.get(step.actionId) : undefined;
+  const params = step.params ?? {};
+  const operation = deriveActionKind(step.operation ?? mapped?.affordance);
+  if (!operation) {
+    return null;
+  }
+  if (operation === "navigate") {
+    const value = params.value ?? params.url ?? params.target ?? mapped?.semanticLabel;
+    return value ? { kind: "navigate", value } : null;
+  }
+  if (operation === "type") {
+    const targetHint = mapped ? actionTargetFromEntry(mapped) : {};
+    return {
+      kind: "type",
+      ...(typeof targetHint.nodeId === "number" ? { nodeId: targetHint.nodeId } : {}),
+      ...(targetHint.target ? { target: targetHint.target } : {}),
+      value: params.value ?? params.text ?? "",
+    };
+  }
+  if (operation === "press") {
+    const value = params.value ?? params.key ?? mapped?.semanticLabel;
+    return value ? { kind: "press", value } : null;
+  }
+  if (operation === "wait") {
+    const amount = Number.parseInt(params.amount ?? "250", 10);
+    return { kind: "wait", amount: Number.isFinite(amount) ? amount : 250 };
+  }
+  if (operation === "scroll") {
+    return {
+      kind: "scroll",
+      value: params.value ?? "down",
+      amount: Number.parseInt(params.amount ?? "400", 10),
+    };
+  }
+  const targetHint = mapped ? actionTargetFromEntry(mapped) : {};
+  const clickParams = {
+    kind: "click",
+    ...(typeof targetHint.nodeId === "number" ? { nodeId: targetHint.nodeId } : {}),
+    ...(targetHint.target ? { target: targetHint.target } : {}),
+    ...(params.target ? { target: params.target } : {}),
+  };
+  if (
+    typeof (clickParams as { nodeId?: unknown }).nodeId !== "number" &&
+    !asString((clickParams as { target?: unknown }).target)
+  ) {
+    return null;
+  }
+  return clickParams;
+}
+
+async function runRouteMemory(params: {
+  routeMemory: ActionRouteMemory;
+  actionIndex: ActionIndexEntry[];
+  url?: string;
+  checks?: KernelSuccessCheck[];
+}): Promise<{ ok: boolean; executed: number; verify?: Awaited<ReturnType<typeof runVerify>> }> {
+  let executed = 0;
+  if (params.url) {
+    await runAct({ kind: "navigate", value: params.url });
+    executed++;
+  }
+
+  const actionById = new Map<string, ActionIndexEntry>();
+  for (const entry of params.actionIndex) {
+    actionById.set(entry.actionId, entry);
+  }
+
+  for (const step of params.routeMemory.steps ?? []) {
+    const actParams = routeMemoryStepToActParams(step, actionById);
+    if (!actParams) {
+      continue;
+    }
+    await runAct(actParams);
+    executed++;
+  }
+
+  const verify =
+    params.checks && params.checks.length > 0 ? await runVerify(params.checks) : undefined;
+  return { ok: verify ? verify.ok : true, executed, verify };
+}
+
+function buildWebMemoryCacheKey(url: string, intent?: string): string {
+  const normalizedUrl = normalizeUrl(url);
+  const normalizedIntent = (intent ?? "").trim().toLowerCase();
+  const digest = crypto
+    .createHash("sha1")
+    .update(`${normalizedUrl}|${normalizedIntent}`)
+    .digest("hex")
+    .slice(0, 16);
+  return `wm_${digest}`;
+}
+
+function cleanupExpiredWebMemory(now = Date.now()): void {
+  for (const [key, entry] of webMemory.entries()) {
+    const expiresAt = Date.parse(entry.expiresAt);
+    if (Number.isFinite(expiresAt) && expiresAt <= now) {
+      webMemory.delete(key);
+    }
+  }
+}
+
+function resolveWebMemoryEntry(params: {
+  url: string;
+  intent?: string;
+  maxAgeMs?: number;
+}): WebMemoryEntry | undefined {
+  cleanupExpiredWebMemory();
+  const normalizedUrl = normalizeUrl(params.url);
+  const normalizedIntent = (params.intent ?? "").trim().toLowerCase();
+  const now = Date.now();
+  const maxAge = typeof params.maxAgeMs === "number" ? Math.max(0, params.maxAgeMs) : undefined;
+
+  const candidates = [...webMemory.values()].filter((entry) => {
+    if (entry.normalizedUrl !== normalizedUrl) {
+      return false;
+    }
+    if (normalizedIntent && (entry.intent ?? "").trim().toLowerCase() !== normalizedIntent) {
+      return false;
+    }
+    if (maxAge != null) {
+      const createdAt = Date.parse(entry.createdAt);
+      if (Number.isFinite(createdAt) && now - createdAt > maxAge) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (candidates.length === 0) {
+    return undefined;
+  }
+  candidates.sort((a, b) => b.confidence - a.confidence);
+  return candidates[0];
+}
+
 async function persistRecordedRoute(params: {
   routeId: string;
   session: RecordedSession;
@@ -357,6 +756,110 @@ async function getSnapshot(instruction?: string): Promise<Record<string, unknown
   })) as Record<string, unknown>;
 }
 
+function capDesktopElements(rawElements: unknown): {
+  elements: Array<Record<string, unknown>>;
+  totalCount: number;
+} {
+  const source = Array.isArray(rawElements) ? (rawElements as Array<Record<string, unknown>>) : [];
+  const elements: Array<Record<string, unknown>> = [];
+  let charCount = 0;
+  for (const element of source) {
+    const slim: Record<string, unknown> = {
+      id: asNumber(element.id),
+      role: asString(element.role),
+      name: asString(element.name),
+    };
+    const value = asString(element.value);
+    if (value) {
+      slim.value = value.slice(0, 120);
+    }
+    const serialized = JSON.stringify(slim);
+    if (charCount + serialized.length + 1 > MAX_DESKTOP_ELEMENTS_CHARS) {
+      break;
+    }
+    charCount += serialized.length + 1;
+    elements.push(slim);
+  }
+  return { elements, totalCount: source.length };
+}
+
+async function runDesktopSnapshot(
+  params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const result = (await sendDesktopCommand("snapshot", {
+    appName: asString(params.appName),
+    windowTitle: asString(params.windowTitle),
+  })) as Record<string, unknown>;
+  const capped = capDesktopElements(result.elements);
+  return {
+    appName: asString(result.appName),
+    windowTitle: asString(result.windowTitle),
+    elementCount: capped.totalCount,
+    elements: capped.elements,
+    ...(capped.elements.length < capped.totalCount
+      ? { note: `${capped.elements.length}/${capped.totalCount} shown (capped).` }
+      : {}),
+  };
+}
+
+async function runDesktopFind(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const result = (await sendDesktopCommand("find_elements", {
+    appName: asString(params.appName),
+    windowTitle: asString(params.windowTitle),
+    role: asString(params.role),
+    name: asString(params.name),
+  })) as Record<string, unknown>;
+  const capped = capDesktopElements(result.elements);
+  return {
+    count: capped.totalCount,
+    elements: capped.elements,
+    ...(capped.elements.length < capped.totalCount
+      ? { note: `${capped.elements.length}/${capped.totalCount} shown (capped).` }
+      : {}),
+  };
+}
+
+async function runDesktopClick(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const elementId = asNumber(params.elementId);
+  if (typeof elementId !== "number") {
+    throw new Error("elementId is required");
+  }
+  const result = (await sendDesktopCommand("click_element", { elementId })) as Record<
+    string,
+    unknown
+  >;
+  return { ok: true, details: result };
+}
+
+async function runDesktopType(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const text = asString(params.text);
+  if (!text) {
+    throw new Error("text is required");
+  }
+  const elementId = asNumber(params.elementId);
+  const action = typeof elementId === "number" ? "type_into_element" : "insert_text";
+  const payload: Record<string, unknown> = { text };
+  if (typeof elementId === "number") {
+    payload.elementId = elementId;
+  }
+  const result = (await sendDesktopCommand(action, payload)) as Record<string, unknown>;
+  return { ok: true, details: result };
+}
+
+async function runDesktopApps(): Promise<Record<string, unknown>> {
+  const result = await sendDesktopCommand("list_apps", {});
+  return { apps: Array.isArray(result) ? result : [] };
+}
+
+async function runDesktopWindows(
+  params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const result = await sendDesktopCommand("list_windows", {
+    appName: asString(params.appName),
+  });
+  return { windows: Array.isArray(result) ? result : [] };
+}
+
 async function runAct(params: Record<string, unknown>): Promise<Record<string, unknown>> {
   const kind = asString(params.kind);
   if (!kind) {
@@ -489,7 +992,7 @@ async function runVerify(checks: KernelSuccessCheck[]): Promise<{
   return { ok: failed.length === 0, passed, failed };
 }
 
-async function runRoute(routeId: string, url?: string, checks?: KernelSuccessCheck[]) {
+async function runManifestRoute(routeId: string, url?: string, checks?: KernelSuccessCheck[]) {
   let route = routes.get(routeId);
   if (!route) {
     const loaded = loadManifests();
@@ -563,6 +1066,70 @@ async function runRoute(routeId: string, url?: string, checks?: KernelSuccessChe
   return { ok: verify ? verify.ok : true, executed, verify };
 }
 
+async function runRouteWithPolicy(params: {
+  routeId: string;
+  url?: string;
+  checks?: KernelSuccessCheck[];
+  pageFingerprint?: ActionPageFingerprint;
+  actionIndex?: ActionIndexEntry[];
+  routeMemory?: ActionRouteMemory;
+}): Promise<{
+  ok: boolean;
+  executed: number;
+  verify?: Awaited<ReturnType<typeof runVerify>>;
+  source: "memory" | "manifest" | "live";
+  confidence: number;
+}> {
+  const confidence = computeRouteConfidence({
+    pageFingerprint: params.pageFingerprint,
+    actionIndex: params.actionIndex,
+    routeMemory: params.routeMemory,
+  });
+  const actionIndex = params.actionIndex ?? [];
+
+  if (
+    params.routeMemory &&
+    params.routeMemory.routeId === params.routeId &&
+    confidence >= MEMORY_ROUTE_CONFIDENCE_THRESHOLD
+  ) {
+    const memoryResult = await runRouteMemory({
+      routeMemory: params.routeMemory,
+      actionIndex,
+      url: params.url,
+      checks: params.checks,
+    });
+    return { ...memoryResult, source: "memory", confidence };
+  }
+
+  try {
+    const manifestResult = await runManifestRoute(params.routeId, params.url, params.checks);
+    return { ...manifestResult, source: "manifest", confidence };
+  } catch {
+    if (params.routeMemory && params.routeMemory.routeId === params.routeId) {
+      const liveResult = await runRouteMemory({
+        routeMemory: params.routeMemory,
+        actionIndex,
+        url: params.url,
+        checks: params.checks,
+      });
+      return { ...liveResult, source: "live", confidence };
+    }
+    if (params.url) {
+      await runAct({ kind: "navigate", value: params.url });
+      const verify =
+        params.checks && params.checks.length > 0 ? await runVerify(params.checks) : undefined;
+      return {
+        ok: verify ? verify.ok : true,
+        executed: 1,
+        verify,
+        source: "live",
+        confidence,
+      };
+    }
+    throw new Error(`unknown routeId: ${params.routeId}`);
+  }
+}
+
 export async function handleActionApiEnvelope(
   envelope: ActionApiEnvelope,
 ): Promise<ActionApiResponse> {
@@ -579,7 +1146,23 @@ export async function handleActionApiEnvelope(
     return actionError("unknown", id, "INVALID_REQUEST", "method is required");
   }
 
-  if (!isCentrisExtensionConnected()) {
+  const isDesktopMethod =
+    method === "desktop.snapshot" ||
+    method === "desktop.find" ||
+    method === "desktop.click" ||
+    method === "desktop.type" ||
+    method === "desktop.apps" ||
+    method === "desktop.windows";
+  if (isDesktopMethod) {
+    if (!isCentrisDesktopConnected()) {
+      return actionError(
+        method,
+        id,
+        "DESKTOP_NOT_CONNECTED",
+        "Centris desktop bridge is not connected.",
+      );
+    }
+  } else if (!isCentrisExtensionConnected()) {
     return actionError(
       method,
       id,
@@ -664,6 +1247,36 @@ export async function handleActionApiEnvelope(
       return { specVersion, method, id, ok: true, result: verify };
     }
 
+    if (method === "desktop.snapshot") {
+      const result = await runDesktopSnapshot(params);
+      return { specVersion, method, id, ok: true, result };
+    }
+
+    if (method === "desktop.find") {
+      const result = await runDesktopFind(params);
+      return { specVersion, method, id, ok: true, result };
+    }
+
+    if (method === "desktop.click") {
+      const result = await runDesktopClick(params);
+      return { specVersion, method, id, ok: true, result };
+    }
+
+    if (method === "desktop.type") {
+      const result = await runDesktopType(params);
+      return { specVersion, method, id, ok: true, result };
+    }
+
+    if (method === "desktop.apps") {
+      const result = await runDesktopApps();
+      return { specVersion, method, id, ok: true, result };
+    }
+
+    if (method === "desktop.windows") {
+      const result = await runDesktopWindows(params);
+      return { specVersion, method, id, ok: true, result };
+    }
+
     if (method === "route.run") {
       const routeId = asString(params.routeId) ?? "";
       if (!routeId) {
@@ -672,8 +1285,32 @@ export async function handleActionApiEnvelope(
       const checks = (Array.isArray(params.checks) ? params.checks : undefined) as
         | KernelSuccessCheck[]
         | undefined;
-      const result = await runRoute(routeId, asString(params.url), checks);
-      return { specVersion, method, id, ok: true, result };
+      const pageFingerprint = toPageFingerprint(params.pageFingerprint);
+      const actionIndex = toActionIndexEntries(params.actionIndex);
+      const routeMemory = toRouteMemory(params.routeMemory);
+      const result = await runRouteWithPolicy({
+        routeId,
+        url: asString(params.url),
+        checks,
+        pageFingerprint,
+        actionIndex,
+        routeMemory,
+      });
+      return {
+        specVersion,
+        method,
+        id,
+        ok: true,
+        result: {
+          ok: result.ok,
+          executed: result.executed,
+          verify: result.verify,
+          source: result.source,
+          pageFingerprint,
+          actionIndex,
+          routeMemory,
+        },
+      };
     }
 
     if (method === "route.record.start") {
@@ -745,6 +1382,276 @@ export async function handleActionApiEnvelope(
         id,
         ok: true,
         result: { ok: true, routeId, updatedAt },
+      };
+    }
+
+    if (method === "web.memory.index") {
+      const url = asString(params.url) ?? "";
+      if (!url) {
+        return actionError(method, id, "INVALID_REQUEST", "url is required");
+      }
+      const intent = asString(params.intent);
+      const pageFingerprint = toPageFingerprint(params.pageFingerprint);
+      const actionIndex = toActionIndexEntries(params.actionIndex);
+      const routeMemory = toRouteMemory(params.routeMemory);
+      const playbook = asObject(params.playbook);
+      const ttlMs = Math.max(1, Math.floor(asNumber(params.ttlMs) ?? WEB_MEMORY_DEFAULT_TTL_MS));
+      const createdAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+      const cacheKey = buildWebMemoryCacheKey(url, intent);
+      const confidence = computeRouteConfidence({ pageFingerprint, actionIndex, routeMemory });
+      const entry: WebMemoryEntry = {
+        cacheKey,
+        url,
+        normalizedUrl: normalizeUrl(url),
+        domain: toDomain(url),
+        intent,
+        ...(playbook ? { playbook } : {}),
+        ...(pageFingerprint ? { pageFingerprint } : {}),
+        actionIndex,
+        ...(routeMemory ? { routeMemory } : {}),
+        confidence,
+        createdAt,
+        expiresAt,
+        resolveHits: 0,
+      };
+      webMemory.set(cacheKey, entry);
+
+      return {
+        specVersion,
+        method,
+        id,
+        ok: true,
+        result: {
+          ok: true,
+          cacheKey,
+          version: "1",
+          createdAt,
+          expiresAt,
+          ...(pageFingerprint ? { pageFingerprint } : {}),
+          actionIndex,
+          ...(routeMemory ? { routeMemory } : {}),
+        },
+      };
+    }
+
+    if (method === "web.memory.resolve") {
+      const startedAt = Date.now();
+      const url = asString(params.url) ?? "";
+      if (!url) {
+        return actionError(method, id, "INVALID_REQUEST", "url is required");
+      }
+      const maxAgeMs = asNumber(params.maxAgeMs);
+      const entry = resolveWebMemoryEntry({
+        url,
+        intent: asString(params.intent),
+        maxAgeMs,
+      });
+      const resolveMs = Date.now() - startedAt;
+      webMemoryResolveMsTotal += resolveMs;
+      webMemoryResolveCount++;
+      if (!entry) {
+        webMemoryMisses++;
+        return {
+          specVersion,
+          method,
+          id,
+          ok: true,
+          result: {
+            hit: false,
+            source: "live",
+            confidence: 0,
+          },
+        };
+      }
+
+      webMemoryHits++;
+      entry.resolveHits++;
+      return {
+        specVersion,
+        method,
+        id,
+        ok: true,
+        result: {
+          hit: true,
+          cacheKey: entry.cacheKey,
+          ...(entry.playbook ? { playbook: entry.playbook } : {}),
+          generatedAt: entry.createdAt,
+          expiresAt: entry.expiresAt,
+          source: "cache",
+          confidence: entry.confidence,
+          ...(entry.pageFingerprint ? { pageFingerprint: entry.pageFingerprint } : {}),
+          actionIndex: entry.actionIndex,
+          ...(entry.routeMemory ? { routeMemory: entry.routeMemory } : {}),
+        },
+      };
+    }
+
+    if (method === "web.memory.execute") {
+      const startedAt = Date.now();
+      const url = asString(params.url) ?? "";
+      if (!url) {
+        return actionError(method, id, "INVALID_REQUEST", "url is required");
+      }
+      const intent = asString(params.intent);
+      const routeId = asString(params.routeId);
+      const operation = deriveActionKind(asString(params.operation));
+      const entry = resolveWebMemoryEntry({ url, intent });
+      const requestPageFingerprintId = asString(params.pageFingerprintId);
+      const requestParams = asObject(params.params) ?? {};
+
+      if (
+        entry &&
+        entry.confidence >= MEMORY_ROUTE_CONFIDENCE_THRESHOLD &&
+        entry.routeMemory &&
+        (!routeId || entry.routeMemory.routeId === routeId)
+      ) {
+        if (
+          !requestPageFingerprintId ||
+          entry.pageFingerprint?.fingerprintId === requestPageFingerprintId
+        ) {
+          const memoryResult = await runRouteMemory({
+            routeMemory: entry.routeMemory,
+            actionIndex: entry.actionIndex,
+            url,
+          });
+          const executeMs = Date.now() - startedAt;
+          webMemoryExecuteMsTotal += executeMs;
+          webMemoryExecuteCount++;
+          return {
+            specVersion,
+            method,
+            id,
+            ok: true,
+            result: {
+              ok: memoryResult.ok,
+              source: "cache",
+              executed: memoryResult.executed,
+              confidence: entry.confidence,
+              ...(entry.pageFingerprint ? { pageFingerprint: entry.pageFingerprint } : {}),
+              actionIndex: entry.actionIndex,
+              ...(entry.routeMemory ? { routeMemory: entry.routeMemory } : {}),
+              details: {
+                strategy: "memory",
+              },
+            },
+          };
+        }
+      }
+
+      let liveExecuted = 0;
+      let liveOk = true;
+      let executeSource: "cache" | "live" = "live";
+      if (routeId) {
+        const run = await runRouteWithPolicy({
+          routeId,
+          url,
+          pageFingerprint: entry?.pageFingerprint,
+          actionIndex: entry?.actionIndex,
+          routeMemory: entry?.routeMemory,
+        });
+        liveExecuted = run.executed;
+        liveOk = run.ok;
+        executeSource = run.source === "memory" ? "cache" : "live";
+      } else if (operation) {
+        await runAct({
+          kind: operation,
+          target: asString(requestParams.target),
+          value: asString(requestParams.value),
+          amount: asNumber(requestParams.amount),
+          nodeId: asNumber(requestParams.nodeId),
+        });
+        liveExecuted = 1;
+      } else {
+        liveOk = false;
+      }
+
+      const executeMs = Date.now() - startedAt;
+      webMemoryExecuteMsTotal += executeMs;
+      webMemoryExecuteCount++;
+      return {
+        specVersion,
+        method,
+        id,
+        ok: true,
+        result: {
+          ok: liveOk,
+          source: executeSource,
+          executed: liveExecuted,
+          confidence: entry?.confidence ?? 0,
+          ...(entry?.pageFingerprint ? { pageFingerprint: entry.pageFingerprint } : {}),
+          actionIndex: entry?.actionIndex ?? [],
+          ...(entry?.routeMemory ? { routeMemory: entry.routeMemory } : {}),
+          details: {
+            strategy: "live",
+          },
+        },
+      };
+    }
+
+    if (method === "web.memory.invalidate") {
+      cleanupExpiredWebMemory();
+      const scope = asString(params.scope) ?? "url";
+      const url = asString(params.url);
+      const playbookId = asString(params.playbookId);
+      let invalidated = 0;
+      if (scope === "all") {
+        invalidated = webMemory.size;
+        webMemory.clear();
+      } else if (playbookId && webMemory.has(playbookId)) {
+        webMemory.delete(playbookId);
+        invalidated = 1;
+      } else if (url) {
+        const normalizedUrl = normalizeUrl(url);
+        const domain = toDomain(url);
+        for (const [key, entry] of webMemory.entries()) {
+          const urlMatch = entry.normalizedUrl === normalizedUrl;
+          const domainMatch = scope === "domain" && entry.domain === domain;
+          if (urlMatch || domainMatch) {
+            webMemory.delete(key);
+            invalidated++;
+          }
+        }
+      }
+
+      return {
+        specVersion,
+        method,
+        id,
+        ok: true,
+        result: {
+          ok: true,
+          invalidated,
+        },
+      };
+    }
+
+    if (method === "web.memory.stats") {
+      cleanupExpiredWebMemory();
+      const entries = [...webMemory.values()];
+      const indexedPages = new Set(entries.map((entry) => entry.normalizedUrl)).size;
+      const indexedActions = entries.reduce((sum, entry) => sum + entry.actionIndex.length, 0);
+      const indexedRoutes = entries.reduce((sum, entry) => sum + (entry.routeMemory ? 1 : 0), 0);
+      const totalLookups = webMemoryHits + webMemoryMisses;
+
+      return {
+        specVersion,
+        method,
+        id,
+        ok: true,
+        result: {
+          entries: entries.length,
+          hits: webMemoryHits,
+          misses: webMemoryMisses,
+          hitRate: totalLookups > 0 ? webMemoryHits / totalLookups : 0,
+          avgResolveMs:
+            webMemoryResolveCount > 0 ? webMemoryResolveMsTotal / webMemoryResolveCount : 0,
+          indexedPages,
+          indexedActions,
+          indexedRoutes,
+          avgExecuteMs:
+            webMemoryExecuteCount > 0 ? webMemoryExecuteMsTotal / webMemoryExecuteCount : 0,
+        },
       };
     }
 

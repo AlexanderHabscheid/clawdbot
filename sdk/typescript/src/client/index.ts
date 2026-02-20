@@ -97,6 +97,17 @@ export type {
 } from "../action-api/index.js";
 
 import type {
+  ActionDesktopAppsResult,
+  ActionDesktopClickRequest,
+  ActionDesktopClickResult,
+  ActionDesktopFindRequest,
+  ActionDesktopFindResult,
+  ActionDesktopSnapshotRequest,
+  ActionDesktopSnapshotResult,
+  ActionDesktopTypeRequest,
+  ActionDesktopTypeResult,
+  ActionDesktopWindowsRequest,
+  ActionDesktopWindowsResult,
   ActionApiMethod,
   ActionApiRequestEnvelope,
   ActionApiResponseEnvelope,
@@ -352,6 +363,34 @@ export class Centris {
 
   async verify(request: KernelVerifyRequest): Promise<KernelVerifyResult> {
     return this.callActionApi("verify", request);
+  }
+
+  async desktopSnapshot(
+    request: ActionDesktopSnapshotRequest = {},
+  ): Promise<ActionDesktopSnapshotResult> {
+    return this.callActionApi("desktop.snapshot", request);
+  }
+
+  async desktopFind(request: ActionDesktopFindRequest = {}): Promise<ActionDesktopFindResult> {
+    return this.callActionApi("desktop.find", request);
+  }
+
+  async desktopClick(request: ActionDesktopClickRequest): Promise<ActionDesktopClickResult> {
+    return this.callActionApi("desktop.click", request);
+  }
+
+  async desktopType(request: ActionDesktopTypeRequest): Promise<ActionDesktopTypeResult> {
+    return this.callActionApi("desktop.type", request);
+  }
+
+  async desktopApps(): Promise<ActionDesktopAppsResult> {
+    return this.callActionApi("desktop.apps", {});
+  }
+
+  async desktopWindows(
+    request: ActionDesktopWindowsRequest = {},
+  ): Promise<ActionDesktopWindowsResult> {
+    return this.callActionApi("desktop.windows", request);
   }
 
   async routeRun(request: ActionRouteRunRequest): Promise<ActionRouteRunResult> {

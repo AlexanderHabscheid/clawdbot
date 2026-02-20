@@ -127,6 +127,64 @@ export interface VerifyOptions extends CLIOptions {
   timeoutMs?: number;
 }
 
+export interface DesktopSnapshotOptions extends CLIOptions {
+  appName?: string;
+  windowTitle?: string;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
+export interface DesktopFindOptions extends CLIOptions {
+  appName?: string;
+  windowTitle?: string;
+  role?: string;
+  name?: string;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
+export interface DesktopClickOptions extends CLIOptions {
+  elementId: number;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
+export interface DesktopTypeOptions extends CLIOptions {
+  text: string;
+  elementId?: number;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
+export interface DesktopAppsOptions extends CLIOptions {
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
+export interface DesktopWindowsOptions extends CLIOptions {
+  appName?: string;
+  json?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  apiVersion?: string;
+  timeoutMs?: number;
+}
+
 export interface RouteRunApiOptions extends CLIOptions {
   routeId: string;
   url?: string;
@@ -167,6 +225,8 @@ export interface WebMemoryIndexOptions extends CLIOptions {
   url: string;
   intent?: string;
   playbook?: string;
+  snapshotFile?: string;
+  fingerprintId?: string;
   ttlMs?: number;
   metadata?: string;
   json?: boolean;
@@ -240,6 +300,30 @@ export interface ManifestValidateOptions extends CLIOptions {
   file?: string;
   /** Require at least one route with landmarks/actions */
   strict?: boolean;
+}
+
+export interface ManifestDoctorOptions extends CLIOptions {
+  /** Manifest file path */
+  file?: string;
+  /** Fail command when warnings are present */
+  strict?: boolean;
+  /** Output structured JSON report */
+  json?: boolean;
+}
+
+export interface ManifestPublishOptions extends CLIOptions {
+  /** Manifest file path */
+  file?: string;
+  /** Well-known output path */
+  wellKnownOut?: string;
+  /** Optional connector package output directory */
+  connectorOutDir?: string;
+  /** Overwrite existing output files */
+  force?: boolean;
+  /** Print planned outputs without writing files */
+  dryRun?: boolean;
+  /** Output structured JSON report */
+  json?: boolean;
 }
 
 export interface RouteRecordOptions extends CLIOptions {

@@ -23,6 +23,12 @@ ActionApiMethod = Literal[
     "observe",
     "act",
     "verify",
+    "desktop.snapshot",
+    "desktop.find",
+    "desktop.click",
+    "desktop.type",
+    "desktop.apps",
+    "desktop.windows",
     "route.run",
     "route.record.start",
     "route.record.stop",
@@ -292,10 +298,91 @@ class ActionWebMemoryStatsResult:
     avg_execute_ms: Optional[float] = None
 
 
+@dataclass
+class DesktopElement:
+    id: int
+    role: Optional[str] = None
+    name: Optional[str] = None
+    value: Optional[str] = None
+
+
+@dataclass
+class ActionDesktopSnapshotRequest:
+    app_name: Optional[str] = None
+    window_title: Optional[str] = None
+
+
+@dataclass
+class ActionDesktopSnapshotResult:
+    app_name: Optional[str] = None
+    window_title: Optional[str] = None
+    element_count: int = 0
+    elements: list[DesktopElement] = field(default_factory=list)
+    note: Optional[str] = None
+
+
+@dataclass
+class ActionDesktopFindRequest:
+    app_name: Optional[str] = None
+    window_title: Optional[str] = None
+    role: Optional[str] = None
+    name: Optional[str] = None
+
+
+@dataclass
+class ActionDesktopFindResult:
+    count: int = 0
+    elements: list[DesktopElement] = field(default_factory=list)
+    note: Optional[str] = None
+
+
+@dataclass
+class ActionDesktopClickRequest:
+    element_id: int
+
+
+@dataclass
+class ActionDesktopClickResult:
+    ok: bool
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ActionDesktopTypeRequest:
+    text: str
+    element_id: Optional[int] = None
+
+
+@dataclass
+class ActionDesktopTypeResult:
+    ok: bool
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ActionDesktopWindowsRequest:
+    app_name: Optional[str] = None
+
+
+@dataclass
+class ActionDesktopAppsResult:
+    apps: list[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class ActionDesktopWindowsResult:
+    windows: list[Dict[str, Any]] = field(default_factory=list)
+
+
 ActionApiParams = Union[
     KernelObserveRequest,
     KernelActRequest,
     KernelVerifyRequest,
+    ActionDesktopSnapshotRequest,
+    ActionDesktopFindRequest,
+    ActionDesktopClickRequest,
+    ActionDesktopTypeRequest,
+    ActionDesktopWindowsRequest,
     ActionRouteRunRequest,
     ActionRouteRecordStartRequest,
     ActionRouteRecordStopRequest,
@@ -310,6 +397,12 @@ ActionApiResult = Union[
     KernelObserveResult,
     KernelActResult,
     KernelVerifyResult,
+    ActionDesktopSnapshotResult,
+    ActionDesktopFindResult,
+    ActionDesktopClickResult,
+    ActionDesktopTypeResult,
+    ActionDesktopAppsResult,
+    ActionDesktopWindowsResult,
     ActionRouteRunResult,
     ActionRouteRecordStartResult,
     ActionRouteRecordStopResult,

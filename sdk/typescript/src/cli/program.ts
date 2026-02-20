@@ -17,7 +17,12 @@ import {
 import { runAdapterCommand } from "./commands/adapter.js";
 import { runDoCommand } from "./commands/do.js";
 import { initConnector } from "./commands/init.js";
-import { initManifest, validateManifestFile } from "./commands/manifest.js";
+import {
+  doctorManifest,
+  initManifest,
+  publishManifest,
+  validateManifestFile,
+} from "./commands/manifest.js";
 import { publishConnector } from "./commands/publish.js";
 import { recordRoute, runRoute, testRoute } from "./commands/route.js";
 import { serveConnector } from "./commands/serve.js";
@@ -313,6 +318,33 @@ export function createCLI(): Command {
       await validateManifestFile({ ...options, file: file ?? "centris.json" }, ctx);
     });
 
+  // centris manifest doctor [file]
+  manifest
+    .command("doctor [file]")
+    .description("Run readiness diagnostics for external manifest publishing")
+    .option("-s, --strict", "Fail when warnings are present")
+    .option("--json", "Output raw JSON report")
+    .action(async (file, options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await doctorManifest({ ...options, file: file ?? "centris.json" }, ctx);
+    });
+
+  // centris manifest publish [file]
+  manifest
+    .command("publish [file]")
+    .description("Publish manifest artifacts for external ecosystem distribution")
+    .option("--well-known-out <path>", "Output path for .well-known manifest")
+    .option("--connector-out-dir <path>", "Optional connector package output directory")
+    .option("-f, --force", "Overwrite output files")
+    .option("--dry-run", "Print publish plan without writing files")
+    .option("--json", "Output raw JSON report")
+    .action(async (file, options, cmd) => {
+      const globalOpts = cmd.parent?.parent?.opts() ?? {};
+      const ctx = createContext(globalOpts);
+      await publishManifest({ ...options, file: file ?? "centris.json" }, ctx);
+    });
+
   // centris route <subcommand>
   const route = program.command("route").description("Record, run, and test deterministic routes");
 
@@ -490,6 +522,8 @@ export function createCLI(): Command {
     .requiredOption("--url <url>", "Target URL")
     .option("--intent <intent>", "Intent label for this playbook")
     .option("--playbook <json>", "Playbook JSON object")
+    .option("--snapshot-file <path>", "Snapshot JSON file to derive fingerprint/action index")
+    .option("--fingerprint-id <id>", "Optional fingerprint id when deriving from snapshot")
     .option("--ttl-ms <ms>", "Cache TTL in milliseconds")
     .option("--metadata <json>", "Metadata JSON object")
     .option("-k, --api-key <key>", "API key for authentication")

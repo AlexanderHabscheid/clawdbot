@@ -21,6 +21,12 @@ export type ActionApiMethod =
   | "observe"
   | "act"
   | "verify"
+  | "desktop.snapshot"
+  | "desktop.find"
+  | "desktop.click"
+  | "desktop.type"
+  | "desktop.apps"
+  | "desktop.windows"
   | "route.run"
   | "route.record.start"
   | "route.record.stop"
@@ -280,10 +286,80 @@ export interface ActionWebMemoryStatsResult {
   avgExecuteMs?: number;
 }
 
+export interface DesktopElement {
+  id: number;
+  role?: string;
+  name?: string;
+  value?: string;
+}
+
+export interface ActionDesktopSnapshotRequest {
+  appName?: string;
+  windowTitle?: string;
+}
+
+export interface ActionDesktopSnapshotResult {
+  appName?: string;
+  windowTitle?: string;
+  elementCount: number;
+  elements: DesktopElement[];
+  note?: string;
+}
+
+export interface ActionDesktopFindRequest {
+  appName?: string;
+  windowTitle?: string;
+  role?: string;
+  name?: string;
+}
+
+export interface ActionDesktopFindResult {
+  count: number;
+  elements: DesktopElement[];
+  note?: string;
+}
+
+export interface ActionDesktopClickRequest {
+  elementId: number;
+}
+
+export interface ActionDesktopClickResult {
+  ok: boolean;
+  details?: Record<string, unknown>;
+}
+
+export interface ActionDesktopTypeRequest {
+  text: string;
+  elementId?: number;
+}
+
+export interface ActionDesktopTypeResult {
+  ok: boolean;
+  details?: Record<string, unknown>;
+}
+
+export interface ActionDesktopAppsResult {
+  apps: Array<Record<string, unknown>>;
+}
+
+export interface ActionDesktopWindowsRequest {
+  appName?: string;
+}
+
+export interface ActionDesktopWindowsResult {
+  windows: Array<Record<string, unknown>>;
+}
+
 export type ActionApiParamsByMethod = {
   observe: KernelObserveRequest;
   act: KernelActRequest;
   verify: KernelVerifyRequest;
+  "desktop.snapshot": ActionDesktopSnapshotRequest;
+  "desktop.find": ActionDesktopFindRequest;
+  "desktop.click": ActionDesktopClickRequest;
+  "desktop.type": ActionDesktopTypeRequest;
+  "desktop.apps": Record<string, never>;
+  "desktop.windows": ActionDesktopWindowsRequest;
   "route.run": ActionRouteRunRequest;
   "route.record.start": ActionRouteRecordStartRequest;
   "route.record.stop": ActionRouteRecordStopRequest;
@@ -298,6 +374,12 @@ export type ActionApiResultByMethod = {
   observe: KernelObserveResult;
   act: KernelActResult;
   verify: KernelVerifyResult;
+  "desktop.snapshot": ActionDesktopSnapshotResult;
+  "desktop.find": ActionDesktopFindResult;
+  "desktop.click": ActionDesktopClickResult;
+  "desktop.type": ActionDesktopTypeResult;
+  "desktop.apps": ActionDesktopAppsResult;
+  "desktop.windows": ActionDesktopWindowsResult;
   "route.run": ActionRouteRunResult;
   "route.record.start": ActionRouteRecordStartResult;
   "route.record.stop": ActionRouteRecordStopResult;

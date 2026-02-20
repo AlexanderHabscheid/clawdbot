@@ -5,11 +5,17 @@ Unified CLI surface for cached web playbooks.
 
 import json
 import time
+import hashlib
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import click
 
 from centris_sdk.action_api import (
+    ActionAnchor,
+    ActionIndexEntry,
+    ActionNodeHint,
+    ActionPageFingerprint,
     ActionWebMemoryExecuteRequest,
     ActionWebMemoryIndexRequest,
     ActionWebMemoryInvalidateRequest,
@@ -38,6 +44,129 @@ def _parse_json_object(raw: Optional[str], label: str) -> Dict[str, Any]:
     return parsed
 
 
+def _slugify(value: str) -> str:
+    normalized = "".join(ch.lower() if ch.isalnum() else "_" for ch in value.strip())
+    collapsed = "_".join(part for part in normalized.split("_") if part)
+    return collapsed or "action"
+
+
+def _infer_affordance(node: Dict[str, Any]) -> str:
+    role = str(node.get("r") or node.get("role") or "").lower()
+    node_type = str(node.get("t") or node.get("type") or "").lower()
+    name = str(node.get("n") or node.get("name") or "").lower()
+    if "input" in node_type or role == "textbox":
+        return "type"
+    if role == "link" or "link" in node_type:
+        return "navigate"
+    if "submit" in name:
+        return "submit"
+    return "click"
+
+
+def _derive_snapshot_indexing(
+    snapshot_file: str,
+    url: str,
+    intent: Optional[str],
+    fingerprint_id: Optional[str],
+) -> tuple[ActionPageFingerprint, list[ActionIndexEntry]]:
+    with open(snapshot_file, "r", encoding="utf-8") as handle:
+        snapshot = json.load(handle)
+    if not isinstance(snapshot, dict):
+        raise click.ClickException("snapshot file must contain a JSON object")
+
+    metadata = snapshot.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    interactive_nodes = snapshot.get("interactiveNodes")
+    if not isinstance(interactive_nodes, list):
+        interactive_nodes = []
+    headings = snapshot.get("headings")
+    headings = [item for item in headings if isinstance(item, str)] if isinstance(headings, list) else []
+    nav_labels = snapshot.get("navLabels")
+    nav_labels = [item for item in nav_labels if isinstance(item, str)] if isinstance(nav_labels, list) else []
+    primary_actions = [
+        str(node.get("n") or node.get("name") or "").strip()
+        for node in interactive_nodes
+        if isinstance(node, dict)
+    ]
+    primary_actions = [item for item in primary_actions if item][:12]
+    digest = hashlib.sha256(
+        json.dumps(
+            {
+                "url": url,
+                "title": metadata.get("title"),
+                "headings": headings,
+                "navLabels": nav_labels,
+                "count": len(interactive_nodes),
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    page_fingerprint = ActionPageFingerprint(
+        fingerprint_id=fingerprint_id,
+        url_pattern=url,
+        title_hints=[metadata["title"]] if isinstance(metadata.get("title"), str) else [],
+        headings=headings,
+        nav_labels=nav_labels,
+        primary_actions=primary_actions,
+        interactive_summary={
+            "total": len(interactive_nodes),
+            "buttons": sum(
+                1
+                for node in interactive_nodes
+                if isinstance(node, dict) and str(node.get("r") or node.get("role") or "") == "button"
+            ),
+            "links": sum(
+                1
+                for node in interactive_nodes
+                if isinstance(node, dict) and str(node.get("r") or node.get("role") or "") == "link"
+            ),
+            "inputs": sum(
+                1
+                for node in interactive_nodes
+                if isinstance(node, dict) and "input" in str(node.get("t") or node.get("type") or "").lower()
+            ),
+        },
+        signature_hash=f"sha256:{digest}",
+        generated_at=now,
+        confidence=0.7,
+    )
+
+    action_index: list[ActionIndexEntry] = []
+    for index, node in enumerate(interactive_nodes):
+        if not isinstance(node, dict):
+            continue
+        semantic_label = str(node.get("n") or node.get("name") or "").strip()
+        if not semantic_label:
+            continue
+        selector = node.get("selector")
+        node_id = node.get("id") if isinstance(node.get("id"), int) else None
+        anchors = [ActionAnchor(anchor_type="label", value=semantic_label, weight=1.0)]
+        if isinstance(selector, str) and selector:
+            anchors.append(ActionAnchor(anchor_type="selector", value=selector, weight=0.8))
+        action_index.append(
+            ActionIndexEntry(
+                action_id=f"{_slugify(semantic_label)}_{index + 1}",
+                intent=intent or semantic_label,
+                affordance=_infer_affordance(node),  # type: ignore[arg-type]
+                semantic_label=semantic_label,
+                node_hints=[
+                    ActionNodeHint(
+                        node_id=node_id,
+                        selector=selector if isinstance(selector, str) else None,
+                        role=node.get("r") if isinstance(node.get("r"), str) else None,
+                        name=semantic_label,
+                    )
+                ],
+                anchors=anchors,
+                confidence=0.65,
+                updated_at=now,
+            )
+        )
+    return page_fingerprint, action_index
+
+
 @click.group("web-memory")
 def web_memory_group() -> None:
     """Manage cached web playbooks for deterministic browser execution."""
@@ -47,6 +176,8 @@ def web_memory_group() -> None:
 @click.option("--url", required=True, help="Target URL")
 @click.option("--intent", help="Intent label")
 @click.option("--playbook", help="Playbook JSON object")
+@click.option("--snapshot-file", help="Snapshot JSON file to derive fingerprint/action index")
+@click.option("--fingerprint-id", help="Optional fingerprint id for derived snapshot payloads")
 @click.option("--ttl-ms", type=int, help="TTL in milliseconds")
 @click.option("--metadata", help="Metadata JSON object")
 @click.option("--key", "key", help="API key override")
@@ -59,6 +190,8 @@ def web_memory_index_command(
     url: str,
     intent: Optional[str],
     playbook: Optional[str],
+    snapshot_file: Optional[str],
+    fingerprint_id: Optional[str],
     ttl_ms: Optional[int],
     metadata: Optional[str],
     key: Optional[str],
@@ -68,11 +201,22 @@ def web_memory_index_command(
 ):
     started_at = time.time()
     client = _client(ctx, key, base_url, timeout)
+    page_fingerprint = None
+    action_index: list[ActionIndexEntry] = []
+    if snapshot_file:
+        page_fingerprint, action_index = _derive_snapshot_indexing(
+            snapshot_file=snapshot_file,
+            url=url,
+            intent=intent,
+            fingerprint_id=fingerprint_id,
+        )
     result = client.web_memory.index(
         ActionWebMemoryIndexRequest(
             url=url,
             intent=intent,
             playbook=_parse_json_object(playbook, "playbook"),
+            page_fingerprint=page_fingerprint,
+            action_index=action_index,
             ttl_ms=ttl_ms,
             metadata=_parse_json_object(metadata, "metadata"),
         )
@@ -105,6 +249,8 @@ def web_memory_index_command(
     click.echo(f"Indexed web memory for {url}")
     if result.cache_key:
         click.echo(f"Cache key: {result.cache_key}")
+    if snapshot_file:
+        click.echo(f"Derived page fingerprint + {len(action_index)} action index entries")
 
 
 @web_memory_group.command("resolve")

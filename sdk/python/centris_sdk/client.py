@@ -50,6 +50,17 @@ from centris_sdk.action_api import (
     ACTION_API_SPEC_VERSION,
     ActionApiError,
     ActionArtifact,
+    ActionDesktopAppsResult,
+    ActionDesktopClickRequest,
+    ActionDesktopClickResult,
+    ActionDesktopFindRequest,
+    ActionDesktopFindResult,
+    ActionDesktopSnapshotRequest,
+    ActionDesktopSnapshotResult,
+    ActionDesktopTypeRequest,
+    ActionDesktopTypeResult,
+    ActionDesktopWindowsRequest,
+    ActionDesktopWindowsResult,
     ActionAnchor,
     ActionIndexEntry,
     ActionLandmark,
@@ -211,6 +222,27 @@ def _parse_action_artifact(raw: Any) -> Optional[ActionArtifact]:
         producer_operation=str(raw.get("producerOperation", "")),
         value=raw.get("value", {}) if isinstance(raw.get("value"), dict) else {},
     )
+
+
+def _parse_desktop_elements(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    elements: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        element_id = item.get("id")
+        if not isinstance(element_id, int):
+            continue
+        element: dict[str, Any] = {"id": element_id}
+        if isinstance(item.get("role"), str):
+            element["role"] = item["role"]
+        if isinstance(item.get("name"), str):
+            element["name"] = item["name"]
+        if isinstance(item.get("value"), str):
+            element["value"] = item["value"]
+        elements.append(element)
+    return elements
 
 
 def _parse_page_fingerprint(raw: Any) -> Optional[ActionPageFingerprint]:
@@ -913,6 +945,73 @@ class Centris:
             passed=[KernelSuccessCheck(**c) for c in result.get("passed", [])],
             failed=[KernelSuccessCheck(**c) for c in result.get("failed", [])],
         )
+
+    def desktop_snapshot(
+        self,
+        request: ActionDesktopSnapshotRequest = ActionDesktopSnapshotRequest(),
+    ) -> ActionDesktopSnapshotResult:
+        """Capture desktop accessibility snapshot via Action API."""
+        payload = {"appName": request.app_name, "windowTitle": request.window_title}
+        result = self._call_action_api("desktop.snapshot", payload)
+        return ActionDesktopSnapshotResult(
+            app_name=result.get("appName") if isinstance(result.get("appName"), str) else None,
+            window_title=result.get("windowTitle")
+            if isinstance(result.get("windowTitle"), str)
+            else None,
+            element_count=int(result.get("elementCount", 0)),
+            elements=_parse_desktop_elements(result.get("elements")),  # type: ignore[arg-type]
+            note=result.get("note") if isinstance(result.get("note"), str) else None,
+        )
+
+    def desktop_find(
+        self,
+        request: ActionDesktopFindRequest = ActionDesktopFindRequest(),
+    ) -> ActionDesktopFindResult:
+        """Find accessibility elements on desktop via Action API."""
+        payload = {
+            "appName": request.app_name,
+            "windowTitle": request.window_title,
+            "role": request.role,
+            "name": request.name,
+        }
+        result = self._call_action_api("desktop.find", payload)
+        return ActionDesktopFindResult(
+            count=int(result.get("count", 0)),
+            elements=_parse_desktop_elements(result.get("elements")),  # type: ignore[arg-type]
+            note=result.get("note") if isinstance(result.get("note"), str) else None,
+        )
+
+    def desktop_click(self, request: ActionDesktopClickRequest) -> ActionDesktopClickResult:
+        """Click desktop element by accessibility id via Action API."""
+        result = self._call_action_api("desktop.click", {"elementId": request.element_id})
+        return ActionDesktopClickResult(
+            ok=bool(result.get("ok", False)),
+            details=result.get("details", {}) if isinstance(result.get("details"), dict) else {},
+        )
+
+    def desktop_type(self, request: ActionDesktopTypeRequest) -> ActionDesktopTypeResult:
+        """Type text via desktop accessibility API."""
+        payload = {"text": request.text, "elementId": request.element_id}
+        result = self._call_action_api("desktop.type", payload)
+        return ActionDesktopTypeResult(
+            ok=bool(result.get("ok", False)),
+            details=result.get("details", {}) if isinstance(result.get("details"), dict) else {},
+        )
+
+    def desktop_apps(self) -> ActionDesktopAppsResult:
+        """List running desktop applications via Action API."""
+        result = self._call_action_api("desktop.apps", {})
+        apps = result.get("apps")
+        return ActionDesktopAppsResult(apps=apps if isinstance(apps, list) else [])
+
+    def desktop_windows(
+        self,
+        request: ActionDesktopWindowsRequest = ActionDesktopWindowsRequest(),
+    ) -> ActionDesktopWindowsResult:
+        """List desktop windows via Action API."""
+        result = self._call_action_api("desktop.windows", {"appName": request.app_name})
+        windows = result.get("windows")
+        return ActionDesktopWindowsResult(windows=windows if isinstance(windows, list) else [])
 
     def route_run(self, request: ActionRouteRunRequest) -> ActionRouteRunResult:
         """Run a named route via Action API."""

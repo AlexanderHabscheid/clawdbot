@@ -72,6 +72,7 @@ from centris_sdk.cli.action_api_cmd import (
 )
 from centris_sdk.cli.web_memory_cmd import web_memory_group
 from centris_sdk.cli.adapter_cmd import adapter_group
+from centris_sdk.cli.manifest_cmd import manifest_group
 from centris_sdk.cli.deps import CLIDeps, create_default_deps
 from centris_sdk.cli.profile import (
     ProfileConfig,
@@ -453,6 +454,7 @@ cli.add_command(verify_command, name="verify")
 cli.add_command(route_group, name="route")
 cli.add_command(web_memory_group, name="web-memory")
 cli.add_command(adapter_group, name="adapter")
+cli.add_command(manifest_group, name="manifest")
 
 # Daemon management
 cli.add_command(daemon_group, name="daemon")

@@ -47,6 +47,21 @@ interface ResolvedManifest {
   actions: Record<string, ManifestAction>;
 }
 
+interface IngestManifest {
+  app: string;
+  url_patterns: string[];
+  routes: Record<
+    string,
+    {
+      landmarks?: Record<
+        string,
+        { role: string; selectors: string[]; stability?: string; description?: string }
+      >;
+      actions?: Record<string, ManifestAction>;
+    }
+  >;
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let store: {
@@ -73,6 +88,98 @@ function parseWellKnownAllowlist(raw: string | undefined): string[] {
     .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean)
     .filter((entry) => !entry.includes("://") && !entry.includes("/"));
+}
+
+function parsePatternHost(pattern: string): string | null {
+  const trimmed = pattern.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(withProtocol);
+    return url.hostname.replace(/^\*\./, "").toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function hostFamilyMatch(host: string, candidate: string): boolean {
+  return candidate === host || candidate.endsWith(`.${host}`) || host.endsWith(`.${candidate}`);
+}
+
+function clampConfidence(value: number): number {
+  return Math.max(0.05, Math.min(0.95, value));
+}
+
+export function sanitizeRemoteManifestForHost(
+  input: IngestManifest,
+  host: string,
+): IngestManifest | null {
+  const normalizedHost = host.trim().toLowerCase();
+  const cleanedHost = normalizedHost.replace(/^\*\./, "");
+  if (!cleanedHost) {
+    return null;
+  }
+
+  const hosts = input.url_patterns
+    .map(parsePatternHost)
+    .filter((entry): entry is string => Boolean(entry));
+  if (hosts.length === 0) {
+    return null;
+  }
+  if (!hosts.every((entry) => hostFamilyMatch(cleanedHost, entry))) {
+    return null;
+  }
+
+  let actionCount = 0;
+  let routeCount = 0;
+  const sanitizedRoutes: IngestManifest["routes"] = {};
+  for (const [routeKey, route] of Object.entries(input.routes ?? {})) {
+    routeCount += 1;
+    if (routeCount > 120) {
+      break;
+    }
+    const sanitizedRoute: IngestManifest["routes"][string] = {};
+    if (route.landmarks) {
+      const landmarks: NonNullable<typeof sanitizedRoute.landmarks> = {};
+      for (const [landmarkName, landmark] of Object.entries(route.landmarks)) {
+        landmarks[landmarkName] = {
+          role: landmark.role,
+          selectors: landmark.selectors.slice(0, 8),
+          stability: landmark.stability,
+          description: landmark.description,
+        };
+      }
+      if (Object.keys(landmarks).length > 0) {
+        sanitizedRoute.landmarks = landmarks;
+      }
+    }
+    if (route.actions) {
+      const actions: NonNullable<typeof sanitizedRoute.actions> = {};
+      for (const [actionName, action] of Object.entries(route.actions)) {
+        actionCount += 1;
+        if (actionCount > 400) {
+          break;
+        }
+        actions[actionName] = {
+          ...action,
+          confidence:
+            typeof action.confidence === "number" ? clampConfidence(action.confidence) : 0.6,
+        };
+      }
+      if (Object.keys(actions).length > 0) {
+        sanitizedRoute.actions = actions;
+      }
+    }
+    sanitizedRoutes[routeKey] = sanitizedRoute;
+  }
+
+  return {
+    ...input,
+    url_patterns: input.url_patterns,
+    routes: sanitizedRoutes,
+  };
 }
 
 async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
@@ -141,7 +248,12 @@ export async function initManifestStore(options?: {
             logDebug(`[manifest-bridge] invalid remote manifest: ${url}`);
             continue;
           }
-          store.add({ manifest: validated, source: `well-known:${host}` });
+          const sanitized = sanitizeRemoteManifestForHost(validated as IngestManifest, host);
+          if (!sanitized) {
+            logDebug(`[manifest-bridge] rejected remote manifest (policy): ${url}`);
+            continue;
+          }
+          store.add({ manifest: sanitized, source: `well-known:${host}` });
           logInfo(`[manifest-bridge] loaded remote manifest: ${host}`);
         } catch (err) {
           logDebug(`[manifest-bridge] failed loading ${url}: ${String(err)}`);
