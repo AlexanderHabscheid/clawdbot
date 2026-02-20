@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type {
+  ActionAnchor,
   ActionIndexEntry,
   ActionPageFingerprint,
   ActionWebMemoryExecuteRequest,
@@ -145,14 +146,18 @@ async function deriveSnapshotIndexing(params: {
     confidence: 0.7,
   };
 
-  const actionIndex: ActionIndexEntry[] = interactiveNodes
-    .map((node, index) => {
+  const actionIndexCandidates: Array<ActionIndexEntry | null> = interactiveNodes.map(
+    (node, index) => {
       const semanticLabel = readString(node, "n", "name").trim();
       if (!semanticLabel) {
         return null;
       }
       const selector = typeof node.selector === "string" ? node.selector : undefined;
       const nodeId = typeof node.id === "number" ? node.id : undefined;
+      const anchors: ActionAnchor[] = [
+        { anchorType: "label" as const, value: semanticLabel, weight: 1 },
+        ...(selector ? [{ anchorType: "selector" as const, value: selector, weight: 0.8 }] : []),
+      ];
       return {
         actionId: `${slugify(semanticLabel)}_${index + 1}`,
         intent: params.intent ?? semanticLabel,
@@ -166,15 +171,16 @@ async function deriveSnapshotIndexing(params: {
             name: semanticLabel,
           },
         ],
-        anchors: [
-          { anchorType: "label", value: semanticLabel, weight: 1 },
-          ...(selector ? [{ anchorType: "selector", value: selector, weight: 0.8 }] : []),
-        ],
+        anchors,
         confidence: 0.65,
         updatedAt: new Date().toISOString(),
-      } satisfies ActionIndexEntry;
-    })
-    .filter((item): item is ActionIndexEntry => Boolean(item));
+      };
+    },
+  );
+
+  const actionIndex = actionIndexCandidates.filter(
+    (item): item is ActionIndexEntry => item !== null,
+  );
 
   return { pageFingerprint, actionIndex };
 }

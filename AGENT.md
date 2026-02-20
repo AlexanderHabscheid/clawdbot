@@ -2,6 +2,13 @@
 
 This file defines how Centris agentic execution should behave across runtime surfaces.
 
+## Required control files
+
+The loop must load and enforce:
+
+- `AGENT.md` (loop contract)
+- `GUARDRAILS.md` (control vs package data separation and injection defense)
+
 ## Loop phases
 
 1. Intake: parse user intent and context.
