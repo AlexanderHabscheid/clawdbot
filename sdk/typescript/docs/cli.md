@@ -58,7 +58,7 @@ Alias: `centris dev`
 ### `centris publish [path]`
 
 Publish connector to registry.
-Primary API contract: `POST /api/connectors` (legacy fallback: `POST /api/registry/publish`).
+Primary API contract: `POST /api/connectors`.
 
 Options:
 

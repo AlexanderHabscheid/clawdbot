@@ -32,7 +32,7 @@ Publishing and packaging:
 
 - `publish`
 - `package`
-- publish API contract: `POST /api/connectors` (legacy fallback: `POST /api/registry/publish`)
+- publish API contract: `POST /api/connectors`
 
 Discovery and installation:
 
@@ -55,14 +55,12 @@ Power-user commands:
 
 - `agent`
 - `do`
-- `exec`
 - `browser`
 - `file`
 - `daemon`
 - `sandbox`
 - `elements`
 - `introspect`
-- `deprecations`
 - `adapter`
 
 ## Important command behaviors

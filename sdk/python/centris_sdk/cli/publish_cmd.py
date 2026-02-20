@@ -16,7 +16,6 @@ Commands:
 The registry API accepts:
 - POST /api/connectors - Publish connector metadata/package
 - GET /connectors/:id - Connector details page
-- Legacy compatibility: POST /api/registry/publish
 """
 
 import click
@@ -104,9 +103,6 @@ async def publish_to_registry(
     connector_metadata: dict[str, Any],
 ) -> dict[str, Any]:
     """Publish package to Centris registry.
-    
-    Primary contract: POST /api/connectors
-    Compatibility fallback: POST /api/registry/publish
     """
     try:
         import httpx
@@ -166,24 +162,6 @@ async def publish_to_registry(
         )
         if primary.status_code == 401:
             raise ValueError("Invalid API key. Get your key from https://centris.ai/dashboard")
-        if primary.status_code in (404, 405, 501):
-            fallback = await client.post(
-                f"{registry_url}/api/registry/publish",
-                json={
-                    "manifest": manifest,
-                    "package_base64": package_base64,
-                },
-                headers=headers,
-                timeout=120.0,
-            )
-            if fallback.status_code == 401:
-                raise ValueError("Invalid API key. Get your key from https://centris.ai/dashboard")
-            result = fallback.json()
-            if not (200 <= fallback.status_code < 300) or not result.get("success"):
-                error = result.get("error", fallback.text)
-                raise ValueError(f"Publish failed: {error}")
-            return result
-
         result = primary.json()
         if not (200 <= primary.status_code < 300):
             error = result.get("error", primary.text) if isinstance(result, dict) else primary.text

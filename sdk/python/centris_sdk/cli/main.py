@@ -53,7 +53,6 @@ from centris_sdk.cli.introspect_cmd import introspect_command
 
 # New power-user commands (Clawdbot-inspired)
 from centris_sdk.cli.agent_cmd import agent_command
-from centris_sdk.cli.exec_cmd import exec_command
 from centris_sdk.cli.do_cmd import do_command
 from centris_sdk.cli.browser import browser_group
 from centris_sdk.cli.file_cmd import file_group
@@ -297,7 +296,6 @@ def cli(
         centris-py agent --json "..."       Output as JSON for scripting
     
     Direct Tool Commands:
-        centris-py exec "git status"        Execute shell command
         centris-py browser navigate URL     Navigate browser
         centris-py browser snapshot         Get page elements
         centris-py file read ./config.json  Read file contents
@@ -428,10 +426,6 @@ cli.add_command(whoami_command, name="whoami")
 # Self-learning / introspection (Clawdbot pattern)
 cli.add_command(introspect_command, name="introspect")
 
-# Deprecation info command
-from centris_sdk.cli.deprecation import deprecations_command
-cli.add_command(deprecations_command, name="deprecations")
-
 # Backend management commands
 register_backend_commands(cli)
 
@@ -446,7 +440,6 @@ cli.add_command(agent_command, name="agent")
 cli.add_command(do_command, name="do")
 
 # Direct tool commands
-cli.add_command(exec_command, name="exec")
 cli.add_command(browser_group, name="browser")
 cli.add_command(desktop_group, name="desktop")
 cli.add_command(file_group, name="file")

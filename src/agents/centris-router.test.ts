@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import {
   classifyCentrisIntent,
   applyCentrisRouting,
   compactStaleSnapshots,
+  detectSingleToolDone,
 } from "./centris-router.js";
 
 // Suppress log noise from router
@@ -307,5 +309,39 @@ describe("compactStaleSnapshots", () => {
     const removed = compactStaleSnapshots(messages, "centris");
     expect(removed).toBe(0);
     expect(messages).toHaveLength(0);
+  });
+});
+
+describe("detectSingleToolDone", () => {
+  it("returns NO_REPLY for successful single tts result", () => {
+    const result = detectSingleToolDone([
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", toolName: "tts", args: { text: "hello" }, id: "t1" }],
+      },
+      {
+        role: "toolResult",
+        toolName: "tts",
+        isError: false,
+        content: [{ type: "text", text: "" }],
+      },
+    ]);
+    expect(result).toBe(SILENT_REPLY_TOKEN);
+  });
+
+  it("returns Done for successful single non-tts tool result", () => {
+    const result = detectSingleToolDone([
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", toolName: "exec", args: { cmd: "pwd" }, id: "t1" }],
+      },
+      {
+        role: "toolResult",
+        toolName: "exec",
+        isError: false,
+        content: [{ type: "text", text: "" }],
+      },
+    ]);
+    expect(result).toBe("Done.");
   });
 });

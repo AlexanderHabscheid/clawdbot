@@ -19,7 +19,7 @@ Source of truth: `sdk/python/centris_sdk/cli/*`.
 - Discovery/install: `list`, `search`, `install`, `update`
 - Auth: `login`, `logout`, `whoami`
 - Backend management: `run`, `start`, `stop`, `doctor`, `status`, `config`, `onboard`
-- Power user: `agent`, `do`, `exec`, `browser`, `file`, `daemon`, `sandbox`, `elements`, `introspect`, `deprecations`, `adapter`
+- Power user: `agent`, `do`, `browser`, `file`, `daemon`, `sandbox`, `elements`, `introspect`, `adapter`
 
 ## `centris-py route` group (Action API)
 

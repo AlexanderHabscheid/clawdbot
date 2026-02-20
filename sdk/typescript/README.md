@@ -115,7 +115,7 @@ npm run build
 centris publish
 ```
 
-Registry publish API: `POST /api/connectors` (legacy fallback: `POST /api/registry/publish`).
+Registry publish API: `POST /api/connectors`.
 
 ## CLI Commands
 

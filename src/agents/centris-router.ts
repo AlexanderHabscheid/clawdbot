@@ -13,6 +13,7 @@
  * with the tools; this just controls *which* tools it sees.
  */
 
+import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { logInfo } from "../logger.js";
 
 // ─── Domain definitions ──────────────────────────────────────────────────────
@@ -425,7 +426,14 @@ export function compactCentrisContext<T extends CompactableMessage>(messages: T[
 // and toolResult messages.
 
 /** Tools whose single-tool results don't need LLM interpretation. */
-const SKIP_CALL2_TOOLS = new Set(["write", "edit", "apply_patch", "exec", "centris_computer"]);
+const SKIP_CALL2_TOOLS = new Set([
+  "write",
+  "edit",
+  "apply_patch",
+  "exec",
+  "centris_computer",
+  "tts",
+]);
 
 /**
  * Check if LLM messages represent a completed single-tool task.
@@ -460,7 +468,7 @@ export function detectSingleToolDone(
   }
 
   logInfo(`[centris-call2-skip] single-tool done: ${result.toolName} → skipping Call 2`);
-  return "Done.";
+  return result.toolName === "tts" ? SILENT_REPLY_TOKEN : "Done.";
 }
 
 /** Extract a tiny summary from a tool result message. */

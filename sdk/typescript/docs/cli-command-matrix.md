@@ -39,7 +39,7 @@ Source of truth: `sdk/typescript/src/cli/program.ts`.
 
 ### `centris publish [path]`
 
-- registry publish API: `POST /api/connectors` (legacy fallback: `POST /api/registry/publish`)
+- registry publish API: `POST /api/connectors`
 - `-r, --registry <url>` default `https://registry.centris.ai`
 - `-k, --api-key <key>`
 - `--dry-run`
