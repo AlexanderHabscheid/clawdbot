@@ -58,3 +58,20 @@ Core kernel operations:
 4. `centris route test ...` to run and verify checks
 
 This path is useful when you want repeatable, low-variance automation instead of purely exploratory interaction loops.
+
+## Action Index and Route Memory (web-memory)
+
+`web.memory.*` and `route.run` now support a richer pre-context contract that is designed to reduce exploratory turns:
+
+- `pageFingerprint`: compact page identity (URL pattern, landmarks, headings, nav labels, signature hash)
+- `actionIndex[]`: semantic actions with affordance, anchors, node hints, success checks, and fallbacks
+- `routeMemory`: reusable intent route with ordered steps, preconditions, and fallback routes
+
+Practical usage pattern:
+
+1. Capture once from a successful run (`route.record.*`, `observe`, extension node extraction)
+2. Store via `web.memory.index` (with `pageFingerprint` + `actionIndex` + `routeMemory`)
+3. Resolve and execute on later runs (`web.memory.resolve` -> `web.memory.execute`)
+4. Fall back to live observation/remap only when confidence or verification fails
+
+Detailed contract examples: `sdk/typescript/docs/action-index-route-memory.md`.
