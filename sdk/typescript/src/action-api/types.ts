@@ -37,12 +37,118 @@ export interface ActionArtifact {
   value: Record<string, unknown>;
 }
 
+export type ActionAffordance =
+  | "click"
+  | "type"
+  | "select"
+  | "submit"
+  | "navigate"
+  | "press"
+  | "read"
+  | "wait";
+
+export type ActionRegion = "header" | "nav" | "main" | "sidebar" | "modal" | "footer" | "unknown";
+
+export type ActionAnchorType =
+  | "label"
+  | "aria_label"
+  | "placeholder"
+  | "near_text"
+  | "selector"
+  | "role"
+  | "url"
+  | "region";
+
+export interface ActionAnchor {
+  anchorType: ActionAnchorType;
+  value: string;
+  weight?: number;
+}
+
+export interface ActionNodeHint {
+  nodeId?: number;
+  selector?: string;
+  role?: string;
+  name?: string;
+}
+
+export interface ActionLandmark {
+  role: string;
+  label?: string;
+  region?: ActionRegion;
+  selectors?: string[];
+  textHints?: string[];
+}
+
+export interface ActionPageFingerprint {
+  fingerprintId?: string;
+  urlPattern?: string;
+  titleHints?: string[];
+  headings?: string[];
+  navLabels?: string[];
+  primaryActions?: string[];
+  landmarks?: ActionLandmark[];
+  interactiveSummary?: {
+    total?: number;
+    buttons?: number;
+    links?: number;
+    inputs?: number;
+    forms?: number;
+    menus?: number;
+    dialogs?: number;
+  };
+  signatureHash?: string;
+  generatedAt?: string;
+  confidence?: number;
+}
+
+export interface ActionIndexEntry {
+  actionId: string;
+  intent: string;
+  affordance: ActionAffordance;
+  semanticLabel?: string;
+  region?: ActionRegion;
+  nodeHints?: ActionNodeHint[];
+  anchors?: ActionAnchor[];
+  preconditions?: string[];
+  successChecks?: KernelSuccessCheck[];
+  fallbackActionIds?: string[];
+  confidence?: number;
+  updatedAt?: string;
+}
+
+export interface ActionRouteMemoryStep {
+  stepId?: string;
+  actionId?: string;
+  operation?: string;
+  params?: Record<string, string>;
+  expectedPageFingerprintId?: string;
+  successChecks?: KernelSuccessCheck[];
+}
+
+export interface ActionRouteMemory {
+  routeId: string;
+  intent?: string;
+  site?: string;
+  pageFingerprintId?: string;
+  steps: ActionRouteMemoryStep[];
+  preconditions?: string[];
+  successChecks?: KernelSuccessCheck[];
+  fallbackRouteIds?: string[];
+  confidence?: number;
+  version?: string;
+  updatedAt?: string;
+}
+
 export interface ActionRouteRunRequest {
   routeId: string;
   url?: string;
   params?: Record<string, string>;
   checks?: KernelSuccessCheck[];
   artifacts?: ActionArtifact[];
+  pageFingerprint?: ActionPageFingerprint;
+  actionIndex?: ActionIndexEntry[];
+  routeMemory?: ActionRouteMemory;
 }
 
 export interface ActionRouteRunResult {
@@ -50,6 +156,10 @@ export interface ActionRouteRunResult {
   executed: number;
   verify?: KernelVerifyResult;
   artifacts?: ActionArtifact[];
+  source?: "memory" | "manifest" | "live";
+  pageFingerprint?: ActionPageFingerprint;
+  actionIndex?: ActionIndexEntry[];
+  routeMemory?: ActionRouteMemory;
 }
 
 export interface ActionRouteRecordStartRequest {
@@ -81,6 +191,9 @@ export interface ActionWebMemoryIndexRequest {
   url: string;
   intent?: string;
   playbook?: Record<string, unknown>;
+  pageFingerprint?: ActionPageFingerprint;
+  actionIndex?: ActionIndexEntry[];
+  routeMemory?: ActionRouteMemory;
   ttlMs?: number;
   metadata?: Record<string, unknown>;
 }
@@ -91,6 +204,9 @@ export interface ActionWebMemoryIndexResult {
   version?: string;
   createdAt?: string;
   expiresAt?: string;
+  pageFingerprint?: ActionPageFingerprint;
+  actionIndex?: ActionIndexEntry[];
+  routeMemory?: ActionRouteMemory;
   artifact?: ActionArtifact;
 }
 
@@ -106,6 +222,11 @@ export interface ActionWebMemoryResolveResult {
   playbook?: Record<string, unknown>;
   generatedAt?: string;
   expiresAt?: string;
+  source?: "cache" | "live";
+  confidence?: number;
+  pageFingerprint?: ActionPageFingerprint;
+  actionIndex?: ActionIndexEntry[];
+  routeMemory?: ActionRouteMemory;
   artifact?: ActionArtifact;
 }
 
@@ -113,6 +234,8 @@ export interface ActionWebMemoryExecuteRequest {
   url: string;
   intent?: string;
   operation?: string;
+  pageFingerprintId?: string;
+  routeId?: string;
   params?: Record<string, unknown>;
 }
 
@@ -120,6 +243,10 @@ export interface ActionWebMemoryExecuteResult {
   ok: boolean;
   source?: "cache" | "live";
   executed?: number;
+  confidence?: number;
+  pageFingerprint?: ActionPageFingerprint;
+  actionIndex?: ActionIndexEntry[];
+  routeMemory?: ActionRouteMemory;
   details?: Record<string, unknown>;
   artifacts?: ActionArtifact[];
 }
@@ -147,6 +274,10 @@ export interface ActionWebMemoryStatsResult {
   misses: number;
   hitRate?: number;
   avgResolveMs?: number;
+  indexedPages?: number;
+  indexedActions?: number;
+  indexedRoutes?: number;
+  avgExecuteMs?: number;
 }
 
 export type ActionApiParamsByMethod = {

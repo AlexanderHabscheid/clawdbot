@@ -34,6 +34,18 @@ ActionApiMethod = Literal[
 ]
 
 RouteRecordOutcome = Literal["success", "failed", "cancelled"]
+ActionAffordance = Literal["click", "type", "select", "submit", "navigate", "press", "read", "wait"]
+ActionRegion = Literal["header", "nav", "main", "sidebar", "modal", "footer", "unknown"]
+ActionAnchorType = Literal[
+    "label",
+    "aria_label",
+    "placeholder",
+    "near_text",
+    "selector",
+    "role",
+    "url",
+    "region",
+]
 
 
 @dataclass
@@ -45,12 +57,95 @@ class ActionArtifact:
 
 
 @dataclass
+class ActionAnchor:
+    anchor_type: ActionAnchorType
+    value: str
+    weight: Optional[float] = None
+
+
+@dataclass
+class ActionNodeHint:
+    node_id: Optional[int] = None
+    selector: Optional[str] = None
+    role: Optional[str] = None
+    name: Optional[str] = None
+
+
+@dataclass
+class ActionLandmark:
+    role: str
+    label: Optional[str] = None
+    region: Optional[ActionRegion] = None
+    selectors: list[str] = field(default_factory=list)
+    text_hints: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ActionPageFingerprint:
+    fingerprint_id: Optional[str] = None
+    url_pattern: Optional[str] = None
+    title_hints: list[str] = field(default_factory=list)
+    headings: list[str] = field(default_factory=list)
+    nav_labels: list[str] = field(default_factory=list)
+    primary_actions: list[str] = field(default_factory=list)
+    landmarks: list[ActionLandmark] = field(default_factory=list)
+    interactive_summary: Dict[str, int] = field(default_factory=dict)
+    signature_hash: Optional[str] = None
+    generated_at: Optional[str] = None
+    confidence: Optional[float] = None
+
+
+@dataclass
+class ActionIndexEntry:
+    action_id: str
+    intent: str
+    affordance: ActionAffordance
+    semantic_label: Optional[str] = None
+    region: Optional[ActionRegion] = None
+    node_hints: list[ActionNodeHint] = field(default_factory=list)
+    anchors: list[ActionAnchor] = field(default_factory=list)
+    preconditions: list[str] = field(default_factory=list)
+    success_checks: list[KernelSuccessCheck] = field(default_factory=list)
+    fallback_action_ids: list[str] = field(default_factory=list)
+    confidence: Optional[float] = None
+    updated_at: Optional[str] = None
+
+
+@dataclass
+class ActionRouteMemoryStep:
+    step_id: Optional[str] = None
+    action_id: Optional[str] = None
+    operation: Optional[str] = None
+    params: Dict[str, str] = field(default_factory=dict)
+    expected_page_fingerprint_id: Optional[str] = None
+    success_checks: list[KernelSuccessCheck] = field(default_factory=list)
+
+
+@dataclass
+class ActionRouteMemory:
+    route_id: str
+    steps: list[ActionRouteMemoryStep] = field(default_factory=list)
+    intent: Optional[str] = None
+    site: Optional[str] = None
+    page_fingerprint_id: Optional[str] = None
+    preconditions: list[str] = field(default_factory=list)
+    success_checks: list[KernelSuccessCheck] = field(default_factory=list)
+    fallback_route_ids: list[str] = field(default_factory=list)
+    confidence: Optional[float] = None
+    version: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+@dataclass
 class ActionRouteRunRequest:
     route_id: str
     url: Optional[str] = None
     params: Dict[str, str] = field(default_factory=dict)
     checks: list[KernelSuccessCheck] = field(default_factory=list)
     artifacts: list[ActionArtifact] = field(default_factory=list)
+    page_fingerprint: Optional[ActionPageFingerprint] = None
+    action_index: list[ActionIndexEntry] = field(default_factory=list)
+    route_memory: Optional[ActionRouteMemory] = None
 
 
 @dataclass
@@ -59,6 +154,10 @@ class ActionRouteRunResult:
     executed: int
     verify: Optional[KernelVerifyResult] = None
     artifacts: list[ActionArtifact] = field(default_factory=list)
+    source: Optional[Literal["memory", "manifest", "live"]] = None
+    page_fingerprint: Optional[ActionPageFingerprint] = None
+    action_index: list[ActionIndexEntry] = field(default_factory=list)
+    route_memory: Optional[ActionRouteMemory] = None
 
 
 @dataclass
@@ -95,6 +194,9 @@ class ActionWebMemoryIndexRequest:
     url: str
     intent: Optional[str] = None
     playbook: Dict[str, Any] = field(default_factory=dict)
+    page_fingerprint: Optional[ActionPageFingerprint] = None
+    action_index: list[ActionIndexEntry] = field(default_factory=list)
+    route_memory: Optional[ActionRouteMemory] = None
     ttl_ms: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -106,6 +208,9 @@ class ActionWebMemoryIndexResult:
     version: Optional[str] = None
     created_at: Optional[str] = None
     expires_at: Optional[str] = None
+    page_fingerprint: Optional[ActionPageFingerprint] = None
+    action_index: list[ActionIndexEntry] = field(default_factory=list)
+    route_memory: Optional[ActionRouteMemory] = None
     artifact: Optional[ActionArtifact] = None
 
 
@@ -123,6 +228,11 @@ class ActionWebMemoryResolveResult:
     playbook: Dict[str, Any] = field(default_factory=dict)
     generated_at: Optional[str] = None
     expires_at: Optional[str] = None
+    source: Optional[Literal["cache", "live"]] = None
+    confidence: Optional[float] = None
+    page_fingerprint: Optional[ActionPageFingerprint] = None
+    action_index: list[ActionIndexEntry] = field(default_factory=list)
+    route_memory: Optional[ActionRouteMemory] = None
     artifact: Optional[ActionArtifact] = None
 
 
@@ -131,6 +241,8 @@ class ActionWebMemoryExecuteRequest:
     url: str
     intent: Optional[str] = None
     operation: Optional[str] = None
+    page_fingerprint_id: Optional[str] = None
+    route_id: Optional[str] = None
     params: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -139,6 +251,10 @@ class ActionWebMemoryExecuteResult:
     ok: bool
     source: Optional[Literal["cache", "live"]] = None
     executed: Optional[int] = None
+    confidence: Optional[float] = None
+    page_fingerprint: Optional[ActionPageFingerprint] = None
+    action_index: list[ActionIndexEntry] = field(default_factory=list)
+    route_memory: Optional[ActionRouteMemory] = None
     details: Dict[str, Any] = field(default_factory=dict)
     artifacts: list[ActionArtifact] = field(default_factory=list)
 
@@ -170,6 +286,10 @@ class ActionWebMemoryStatsResult:
     misses: int
     hit_rate: Optional[float] = None
     avg_resolve_ms: Optional[float] = None
+    indexed_pages: Optional[int] = None
+    indexed_actions: Optional[int] = None
+    indexed_routes: Optional[int] = None
+    avg_execute_ms: Optional[float] = None
 
 
 ActionApiParams = Union[

@@ -50,6 +50,13 @@ from centris_sdk.action_api import (
     ACTION_API_SPEC_VERSION,
     ActionApiError,
     ActionArtifact,
+    ActionAnchor,
+    ActionIndexEntry,
+    ActionLandmark,
+    ActionNodeHint,
+    ActionPageFingerprint,
+    ActionRouteMemory,
+    ActionRouteMemoryStep,
     ActionApiRequestEnvelope,
     ActionApiResponseEnvelope,
     ActionRouteRecordStartRequest,
@@ -83,6 +90,283 @@ logger = logging.getLogger(__name__)
 
 # Default API version (set to current stable)
 DEFAULT_API_VERSION = "2026-01-30"
+
+
+def _kernel_check_to_dict(check: KernelSuccessCheck) -> Dict[str, Any]:
+    return {"type": check.type, "value": check.value}
+
+
+def _artifact_to_dict(artifact: ActionArtifact) -> Dict[str, Any]:
+    return {
+        "artifactType": artifact.artifact_type,
+        "schema": artifact.schema,
+        "producerOperation": artifact.producer_operation,
+        "value": artifact.value,
+    }
+
+
+def _anchor_to_dict(anchor: ActionAnchor) -> Dict[str, Any]:
+    return {
+        "anchorType": anchor.anchor_type,
+        "value": anchor.value,
+        "weight": anchor.weight,
+    }
+
+
+def _node_hint_to_dict(node_hint: ActionNodeHint) -> Dict[str, Any]:
+    return {
+        "nodeId": node_hint.node_id,
+        "selector": node_hint.selector,
+        "role": node_hint.role,
+        "name": node_hint.name,
+    }
+
+
+def _landmark_to_dict(landmark: ActionLandmark) -> Dict[str, Any]:
+    return {
+        "role": landmark.role,
+        "label": landmark.label,
+        "region": landmark.region,
+        "selectors": landmark.selectors,
+        "textHints": landmark.text_hints,
+    }
+
+
+def _page_fingerprint_to_dict(page_fingerprint: ActionPageFingerprint) -> Dict[str, Any]:
+    return {
+        "fingerprintId": page_fingerprint.fingerprint_id,
+        "urlPattern": page_fingerprint.url_pattern,
+        "titleHints": page_fingerprint.title_hints,
+        "headings": page_fingerprint.headings,
+        "navLabels": page_fingerprint.nav_labels,
+        "primaryActions": page_fingerprint.primary_actions,
+        "landmarks": [_landmark_to_dict(item) for item in page_fingerprint.landmarks],
+        "interactiveSummary": page_fingerprint.interactive_summary,
+        "signatureHash": page_fingerprint.signature_hash,
+        "generatedAt": page_fingerprint.generated_at,
+        "confidence": page_fingerprint.confidence,
+    }
+
+
+def _action_index_entry_to_dict(entry: ActionIndexEntry) -> Dict[str, Any]:
+    return {
+        "actionId": entry.action_id,
+        "intent": entry.intent,
+        "affordance": entry.affordance,
+        "semanticLabel": entry.semantic_label,
+        "region": entry.region,
+        "nodeHints": [_node_hint_to_dict(item) for item in entry.node_hints],
+        "anchors": [_anchor_to_dict(item) for item in entry.anchors],
+        "preconditions": entry.preconditions,
+        "successChecks": [_kernel_check_to_dict(item) for item in entry.success_checks],
+        "fallbackActionIds": entry.fallback_action_ids,
+        "confidence": entry.confidence,
+        "updatedAt": entry.updated_at,
+    }
+
+
+def _route_memory_step_to_dict(step: ActionRouteMemoryStep) -> Dict[str, Any]:
+    return {
+        "stepId": step.step_id,
+        "actionId": step.action_id,
+        "operation": step.operation,
+        "params": step.params,
+        "expectedPageFingerprintId": step.expected_page_fingerprint_id,
+        "successChecks": [_kernel_check_to_dict(item) for item in step.success_checks],
+    }
+
+
+def _route_memory_to_dict(route_memory: ActionRouteMemory) -> Dict[str, Any]:
+    return {
+        "routeId": route_memory.route_id,
+        "intent": route_memory.intent,
+        "site": route_memory.site,
+        "pageFingerprintId": route_memory.page_fingerprint_id,
+        "steps": [_route_memory_step_to_dict(item) for item in route_memory.steps],
+        "preconditions": route_memory.preconditions,
+        "successChecks": [_kernel_check_to_dict(item) for item in route_memory.success_checks],
+        "fallbackRouteIds": route_memory.fallback_route_ids,
+        "confidence": route_memory.confidence,
+        "version": route_memory.version,
+        "updatedAt": route_memory.updated_at,
+    }
+
+
+def _parse_kernel_check(raw: Any) -> Optional[KernelSuccessCheck]:
+    if not isinstance(raw, dict):
+        return None
+    check_type = raw.get("type")
+    check_value = raw.get("value")
+    if not isinstance(check_type, str) or not isinstance(check_value, str):
+        return None
+    return KernelSuccessCheck(type=check_type, value=check_value)
+
+
+def _parse_action_artifact(raw: Any) -> Optional[ActionArtifact]:
+    if not isinstance(raw, dict):
+        return None
+    return ActionArtifact(
+        artifact_type=str(raw.get("artifactType", "")),
+        schema=str(raw.get("schema", "")),
+        producer_operation=str(raw.get("producerOperation", "")),
+        value=raw.get("value", {}) if isinstance(raw.get("value"), dict) else {},
+    )
+
+
+def _parse_page_fingerprint(raw: Any) -> Optional[ActionPageFingerprint]:
+    if not isinstance(raw, dict):
+        return None
+    landmarks: list[ActionLandmark] = []
+    for item in raw.get("landmarks", []):
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        if not isinstance(role, str) or role == "":
+            continue
+        selectors = item.get("selectors")
+        text_hints = item.get("textHints")
+        landmarks.append(
+            ActionLandmark(
+                role=role,
+                label=item.get("label") if isinstance(item.get("label"), str) else None,
+                region=item.get("region") if isinstance(item.get("region"), str) else None,
+                selectors=selectors if isinstance(selectors, list) else [],
+                text_hints=text_hints if isinstance(text_hints, list) else [],
+            )
+        )
+    interactive_summary = raw.get("interactiveSummary")
+    return ActionPageFingerprint(
+        fingerprint_id=raw.get("fingerprintId") if isinstance(raw.get("fingerprintId"), str) else None,
+        url_pattern=raw.get("urlPattern") if isinstance(raw.get("urlPattern"), str) else None,
+        title_hints=raw.get("titleHints") if isinstance(raw.get("titleHints"), list) else [],
+        headings=raw.get("headings") if isinstance(raw.get("headings"), list) else [],
+        nav_labels=raw.get("navLabels") if isinstance(raw.get("navLabels"), list) else [],
+        primary_actions=raw.get("primaryActions") if isinstance(raw.get("primaryActions"), list) else [],
+        landmarks=landmarks,
+        interactive_summary=interactive_summary if isinstance(interactive_summary, dict) else {},
+        signature_hash=raw.get("signatureHash") if isinstance(raw.get("signatureHash"), str) else None,
+        generated_at=raw.get("generatedAt") if isinstance(raw.get("generatedAt"), str) else None,
+        confidence=float(raw["confidence"]) if isinstance(raw.get("confidence"), (int, float)) else None,
+    )
+
+
+def _parse_action_index_entries(raw: Any) -> list[ActionIndexEntry]:
+    entries: list[ActionIndexEntry] = []
+    if not isinstance(raw, list):
+        return entries
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        action_id = item.get("actionId")
+        intent = item.get("intent")
+        affordance = item.get("affordance")
+        if not isinstance(action_id, str) or not isinstance(intent, str) or not isinstance(affordance, str):
+            continue
+        node_hints: list[ActionNodeHint] = []
+        for node in item.get("nodeHints", []):
+            if isinstance(node, dict):
+                node_hints.append(
+                    ActionNodeHint(
+                        node_id=node.get("nodeId") if isinstance(node.get("nodeId"), int) else None,
+                        selector=node.get("selector") if isinstance(node.get("selector"), str) else None,
+                        role=node.get("role") if isinstance(node.get("role"), str) else None,
+                        name=node.get("name") if isinstance(node.get("name"), str) else None,
+                    )
+                )
+        anchors: list[ActionAnchor] = []
+        for anchor in item.get("anchors", []):
+            if isinstance(anchor, dict):
+                anchor_type = anchor.get("anchorType")
+                value = anchor.get("value")
+                if isinstance(anchor_type, str) and isinstance(value, str):
+                    anchors.append(
+                        ActionAnchor(
+                            anchor_type=anchor_type,
+                            value=value,
+                            weight=float(anchor["weight"])
+                            if isinstance(anchor.get("weight"), (int, float))
+                            else None,
+                        )
+                    )
+        success_checks: list[KernelSuccessCheck] = []
+        for check in item.get("successChecks", []):
+            parsed_check = _parse_kernel_check(check)
+            if parsed_check:
+                success_checks.append(parsed_check)
+        entries.append(
+            ActionIndexEntry(
+                action_id=action_id,
+                intent=intent,
+                affordance=affordance,
+                semantic_label=item.get("semanticLabel")
+                if isinstance(item.get("semanticLabel"), str)
+                else None,
+                region=item.get("region") if isinstance(item.get("region"), str) else None,
+                node_hints=node_hints,
+                anchors=anchors,
+                preconditions=item.get("preconditions") if isinstance(item.get("preconditions"), list) else [],
+                success_checks=success_checks,
+                fallback_action_ids=item.get("fallbackActionIds")
+                if isinstance(item.get("fallbackActionIds"), list)
+                else [],
+                confidence=float(item["confidence"])
+                if isinstance(item.get("confidence"), (int, float))
+                else None,
+                updated_at=item.get("updatedAt") if isinstance(item.get("updatedAt"), str) else None,
+            )
+        )
+    return entries
+
+
+def _parse_route_memory(raw: Any) -> Optional[ActionRouteMemory]:
+    if not isinstance(raw, dict):
+        return None
+    route_id = raw.get("routeId")
+    if not isinstance(route_id, str):
+        return None
+    steps: list[ActionRouteMemoryStep] = []
+    for item in raw.get("steps", []):
+        if not isinstance(item, dict):
+            continue
+        success_checks: list[KernelSuccessCheck] = []
+        for check in item.get("successChecks", []):
+            parsed_check = _parse_kernel_check(check)
+            if parsed_check:
+                success_checks.append(parsed_check)
+        steps.append(
+            ActionRouteMemoryStep(
+                step_id=item.get("stepId") if isinstance(item.get("stepId"), str) else None,
+                action_id=item.get("actionId") if isinstance(item.get("actionId"), str) else None,
+                operation=item.get("operation") if isinstance(item.get("operation"), str) else None,
+                params=item.get("params") if isinstance(item.get("params"), dict) else {},
+                expected_page_fingerprint_id=item.get("expectedPageFingerprintId")
+                if isinstance(item.get("expectedPageFingerprintId"), str)
+                else None,
+                success_checks=success_checks,
+            )
+        )
+    success_checks: list[KernelSuccessCheck] = []
+    for check in raw.get("successChecks", []):
+        parsed_check = _parse_kernel_check(check)
+        if parsed_check:
+            success_checks.append(parsed_check)
+    return ActionRouteMemory(
+        route_id=route_id,
+        steps=steps,
+        intent=raw.get("intent") if isinstance(raw.get("intent"), str) else None,
+        site=raw.get("site") if isinstance(raw.get("site"), str) else None,
+        page_fingerprint_id=raw.get("pageFingerprintId")
+        if isinstance(raw.get("pageFingerprintId"), str)
+        else None,
+        preconditions=raw.get("preconditions") if isinstance(raw.get("preconditions"), list) else [],
+        success_checks=success_checks,
+        fallback_route_ids=raw.get("fallbackRouteIds")
+        if isinstance(raw.get("fallbackRouteIds"), list)
+        else [],
+        confidence=float(raw["confidence"]) if isinstance(raw.get("confidence"), (int, float)) else None,
+        version=raw.get("version") if isinstance(raw.get("version"), str) else None,
+        updated_at=raw.get("updatedAt") if isinstance(raw.get("updatedAt"), str) else None,
+    )
 
 
 @dataclass
@@ -636,16 +920,17 @@ class Centris:
             "routeId": request.route_id,
             "url": request.url,
             "params": request.params,
-            "checks": [c.__dict__ for c in request.checks],
-            "artifacts": [
-                {
-                    "artifactType": a.artifact_type,
-                    "schema": a.schema,
-                    "producerOperation": a.producer_operation,
-                    "value": a.value,
-                }
-                for a in request.artifacts
-            ],
+            "checks": [_kernel_check_to_dict(c) for c in request.checks],
+            "artifacts": [_artifact_to_dict(a) for a in request.artifacts],
+            "pageFingerprint": (
+                _page_fingerprint_to_dict(request.page_fingerprint)
+                if request.page_fingerprint
+                else None
+            ),
+            "actionIndex": [_action_index_entry_to_dict(item) for item in request.action_index],
+            "routeMemory": (
+                _route_memory_to_dict(request.route_memory) if request.route_memory else None
+            ),
         }
         result = self._call_action_api("route.run", payload)
         verify = result.get("verify")
@@ -658,20 +943,18 @@ class Centris:
             )
         artifacts: list[ActionArtifact] = []
         for item in result.get("artifacts", []):
-            if isinstance(item, dict):
-                artifacts.append(
-                    ActionArtifact(
-                        artifact_type=str(item.get("artifactType", "")),
-                        schema=str(item.get("schema", "")),
-                        producer_operation=str(item.get("producerOperation", "")),
-                        value=item.get("value", {}) if isinstance(item.get("value"), dict) else {},
-                    )
-                )
+            parsed_artifact = _parse_action_artifact(item)
+            if parsed_artifact:
+                artifacts.append(parsed_artifact)
         return ActionRouteRunResult(
             ok=bool(result.get("ok", False)),
             executed=int(result.get("executed", 0)),
             verify=verify_result,
             artifacts=artifacts,
+            source=result.get("source") if isinstance(result.get("source"), str) else None,
+            page_fingerprint=_parse_page_fingerprint(result.get("pageFingerprint")),
+            action_index=_parse_action_index_entries(result.get("actionIndex")),
+            route_memory=_parse_route_memory(result.get("routeMemory")),
         )
 
     def route_record_start(
@@ -715,27 +998,29 @@ class Centris:
             "url": request.url,
             "intent": request.intent,
             "playbook": request.playbook,
+            "pageFingerprint": (
+                _page_fingerprint_to_dict(request.page_fingerprint)
+                if request.page_fingerprint
+                else None
+            ),
+            "actionIndex": [_action_index_entry_to_dict(item) for item in request.action_index],
+            "routeMemory": (
+                _route_memory_to_dict(request.route_memory) if request.route_memory else None
+            ),
             "ttlMs": request.ttl_ms,
             "metadata": request.metadata,
         }
         result = self._call_action_api("web.memory.index", payload)
-        artifact_obj = None
-        artifact_raw = result.get("artifact")
-        if isinstance(artifact_raw, dict):
-            artifact_obj = ActionArtifact(
-                artifact_type=str(artifact_raw.get("artifactType", "")),
-                schema=str(artifact_raw.get("schema", "")),
-                producer_operation=str(artifact_raw.get("producerOperation", "")),
-                value=artifact_raw.get("value", {})
-                if isinstance(artifact_raw.get("value"), dict)
-                else {},
-            )
+        artifact_obj = _parse_action_artifact(result.get("artifact"))
         return ActionWebMemoryIndexResult(
             ok=bool(result.get("ok", False)),
             cache_key=result.get("cacheKey"),
             version=result.get("version"),
             created_at=result.get("createdAt"),
             expires_at=result.get("expiresAt"),
+            page_fingerprint=_parse_page_fingerprint(result.get("pageFingerprint")),
+            action_index=_parse_action_index_entries(result.get("actionIndex")),
+            route_memory=_parse_route_memory(result.get("routeMemory")),
             artifact=artifact_obj,
         )
 
@@ -750,23 +1035,20 @@ class Centris:
             "maxAgeMs": request.max_age_ms,
         }
         result = self._call_action_api("web.memory.resolve", payload)
-        artifact_obj = None
-        artifact_raw = result.get("artifact")
-        if isinstance(artifact_raw, dict):
-            artifact_obj = ActionArtifact(
-                artifact_type=str(artifact_raw.get("artifactType", "")),
-                schema=str(artifact_raw.get("schema", "")),
-                producer_operation=str(artifact_raw.get("producerOperation", "")),
-                value=artifact_raw.get("value", {})
-                if isinstance(artifact_raw.get("value"), dict)
-                else {},
-            )
+        artifact_obj = _parse_action_artifact(result.get("artifact"))
         return ActionWebMemoryResolveResult(
             hit=bool(result.get("hit", False)),
             cache_key=result.get("cacheKey"),
             playbook=result.get("playbook", {}) if isinstance(result.get("playbook"), dict) else {},
             generated_at=result.get("generatedAt"),
             expires_at=result.get("expiresAt"),
+            source=result.get("source") if isinstance(result.get("source"), str) else None,
+            confidence=float(result["confidence"])
+            if isinstance(result.get("confidence"), (int, float))
+            else None,
+            page_fingerprint=_parse_page_fingerprint(result.get("pageFingerprint")),
+            action_index=_parse_action_index_entries(result.get("actionIndex")),
+            route_memory=_parse_route_memory(result.get("routeMemory")),
             artifact=artifact_obj,
         )
 
@@ -779,26 +1061,28 @@ class Centris:
             "url": request.url,
             "intent": request.intent,
             "operation": request.operation,
+            "pageFingerprintId": request.page_fingerprint_id,
+            "routeId": request.route_id,
             "params": request.params,
         }
         result = self._call_action_api("web.memory.execute", payload)
         artifacts: list[ActionArtifact] = []
         for item in result.get("artifacts", []):
-            if isinstance(item, dict):
-                artifacts.append(
-                    ActionArtifact(
-                        artifact_type=str(item.get("artifactType", "")),
-                        schema=str(item.get("schema", "")),
-                        producer_operation=str(item.get("producerOperation", "")),
-                        value=item.get("value", {}) if isinstance(item.get("value"), dict) else {},
-                    )
-                )
+            parsed_artifact = _parse_action_artifact(item)
+            if parsed_artifact:
+                artifacts.append(parsed_artifact)
         source_value = result.get("source")
         source = source_value if source_value in ("cache", "live") else None
         return ActionWebMemoryExecuteResult(
             ok=bool(result.get("ok", False)),
             source=source,
             executed=int(result["executed"]) if isinstance(result.get("executed"), int) else None,
+            confidence=float(result["confidence"])
+            if isinstance(result.get("confidence"), (int, float))
+            else None,
+            page_fingerprint=_parse_page_fingerprint(result.get("pageFingerprint")),
+            action_index=_parse_action_index_entries(result.get("actionIndex")),
+            route_memory=_parse_route_memory(result.get("routeMemory")),
             details=result.get("details", {}) if isinstance(result.get("details"), dict) else {},
             artifacts=artifacts,
         )
@@ -837,6 +1121,18 @@ class Centris:
             hit_rate=float(result["hitRate"]) if isinstance(result.get("hitRate"), (int, float)) else None,
             avg_resolve_ms=float(result["avgResolveMs"])
             if isinstance(result.get("avgResolveMs"), (int, float))
+            else None,
+            indexed_pages=int(result["indexedPages"])
+            if isinstance(result.get("indexedPages"), int)
+            else None,
+            indexed_actions=int(result["indexedActions"])
+            if isinstance(result.get("indexedActions"), int)
+            else None,
+            indexed_routes=int(result["indexedRoutes"])
+            if isinstance(result.get("indexedRoutes"), int)
+            else None,
+            avg_execute_ms=float(result["avgExecuteMs"])
+            if isinstance(result.get("avgExecuteMs"), (int, float))
             else None,
         )
 
