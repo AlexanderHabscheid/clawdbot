@@ -303,8 +303,36 @@ async function getOrCreateCentrisService() {
   return centrisService;
 }
 
+function buildContentSecurityPolicy(isDev) {
+  const scriptSrc = isDev
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*;"
+    : "script-src 'self' 'unsafe-inline';";
+  return [
+    "default-src 'self';",
+    scriptSrc,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;",
+    "font-src 'self' https://fonts.gstatic.com data:;",
+    "img-src 'self' data:;",
+    "media-src 'self' blob:;",
+    "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https://api.openai.com https://fonts.googleapis.com https://centris-ai-production.up.railway.app wss://centris-ai-production.up.railway.app;",
+  ].join(" ");
+}
+
+function configureSessionCsp() {
+  const isDev = process.env.NODE_ENV === "development";
+  const cspHeader = buildContentSecurityPolicy(isDev);
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...(details.responseHeaders || {}) };
+    responseHeaders["Content-Security-Policy"] = [cspHeader];
+    callback({ responseHeaders });
+  });
+  logger.log(`[main.js] ✅ Session CSP configured (${isDev ? "dev" : "prod"} mode)`);
+}
+
 // Main application startup
 async function startApp() {
+  configureSessionCsp();
+
   // CRITICAL: Handle permission requests for microphone access FIRST
   // This MUST be set up before any windows are created for getUserMedia to work
   // This is REQUIRED for getUserMedia to work in Electron

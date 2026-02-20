@@ -15,6 +15,17 @@ const {
   WindowPositionUtil,
 } = require("./windowConfig");
 
+function getConsoleMessageDetails(event, fallbackLevel, fallbackMessage) {
+  if (typeof event?.message === "string") {
+    return { level: event.level, message: event.message };
+  }
+  return { level: fallbackLevel, message: fallbackMessage };
+}
+
+function toConsolePrefix(level) {
+  return level === 0 ? "🔵" : level === 1 ? "🟡" : "🔴";
+}
+
 class WindowManager {
   constructor() {
     this.mainWindow = null;
@@ -661,32 +672,31 @@ class WindowManager {
     // Electron passes: (event, level, message, line, sourceId)
     // level: 0=info, 1=warning, 2=error
     // OPTIMIZATION: Filter out noisy/repeated messages to reduce log bloat
-    this.mainWindow.webContents.on(
-      "console-message",
-      (_event, level, message, _line, _sourceId) => {
-        if (!message) {
-          return;
-        }
+    this.mainWindow.webContents.on("console-message", (event, level, message) => {
+      const details = getConsoleMessageDetails(event, level, message);
+      const rendererMessage = details.message;
+      if (!rendererMessage) {
+        return;
+      }
 
-        // Skip noisy repeated messages that don't help debugging
-        const skipPatterns = [
-          /Setting up on\w+Listener/, // Listener setup messages (repeated on mount)
-          /Already initializing/, // Duplicate init warnings
-          /Wake word mode:/, // Status updates
-          /Initialized with audio context/, // Audio init (happens multiple times)
-          /Connected to Unified Audio/, // Audio connection
-          /ScriptProcessorNode is deprecated/, // Browser warning
-        ];
+      // Skip noisy repeated messages that don't help debugging
+      const skipPatterns = [
+        /Setting up on\w+Listener/, // Listener setup messages (repeated on mount)
+        /Already initializing/, // Duplicate init warnings
+        /Wake word mode:/, // Status updates
+        /Initialized with audio context/, // Audio init (happens multiple times)
+        /Connected to Unified Audio/, // Audio connection
+        /ScriptProcessorNode is deprecated/, // Browser warning
+      ];
 
-        if (skipPatterns.some((p) => p.test(message))) {
-          return; // Skip noisy messages
-        }
+      if (skipPatterns.some((p) => p.test(rendererMessage))) {
+        return; // Skip noisy messages
+      }
 
-        const prefix = level === 0 ? "🔵" : level === 1 ? "🟡" : "🔴";
-        // Only log to console, not double-logging via logger
-        console.log(`[Renderer Main] ${prefix} ${message}`);
-      },
-    );
+      const prefix = toConsolePrefix(details.level);
+      // Only log to console, not double-logging via logger
+      console.log(`[Renderer Main] ${prefix} ${rendererMessage}`);
+    });
 
     // CRITICAL: Log when renderer starts loading
     this.mainWindow.webContents.on("did-start-loading", () => {
@@ -1133,8 +1143,10 @@ class WindowManager {
         });
 
         // Log console messages (filtered for noise reduction)
-        pillWindow.webContents.on("console-message", (_event, level, message) => {
-          if (!message) {
+        pillWindow.webContents.on("console-message", (event, level, message) => {
+          const details = getConsoleMessageDetails(event, level, message);
+          const rendererMessage = details.message;
+          if (!rendererMessage) {
             return;
           }
 
@@ -1149,12 +1161,12 @@ class WindowManager {
             /📊 Status change/, // Wake word status updates
           ];
 
-          if (skipPatterns.some((p) => p.test(message))) {
+          if (skipPatterns.some((p) => p.test(rendererMessage))) {
             return;
           }
 
-          const prefix = level === 0 ? "🔵" : level === 1 ? "🟡" : "🔴";
-          console.log(`[Renderer PillUI-${i + 1}] ${prefix} ${message}`);
+          const prefix = toConsolePrefix(details.level);
+          console.log(`[Renderer PillUI-${i + 1}] ${prefix} ${rendererMessage}`);
         });
 
         console.log(`[WindowManager] ✅ Pill window ${i + 1} created`);
@@ -1307,33 +1319,32 @@ class WindowManager {
     // Electron passes: (event, level, message, line, sourceId)
     // level: 0=info, 1=warning, 2=error
     // OPTIMIZATION: Filter out noisy messages and don't double-log
-    this.pillUIWindow.webContents.on(
-      "console-message",
-      (_event, level, message, _line, _sourceId) => {
-        if (!message) {
-          return;
-        }
+    this.pillUIWindow.webContents.on("console-message", (event, level, message) => {
+      const details = getConsoleMessageDetails(event, level, message);
+      const rendererMessage = details.message;
+      if (!rendererMessage) {
+        return;
+      }
 
-        // Skip noisy repeated messages
-        const skipPatterns = [
-          /Setting up on\w+Listener/,
-          /Already initializing/,
-          /Wake word mode:/,
-          /Initialized with audio context/,
-          /Connected to Unified Audio/,
-          /ScriptProcessorNode is deprecated/,
-          /📊 Status change/,
-        ];
+      // Skip noisy repeated messages
+      const skipPatterns = [
+        /Setting up on\w+Listener/,
+        /Already initializing/,
+        /Wake word mode:/,
+        /Initialized with audio context/,
+        /Connected to Unified Audio/,
+        /ScriptProcessorNode is deprecated/,
+        /📊 Status change/,
+      ];
 
-        if (skipPatterns.some((p) => p.test(message))) {
-          return;
-        }
+      if (skipPatterns.some((p) => p.test(rendererMessage))) {
+        return;
+      }
 
-        const prefix = level === 0 ? "🔵" : level === 1 ? "🟡" : "🔴";
-        // Only log to console, not double-logging via logger
-        console.log(`[Renderer PillUI] ${prefix} ${message}`);
-      },
-    );
+      const prefix = toConsolePrefix(details.level);
+      // Only log to console, not double-logging via logger
+      console.log(`[Renderer PillUI] ${prefix} ${rendererMessage}`);
+    });
 
     // CRITICAL: Log when pill UI renderer starts loading
     this.pillUIWindow.webContents.on("did-start-loading", () => {
