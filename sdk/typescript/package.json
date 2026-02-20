@@ -1,5 +1,5 @@
 {
-  "name": "@centris/sdk",
+  "name": "centris-sdk",
   "version": "1.0.0",
   "description": "Centris SDK for building connectors and integrations",
   "keywords": [

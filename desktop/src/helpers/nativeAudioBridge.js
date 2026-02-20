@@ -12,8 +12,33 @@
 
 const { ipcMain, Notification } = require("electron");
 const path = require("path");
-const { io } = require("socket.io-client");
-const WebSocket = require("ws");
+let WebSocketClient;
+try {
+  WebSocketClient = require("ws");
+} catch {
+  // ws not available as direct dep; try globalThis (Node 22+)
+  WebSocketClient = globalThis.WebSocket;
+}
+
+const PRODUCTION_GATEWAY_URL = "https://centris-ai-production.up.railway.app";
+const PRODUCTION_GATEWAY_WS_URL = "wss://centris-ai-production.up.railway.app";
+
+function resolveGatewayUrl() {
+  return (
+    process.env.CENTRIS_GATEWAY_URL || process.env.OPENCLAW_GATEWAY_URL || PRODUCTION_GATEWAY_URL
+  );
+}
+
+function resolveGatewayWsUrl() {
+  const explicit = process.env.CENTRIS_GATEWAY_WS_URL || process.env.OPENCLAW_GATEWAY_WS_URL;
+  if (explicit) return explicit;
+  const httpUrl = resolveGatewayUrl();
+  return httpUrl.replace(/^http/, "ws");
+}
+
+function resolveGatewayToken() {
+  return process.env.OPENCLAW_GATEWAY_TOKEN || process.env.CENTRIS_GATEWAY_TOKEN || null;
+}
 
 // Human-readable tool names for notifications
 const TOOL_DISPLAY_NAMES = {
@@ -74,20 +99,6 @@ try {
 /**
  * Native Audio Bridge for Electron
  */
-/** True when backendUrl is the Centris gateway (Railway); use /ws/centris/voice instead of Socket.IO */
-function isCentrisGatewayUrl(backendUrl) {
-  if (!backendUrl || typeof backendUrl !== "string") {
-    return false;
-  }
-  const u = backendUrl.replace(/\/$/, "").toLowerCase();
-  return (
-    u.startsWith("https://") ||
-    u.includes("centris-ai-production") ||
-    u.includes("railway") ||
-    u.includes("up.railway.app")
-  );
-}
-
 class NativeAudioBridge {
   constructor() {
     this.capture = null;
@@ -100,8 +111,6 @@ class NativeAudioBridge {
     this.audioSequence = 0; // Sequence number for audio chunks
     this.ipcHandlersSetup = false;
     this.audioChunkPollingInterval = null; // Interval for polling audio chunks from native module
-    this.centrisVoiceMode = false; // Use Centris gateway /ws/centris/voice (raw WebSocket)
-    this.centrisVoiceWs = null; // WebSocket for Centris voice when centrisVoiceMode is true
 
     // CRITICAL: Set up IPC handlers immediately in constructor
     this.setupIPCHandlers();
@@ -393,22 +402,9 @@ class NativeAudioBridge {
           this.capture.shutdown();
         }
 
-        if (this.centrisVoiceWs) {
-          try {
-            this.centrisVoiceWs.close();
-          } catch (e) {}
-          this.centrisVoiceWs = null;
-        }
-        this.centrisVoiceMode = false;
-
-        // Centris gateway (Railway): use /ws/centris/voice; otherwise Socket.IO
+        // Setup WebSocket connection for streaming transcription
         if (config.backendUrl) {
-          if (isCentrisGatewayUrl(config.backendUrl)) {
-            this.centrisVoiceMode = true;
-            await this.setupCentrisVoiceConnection(config.backendUrl, config.authToken || "");
-          } else {
-            await this.setupWebSocketConnection(config.backendUrl, config.authToken || "");
-          }
+          await this.setupWebSocketConnection(config.backendUrl, config.authToken || "");
         }
 
         this.capture = new NativeAudioCapture();
@@ -427,56 +423,31 @@ class NativeAudioBridge {
     });
 
     // Start capture
-    ipcMain.handle("native-audio-start", async () => {
+    ipcMain.handle("native-audio-start", async (event, mode) => {
       if (!this.capture || !this.isInitialized) {
         return { success: false, error: "Not initialized" };
       }
 
       try {
-        // CONTEXT DETECTION: Capture what user is looking at BEFORE starting capture
-        let userContext = null;
-        try {
-          const { getContextCollector } = require("../services/contextCollector");
-          const collector = getContextCollector();
-          userContext = await collector.getCurrentContext({ useCloud: false });
-        } catch (contextErr) {
-          // Context detection is optional - don't block recording if it fails
-        }
+        const voiceMode = mode === "dictation" ? "dictation" : "action";
 
-        // PREPRIMING: Send recording_start to backend BEFORE starting capture
-        if (this.centrisVoiceMode && this.centrisVoiceWs && this.centrisVoiceWs.readyState === 1) {
-          this.centrisVoiceWs.send(
+        // Send recording_start to gateway voice WebSocket
+        if (this.isVoiceConnected()) {
+          this.wsClient.send(
             JSON.stringify({
               type: "recording_start",
               sessionId: `voice-${Date.now()}`,
               sampleRate: 16000,
               channels: 1,
-              mode: "action",
+              mode: voiceMode,
             }),
           );
-        } else if (this.wsClient && this.wsClient.connected) {
-          this.wsClient.emit("recording_start", {
-            context: userContext
-              ? {
-                  id: userContext.id,
-                  appName: userContext.appName || userContext.systemState?.appName,
-                  bundleId: userContext.bundleId || userContext.systemState?.bundleId,
-                  windowTitle: userContext.windowTitle || userContext.systemState?.windowTitle,
-                  url: userContext.url || userContext.systemState?.url,
-                  capabilities: userContext.capabilities,
-                  available_tools: userContext.available_tools,
-                  context_prompt: userContext.context_prompt,
-                  confidence: userContext.confidence,
-                }
-              : null,
-            timestamp: Date.now(),
-          });
         }
 
         const result = this.capture.start();
         this.isCapturing = result;
 
-        // Start audio chunk polling to forward audio to backend via Socket.IO
+        // Start audio chunk polling to forward audio to gateway via WebSocket
         if (result) {
           this.startAudioChunkPolling();
         }
@@ -501,11 +472,9 @@ class NativeAudioBridge {
         const result = this.capture.stop();
         this.isCapturing = false;
 
-        // CRITICAL: Manually send voice_end to finalize transcription
-        if (this.centrisVoiceMode && this.centrisVoiceWs && this.centrisVoiceWs.readyState === 1) {
-          this.centrisVoiceWs.send(JSON.stringify({ type: "voice_end" }));
-        } else if (this.wsClient && this.wsClient.connected) {
-          this.wsClient.emit("voice_end");
+        // Send voice_end to finalize transcription on the gateway
+        if (this.isVoiceConnected()) {
+          this.wsClient.send(JSON.stringify({ type: "voice_end" }));
         }
 
         return { success: result };
@@ -544,348 +513,212 @@ class NativeAudioBridge {
   }
 
   /**
-   * Setup Centris gateway voice WebSocket (/ws/centris/voice).
-   * Used when backendUrl is the Railway gateway; protocol is JSON (recording_start, audio, voice_end).
-   */
-  async setupCentrisVoiceConnection(backendUrl, authToken = "") {
-    const base = backendUrl.replace(/\/$/, "").trim();
-    const wssBase = base.startsWith("https")
-      ? base.replace(/^https/, "wss")
-      : base.replace(/^http/, "ws");
-    let wssUrl = `${wssBase}/ws/centris/voice`;
-    if (authToken) {
-      wssUrl += `?token=${encodeURIComponent(authToken)}`;
-    }
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error("Centris voice WebSocket connection timeout"));
-      }, 10000);
-      try {
-        this.centrisVoiceWs = new WebSocket(wssUrl);
-        this.centrisVoiceWs.on("open", () => {
-          clearTimeout(timeout);
-          this.sendToWindows("native-audio-ws-connected", {});
-          resolve();
-        });
-        this.centrisVoiceWs.on("message", (data) => {
-          try {
-            const msg = typeof data === "string" ? JSON.parse(data) : JSON.parse(data.toString());
-            const type = msg.type;
-            if (type === "result") {
-              this.sendToWindows("native-audio-voice-result", {
-                text: msg.text || "",
-                mode: msg.mode === "dictation" ? "dictation" : "action",
-              });
-            } else if (type === "transcript") {
-              this.sendToWindows(
-                "native-audio-transcript",
-                {
-                  text: msg.text || "",
-                  isFinal: msg.partial === false,
-                  timestamp: Date.now(),
-                  mode: msg.mode || null,
-                },
-                true,
-              );
-            } else if (type === "error") {
-              this.sendToWindows("native-audio-error", { message: msg.message || "Voice error" });
-            }
-            // session_started: no need to forward
-          } catch (err) {
-            console.error("[NativeAudioBridge] Centris voice message parse error:", err.message);
-          }
-        });
-        this.centrisVoiceWs.on("error", (err) => {
-          this.sendToWindows("native-audio-error", {
-            message: `Centris voice error: ${err.message || err}`,
-          });
-        });
-        this.centrisVoiceWs.on("close", () => {
-          this.sendToWindows("native-audio-ws-disconnected", { reason: "close" });
-        });
-      } catch (err) {
-        clearTimeout(timeout);
-        reject(err);
-      }
-    });
-  }
-
-  /**
-   * Setup Socket.IO connection for streaming transcription
+   * Setup raw WebSocket connection to gateway /ws/centris/voice endpoint.
+   * The gateway speaks a simple JSON protocol (see centris-voice.ts).
    */
   async setupWebSocketConnection(backendUrl, authToken = "") {
     try {
-      // Convert HTTP URL to Socket.IO URL (Socket.IO uses HTTP/HTTPS, not ws/wss)
-      let socketUrl = backendUrl.replace(/\/$/, "");
-
       // Close existing connection if any
       if (this.wsClient) {
-        this.wsClient.disconnect();
+        try {
+          this.wsClient.close();
+        } catch {}
+        this.wsClient = null;
       }
 
-      // Create Socket.IO connection with namespace
-      const socketOptions = {
-        transports: ["websocket", "polling"],
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionAttempts: 5,
-        timeout: 10000,
-      };
-
-      if (authToken) {
-        socketOptions.auth = {
-          token: authToken,
-        };
-        socketOptions.extraHeaders = {
-          Authorization: `Bearer ${authToken}`,
-        };
+      // Resolve WebSocket URL for the voice endpoint
+      const wsBaseUrl = resolveGatewayWsUrl();
+      const token = authToken || resolveGatewayToken() || "";
+      let voiceUrl = `${wsBaseUrl}/ws/centris/voice`;
+      if (token) {
+        voiceUrl += `?token=${encodeURIComponent(token)}`;
       }
 
-      this.wsClient = io(`${socketUrl}/ws/audio/stream`, socketOptions);
-      this.wsUrl = socketUrl;
+      this.wsUrl = wsBaseUrl;
       this.audioSequence = 0;
+      this._actionUpdateCount = 0;
+      this._lastNotifiedTool = null;
 
-      // Setup Socket.IO event handlers
-      this.wsClient.on("connect", () => {
+      if (!WebSocketClient) {
+        console.error("[NativeAudioBridge] WebSocket client not available");
+        return;
+      }
+
+      console.log(`[NativeAudioBridge] Connecting voice WS to ${wsBaseUrl}/ws/centris/voice`);
+      this.wsClient = new WebSocketClient(voiceUrl);
+
+      this.wsClient.on("open", () => {
+        console.log("[NativeAudioBridge] Voice WebSocket connected");
         this.sendToWindows("native-audio-ws-connected", {});
       });
 
-      this.wsClient.on("connected", (data) => {
-        // Connection confirmed
-      });
-
-      this.wsClient.on("transcript", (message) => {
+      this.wsClient.on("message", (raw) => {
         try {
-          if (message && message.text) {
-            this.sendToWindows(
-              "native-audio-transcript",
-              {
-                text: message.text,
-                isFinal: message.isFinal || false,
-                timestamp: message.timestamp || Date.now(),
-                mode: message.mode || null,
-              },
-              true,
-            );
-          }
+          const rawStr = typeof raw === "string" ? raw : raw.toString("utf-8");
+          const message = JSON.parse(rawStr);
+          this._handleGatewayVoiceMessage(message);
         } catch (err) {
-          // Silent error handling
-        }
-      });
-
-      // Handle dictation_result event - provides cleaned text for dictation mode
-      this.wsClient.on("dictation_result", (message) => {
-        try {
-          if (message && message.cleaned_text) {
-            this.sendToWindows(
-              "native-audio-dictation-result",
-              {
-                text: message.cleaned_text,
-                originalText: message.original_text,
-                cleanupMethod: message.cleanup_method,
-                cleanupMs: message.cleanup_ms,
-                injectText: message.inject_text ?? true,
-                timestamp: Date.now(),
-              },
-              true,
-            );
-          }
-        } catch (err) {
-          // Silent error handling
-        }
-      });
-
-      // Handle action_result event - provides execution result from action mode
-      this.wsClient.on("action_result", (message) => {
-        try {
-          // Reset action update counter and last notified tool
-          this._actionUpdateCount = 0;
-          this._lastNotifiedTool = null;
-
-          // COMPLETION NOTIFICATION: Show what was accomplished on user's Mac
-          if (message.success && message.response) {
-            const truncatedResponse =
-              message.response.length > 100
-                ? message.response.substring(0, 100) + "..."
-                : message.response;
-            showNativeNotification("✅ Task Complete", truncatedResponse, false);
-          } else if (!message.success) {
-            showNativeNotification(
-              "❌ Task Failed",
-              message.error || "Something went wrong",
-              false,
-            );
-          }
-
-          this.sendToWindows(
-            "native-audio-action-result",
-            {
-              success: message.success,
-              response: message.response,
-              error: message.error,
-              text: message.text,
-              tool_calls: message.tool_calls,
-              timestamp: Date.now(),
-            },
-            true,
-          );
-        } catch (err) {
-          // Silent error handling
-        }
-      });
-
-      // Handle action_update event - streaming updates during action execution (minimal logging)
-      this._actionUpdateCount = 0;
-      this._lastNotifiedTool = null;
-      this.wsClient.on("action_update", (message) => {
-        try {
-          this._actionUpdateCount++;
-
-          // REAL-TIME USER FEEDBACK: Show native notification for tool calls
-          // This is especially important since browser visualization may be blocked by CSP on Gmail, etc.
-          if (message.type === "tool_call" && message.tool_name) {
-            // Only notify if it's a different tool than last time (avoid repeated notifications)
-            if (message.tool_name !== this._lastNotifiedTool) {
-              this._lastNotifiedTool = message.tool_name;
-              const displayName =
-                TOOL_DISPLAY_NAMES[message.tool_name] || `⚡ ${message.tool_name}`;
-
-              // Build notification body with relevant details from tool arguments
-              let body = "";
-              const args = message.arguments || {};
-
-              // Parse arguments (may be string or object)
-              let parsedArgs = args;
-              if (typeof args === "string") {
-                try {
-                  parsedArgs = JSON.parse(args);
-                } catch (e) {
-                  parsedArgs = {};
-                }
-              }
-
-              // Build descriptive notification body based on tool type
-              if (message.tool_name === "navigate_browser") {
-                body = parsedArgs.url || "";
-              } else if (message.tool_name === "click_node") {
-                // Try to get node description from the message context
-                body = parsedArgs.description || `Node #${parsedArgs.node_id || "?"}`;
-              } else if (message.tool_name === "input_text_node") {
-                const text = (parsedArgs.text || "").substring(0, 30);
-                body = text
-                  ? `"${text}${parsedArgs.text?.length > 30 ? "..." : ""}"`
-                  : `Node #${parsedArgs.node_id || "?"}`;
-              } else if (message.tool_name === "find_and_click") {
-                body = parsedArgs.description || "";
-              } else if (message.tool_name === "find_and_type") {
-                body = parsedArgs.description
-                  ? `${parsedArgs.description}: "${(parsedArgs.text || "").substring(0, 20)}..."`
-                  : "";
-              } else if (message.tool_name === "write_file" || message.tool_name === "read_file") {
-                body = parsedArgs.file_path || parsedArgs.path || "";
-              } else if (message.tool_name === "open_application") {
-                body = parsedArgs.app_name || parsedArgs.name || "";
-              } else if (message.tool_name === "execute_terminal_command") {
-                const cmd = parsedArgs.command || "";
-                body = cmd.length > 40 ? cmd.substring(0, 40) + "..." : cmd;
-              }
-
-              showNativeNotification(
-                "Centris AI",
-                `${displayName}${body ? ": " + body : ""}`,
-                true,
-              );
-            }
-          }
-
-          // Send streaming updates to pill windows for real-time feedback
-          this.sendToWindows("native-audio-action-update", message, true);
-        } catch (err) {
-          // Silent error handling
+          console.error("[NativeAudioBridge] Failed to parse voice message:", err.message);
         }
       });
 
       this.wsClient.on("error", (error) => {
+        console.error("[NativeAudioBridge] Voice WS error:", error.message);
         this.sendToWindows("native-audio-error", {
-          message: `Socket.IO error: ${error.message || error}`,
+          message: `Voice connection error: ${error.message || error}`,
         });
       });
 
-      this.wsClient.on("disconnect", (reason) => {
-        const isBackendCrash = reason === "transport close" || reason === "ping timeout";
-
+      this.wsClient.on("close", (code, reason) => {
+        const reasonStr = reason ? reason.toString() : "";
+        console.log(`[NativeAudioBridge] Voice WS closed: ${code} ${reasonStr}`);
         this.sendToWindows("native-audio-ws-disconnected", {
-          reason,
-          possibleBackendCrash: isBackendCrash,
-        });
-      });
-
-      this.wsClient.on("connect_error", (error) => {
-        let errorMessage = `Connection error: ${error.message}`;
-        if (error.message && error.message.includes("ECONNREFUSED")) {
-          errorMessage = "Backend not running - please start Centris backend";
-        } else if (error.message && error.message.includes("timeout")) {
-          errorMessage = "Backend connection timeout - check if backend is running";
-        }
-
-        this.sendToWindows("native-audio-error", {
-          message: errorMessage,
-          originalError: error.message,
+          reason: reasonStr || `code=${code}`,
+          possibleBackendCrash: code === 1006,
         });
       });
 
       // Wait for connection to be established
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error("Socket.IO connection timeout"));
+          reject(new Error("Voice WebSocket connection timeout"));
         }, 10000);
 
-        this.wsClient.once("connect", () => {
+        const onOpen = () => {
           clearTimeout(timeout);
+          this.wsClient.removeListener("error", onError);
           resolve();
-        });
-
-        this.wsClient.once("connect_error", (err) => {
+        };
+        const onError = (err) => {
           clearTimeout(timeout);
+          this.wsClient.removeListener("open", onOpen);
           reject(err);
-        });
+        };
+
+        this.wsClient.once("open", onOpen);
+        this.wsClient.once("error", onError);
       });
     } catch (err) {
-      // Don't fail initialization if Socket.IO fails
+      console.warn("[NativeAudioBridge] Voice WS setup failed (non-fatal):", err.message);
     }
   }
 
   /**
-   * Send audio chunk to backend (Socket.IO or Centris voice WebSocket)
+   * Handle an incoming message from the gateway voice WebSocket.
+   * Maps the gateway JSON protocol to the existing IPC events the renderer expects.
+   */
+  _handleGatewayVoiceMessage(message) {
+    const type = message.type;
+
+    if (type === "transcript") {
+      this.sendToWindows(
+        "native-audio-transcript",
+        {
+          text: message.text || "",
+          isFinal: !message.partial,
+          timestamp: Date.now(),
+          mode: message.mode || null,
+        },
+        true,
+      );
+      return;
+    }
+
+    if (type === "result") {
+      const mode = message.mode || "action";
+      const text = message.text || "";
+
+      if (mode === "dictation") {
+        this.sendToWindows(
+          "native-audio-dictation-result",
+          {
+            text: text,
+            originalText: text,
+            cleanupMethod: "gateway",
+            cleanupMs: 0,
+            injectText: true,
+            timestamp: Date.now(),
+          },
+          true,
+        );
+      } else {
+        // Action mode: send as a final transcript so the renderer can
+        // execute the action via CentrisBackendService.executeTask().
+        this.sendToWindows(
+          "native-audio-transcript",
+          {
+            text: text,
+            isFinal: true,
+            timestamp: Date.now(),
+            mode: "action",
+          },
+          true,
+        );
+      }
+      return;
+    }
+
+    if (type === "session_started") {
+      console.log(
+        `[NativeAudioBridge] Voice session started: ${message.sessionId} (${message.mode})`,
+      );
+      return;
+    }
+
+    if (type === "mode_changed") {
+      console.log(`[NativeAudioBridge] Voice mode changed to: ${message.mode}`);
+      return;
+    }
+
+    if (type === "error") {
+      console.error("[NativeAudioBridge] Gateway voice error:", message.message);
+      showNativeNotification("❌ Voice Error", message.message || "Something went wrong", false);
+      this.sendToWindows("native-audio-error", {
+        message: message.message || "Gateway voice error",
+      });
+      return;
+    }
+
+    if (type === "action_update") {
+      this._actionUpdateCount = (this._actionUpdateCount || 0) + 1;
+
+      if (message.tool_name && message.tool_name !== this._lastNotifiedTool) {
+        this._lastNotifiedTool = message.tool_name;
+        const displayName = TOOL_DISPLAY_NAMES[message.tool_name] || `⚡ ${message.tool_name}`;
+        showNativeNotification("Centris AI", displayName, true);
+      }
+
+      this.sendToWindows("native-audio-action-update", message, true);
+      return;
+    }
+  }
+
+  /**
+   * Send audio chunk to gateway via raw WebSocket
    */
   sendAudioChunk(audioData) {
-    if (this.centrisVoiceMode && this.centrisVoiceWs && this.centrisVoiceWs.readyState === 1) {
-      try {
-        this.centrisVoiceWs.send(
-          JSON.stringify({ type: "audio", data: audioData.toString("base64") }),
-        );
-        return true;
-      } catch (err) {
-        return false;
-      }
-    }
-    if (!this.wsClient || !this.wsClient.connected) {
+    if (!this.wsClient || this.wsClient.readyState !== WebSocketClient.OPEN) {
       return false;
     }
 
     try {
-      const message = {
-        type: "audio",
-        sequence: this.audioSequence++,
-        data: audioData.toString("base64"),
-        timestamp: Date.now(),
-      };
-
-      this.wsClient.emit("audio", message);
+      this.wsClient.send(
+        JSON.stringify({
+          type: "audio",
+          data: audioData.toString("base64"),
+        }),
+      );
       return true;
     } catch (err) {
       return false;
     }
+  }
+
+  /**
+   * Check if the voice WebSocket is connected
+   */
+  isVoiceConnected() {
+    return this.wsClient && this.wsClient.readyState === WebSocketClient?.OPEN;
   }
 
   /**
@@ -911,9 +744,8 @@ class NativeAudioBridge {
     this.capture.on("voiceEnd", () => {
       this.sendToWindows("native-audio-voice-end", {});
       // Send voice_end event to backend for final transcription
-      // Note: Don't send any data - the backend handler takes no arguments
-      if (this.wsClient && this.wsClient.connected) {
-        this.wsClient.emit("voice_end");
+      if (this.isVoiceConnected()) {
+        this.wsClient.send(JSON.stringify({ type: "voice_end" }));
       }
     });
 
@@ -961,7 +793,7 @@ class NativeAudioBridge {
     this._totalBytesSent = 0;
 
     console.log("[NativeAudioBridge] 🎤 Starting audio chunk polling (20ms interval)");
-    console.log("[NativeAudioBridge]    WebSocket connected:", this.wsClient?.connected);
+    console.log("[NativeAudioBridge]    WebSocket connected:", this.isVoiceConnected());
     console.log("[NativeAudioBridge]    Native capture active:", !!this.capture);
 
     this.audioChunkPollingInterval = setInterval(() => {
@@ -1010,16 +842,13 @@ class NativeAudioBridge {
       this._pollDebugCounter = 0;
     }
 
-    const wsReady = this.centrisVoiceMode
-      ? this.centrisVoiceWs && this.centrisVoiceWs.readyState === 1
-      : this.wsClient && this.wsClient.connected;
-    if (!this.capture || !wsReady) {
+    if (!this.capture || !this.isVoiceConnected()) {
       this._pollDebugCounter++;
       if (this._pollDebugCounter === 1 || this._pollDebugCounter % 100 === 0) {
         console.log("[NativeAudioBridge] ⚠️ pollAndSendAudioChunks skip:", {
           hasCapture: !!this.capture,
-          centrisVoice: this.centrisVoiceMode,
-          wsReady,
+          hasWsClient: !!this.wsClient,
+          wsReady: this.wsClient?.readyState,
           pollCount: this._pollDebugCounter,
         });
       }
@@ -1040,19 +869,12 @@ class NativeAudioBridge {
       const chunks = this.capture.getQueuedAudioChunks();
 
       for (const chunk of chunks) {
-        if (this.centrisVoiceMode && this.centrisVoiceWs && this.centrisVoiceWs.readyState === 1) {
-          this.centrisVoiceWs.send(
-            JSON.stringify({ type: "audio", data: chunk.data.toString("base64") }),
-          );
-        } else {
-          const message = {
+        this.wsClient.send(
+          JSON.stringify({
             type: "audio",
-            sequence: chunk.sequence,
             data: chunk.data.toString("base64"),
-            timestamp: Date.now(),
-          };
-          this.wsClient.emit("audio", message);
-        }
+          }),
+        );
         this._totalBytesSent = (this._totalBytesSent || 0) + chunk.data.length;
       }
 
@@ -1102,9 +924,11 @@ class NativeAudioBridge {
     // Stop audio chunk polling
     this.stopAudioChunkPolling();
 
-    // Close Socket.IO connection
+    // Close WebSocket connection
     if (this.wsClient) {
-      this.wsClient.disconnect();
+      try {
+        this.wsClient.close();
+      } catch {}
       this.wsClient = null;
     }
 

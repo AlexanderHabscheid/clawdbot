@@ -1,21 +1,30 @@
 /**
- * Backend Manager - Checks if the clawdbot gateway is running on port 18789
+ * Backend Manager - Gateway health monitoring
  *
- * The Python backend has been removed. All audio/transcription/task execution
- * is now handled by the clawdbot gateway running on port 18789.
- *
- * This module only monitors gateway health — it does not auto-start anything,
- * since the gateway is started separately (via the OpenClaw app or CLI).
+ * Monitors the Centris gateway (Railway production or local dev).
+ * Checks env vars for a remote URL first, falls back to localhost:18789.
  */
 
 const { exec } = require("child_process");
 const http = require("http");
+const https = require("https");
 
-const GATEWAY_PORT = 18789;
+const LOCAL_GATEWAY_PORT = 18789;
+const PRODUCTION_GATEWAY_URL = "https://centris-ai-production.up.railway.app";
+const HEALTH_TIMEOUT_MS = 3000;
+
+function resolveGatewayUrl() {
+  return (
+    process.env.CENTRIS_GATEWAY_URL ||
+    process.env.OPENCLAW_GATEWAY_URL ||
+    process.env.VITE_CENTRIS_GATEWAY_URL ||
+    PRODUCTION_GATEWAY_URL
+  );
+}
 
 class BackendManager {
   constructor() {
-    this.backendUrl = `http://127.0.0.1:${GATEWAY_PORT}`;
+    this.backendUrl = resolveGatewayUrl();
     this.backendProcess = null;
     this.isStarting = false;
     this.startAttempts = 0;
@@ -23,16 +32,59 @@ class BackendManager {
   }
 
   /**
-   * Check if the clawdbot gateway is running
-   * @returns {Promise<boolean>} True if gateway is reachable
+   * Check if the gateway is reachable (remote or local).
+   * Tries the configured URL first via /health, then falls back to local port.
    */
   async checkBackendHealth() {
+    // Try the configured gateway URL (remote or local)
+    const healthy = await this._checkUrlHealth(this.backendUrl);
+    if (healthy) return true;
+
+    // If configured URL failed and it's NOT the local fallback, try local too
+    const isLocal = this.backendUrl.includes("127.0.0.1") || this.backendUrl.includes("localhost");
+    if (!isLocal) {
+      const localHealthy = await this._checkLocalGateway();
+      if (localHealthy) {
+        this.backendUrl = `http://127.0.0.1:${LOCAL_GATEWAY_PORT}`;
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check a URL's /health endpoint
+   */
+  async _checkUrlHealth(baseUrl) {
     return new Promise((resolve) => {
-      // POST to /tools/invoke with a dummy tool — 404 means gateway is alive
+      try {
+        const url = new URL("/health", baseUrl);
+        const client = url.protocol === "https:" ? https : http;
+        const req = client.get(url.href, { timeout: HEALTH_TIMEOUT_MS }, (res) => {
+          resolve(res.statusCode >= 200 && res.statusCode < 500);
+          res.resume();
+        });
+        req.on("error", () => resolve(false));
+        req.on("timeout", () => {
+          req.destroy();
+          resolve(false);
+        });
+      } catch {
+        resolve(false);
+      }
+    });
+  }
+
+  /**
+   * Check if a local gateway is running on port 18789
+   */
+  async _checkLocalGateway() {
+    return new Promise((resolve) => {
       const postData = JSON.stringify({ tool: "__health_probe", args: {} });
       const options = {
         hostname: "127.0.0.1",
-        port: GATEWAY_PORT,
+        port: LOCAL_GATEWAY_PORT,
         path: "/tools/invoke",
         method: "POST",
         timeout: 2000,
@@ -42,7 +94,6 @@ class BackendManager {
         },
       };
       const req = http.request(options, (res) => {
-        // 404 (tool not found) means gateway is alive and responding
         resolve(res.statusCode === 200 || res.statusCode === 404);
       });
       req.on("error", () => resolve(false));
@@ -55,23 +106,14 @@ class BackendManager {
     });
   }
 
-  /**
-   * Check if a process is using the gateway port
-   * @returns {Promise<boolean>} True if port is in use
-   */
   async isPortInUse() {
     return new Promise((resolve) => {
-      exec(`lsof -ti:${GATEWAY_PORT}`, (error) => {
+      exec(`lsof -ti:${LOCAL_GATEWAY_PORT}`, (error) => {
         resolve(error === null);
       });
     });
   }
 
-  /**
-   * Wait for gateway to be ready by polling health endpoint
-   * @param {number} maxWaitSeconds Maximum seconds to wait
-   * @returns {Promise<boolean>} True if gateway becomes ready
-   */
   async waitForBackendReady(maxWaitSeconds = 30) {
     const startTime = Date.now();
     const maxWaitMs = maxWaitSeconds * 1000;
@@ -79,52 +121,32 @@ class BackendManager {
 
     while (Date.now() - startTime < maxWaitMs) {
       const isHealthy = await this.checkBackendHealth();
-      if (isHealthy) {
-        return true;
-      }
+      if (isHealthy) return true;
       await new Promise((resolve) => setTimeout(resolve, pollInterval));
     }
 
     return false;
   }
 
-  /**
-   * Ensure gateway is running — cannot auto-start, just check
-   * @returns {Promise<boolean>} True if gateway is reachable
-   */
   async ensureBackendRunning() {
     const isHealthy = await this.checkBackendHealth();
     if (isHealthy) {
-      console.log("[BackendManager] Gateway is running on port " + GATEWAY_PORT);
+      console.log(`[BackendManager] Gateway reachable at ${this.backendUrl}`);
       return true;
     }
 
-    console.log("[BackendManager] Gateway not reachable on port " + GATEWAY_PORT);
-    console.log("[BackendManager] Start the gateway with: openclaw gateway run");
+    console.log(`[BackendManager] Gateway not reachable at ${this.backendUrl}`);
     return false;
   }
 
-  /**
-   * No-op — gateway lifecycle is managed externally
-   */
   async startBackend() {
-    console.log("[BackendManager] The Python backend has been removed.");
-    console.log("[BackendManager] Start the clawdbot gateway with: openclaw gateway run");
     return this.ensureBackendRunning();
   }
 
-  /**
-   * No-op — gateway lifecycle is managed externally
-   */
   async stopBackend() {
-    console.log(
-      "[BackendManager] Gateway lifecycle is managed externally. Use the OpenClaw app or CLI to stop.",
-    );
+    console.log("[BackendManager] Gateway lifecycle is managed externally.");
   }
 
-  /**
-   * Get gateway status
-   */
   async getStatus() {
     const healthy = await this.checkBackendHealth();
     const portInUse = await this.isPortInUse();
@@ -134,6 +156,7 @@ class BackendManager {
       healthy: healthy,
       portInUse: portInUse,
       starting: this.isStarting,
+      gatewayUrl: this.backendUrl,
     };
   }
 
@@ -142,7 +165,6 @@ class BackendManager {
   }
 }
 
-// Export singleton instance
 const backendManager = new BackendManager();
 
 module.exports = { BackendManager, backendManager };

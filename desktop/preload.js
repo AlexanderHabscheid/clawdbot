@@ -248,8 +248,8 @@ const electronAPI = {
   // Initialize native audio capture
   nativeAudioInitialize: (config) => ipcRenderer.invoke("native-audio-initialize", config),
 
-  // Start native audio capture
-  nativeAudioStart: () => ipcRenderer.invoke("native-audio-start"),
+  // Start native audio capture (mode: "action" or "dictation")
+  nativeAudioStart: (mode) => ipcRenderer.invoke("native-audio-start", mode),
 
   // Stop native audio capture
   nativeAudioStop: () => ipcRenderer.invoke("native-audio-stop"),
@@ -284,10 +284,6 @@ const electronAPI = {
   ),
   onNativeAudioActionResult: registerListener(
     "native-audio-action-result",
-    (cb) => (_event, data) => cb(data),
-  ),
-  onNativeAudioVoiceResult: registerListener(
-    "native-audio-voice-result",
     (cb) => (_event, data) => cb(data),
   ),
   onNativeAudioActionUpdate: registerListener(
@@ -399,10 +395,7 @@ const electronAPI = {
   // ========================================
   // BACKEND MANAGEMENT APIs
   // ========================================
-  // These APIs manage the Centris backend (local gateway or cloud Railway).
-
-  // Get current backend/gateway URL (for native audio and health checks)
-  getBackendUrl: () => ipcRenderer.invoke("get-backend-url"),
+  // These APIs manage the Centris backend process (check, start, stop)
 
   // Check if backend is running and healthy (just check, don't start)
   checkBackendHealth: () => ipcRenderer.invoke("check-backend-health"),

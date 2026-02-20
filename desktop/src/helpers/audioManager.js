@@ -32,6 +32,8 @@
  * See audioSystem.js for the unified stream architecture.
  */
 
+import { GATEWAY_URL, PRODUCTION_GATEWAY_URL } from "../utils/constants.js";
+
 const isDebugMode =
   typeof process !== "undefined" &&
   (process.env.OPENWHISPR_DEBUG === "true" || process.env.NODE_ENV === "development");
@@ -174,20 +176,7 @@ class AudioManager {
         this.nativeAudioAvailable = await window.electronAPI.nativeAudioAvailable();
 
         if (this.nativeAudioAvailable) {
-          // Use same gateway URL as rest of app (Railway or local) so voice routes correctly
-          if (window.electronAPI?.getBackendUrl) {
-            try {
-              const url = await window.electronAPI.getBackendUrl();
-              if (url && typeof url === "string") {
-                this.backendUrl = url.replace(/\/$/, "");
-              }
-            } catch (_) {
-              // fallback below
-            }
-          }
-          if (!this.backendUrl) {
-            this.backendUrl = "http://127.0.0.1:5001";
-          }
+          this.backendUrl = GATEWAY_URL || PRODUCTION_GATEWAY_URL;
 
           // Setup native audio event listeners
           this.setupNativeAudioListeners();
@@ -310,33 +299,6 @@ class AudioManager {
       this.nativeAudioEventListeners.push({ type: "actionResult", cleanup });
     }
 
-    // Centris voice WebSocket result (gateway returns transcript only; client runs task)
-    if (window.electronAPI.onNativeAudioVoiceResult) {
-      const voiceResultListener = (data) => {
-        if (!data || typeof data.text !== "string") {
-          return;
-        }
-        const text = data.text.trim();
-        if (!text) {
-          return;
-        }
-        if (data.mode === "dictation") {
-          this.onTranscriptionComplete?.({
-            success: true,
-            text,
-            source: "centris-voice",
-            mode: "dictation",
-            alreadyPasted: false,
-          });
-          return;
-        }
-        // Action mode: run task via gateway (processTranscription → executeTask)
-        this.processTranscription(text, "centris-voice");
-      };
-      const cleanup = window.electronAPI.onNativeAudioVoiceResult(voiceResultListener);
-      this.nativeAudioEventListeners.push({ type: "voiceResult", cleanup });
-    }
-
     // Action update event - streaming updates during action execution (silent - for UI only)
     if (window.electronAPI.onNativeAudioActionUpdate) {
       const actionUpdateListener = (update) => {
@@ -444,7 +406,14 @@ class AudioManager {
         return;
       }
 
-      // Wait for backend events (dictation_result or action_result)
+      // Gateway voice WS returns the transcript but doesn't execute actions.
+      // For action mode, we trigger action execution client-side.
+      if (this.mode === "action") {
+        await this.processActionMode(fullTranscript, "native-audio");
+        return;
+      }
+      // Dictation mode: the gateway returns a "result" message with cleaned text,
+      // which is handled by the dictation_result listener (onNativeAudioDictationResult).
     } catch (error) {
       console.error("[AudioManager] ❌ Error handling transcript:", error);
       this.onError?.({
@@ -549,8 +518,7 @@ class AudioManager {
    */
   async startNativeAudioRecording() {
     try {
-      // Define backendUrl at function scope so it's available for native audio config
-      const backendUrl = this.backendUrl || "http://127.0.0.1:5001";
+      const backendUrl = this.backendUrl || GATEWAY_URL || PRODUCTION_GATEWAY_URL;
 
       // CRITICAL: Check if Centris backend is available before using native audio
       if (window.electronAPI?.ensureBackendRunning) {
@@ -566,11 +534,11 @@ class AudioManager {
           return await this.startWebAPIRecording();
         }
       } else {
-        // Fallback: Direct health check (gateway supports /health and /api/health)
+        // Fallback: Direct health check if backend manager not available
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          const healthCheck = await fetch(`${backendUrl.replace(/\/$/, "")}/health`, {
+          const timeoutId = setTimeout(() => controller.abort(), 2000);
+          const healthCheck = await fetch(`${backendUrl}/health`, {
             signal: controller.signal,
             method: "GET",
           });
@@ -631,7 +599,7 @@ class AudioManager {
           vadThreshold: 0.03, // TUNED: Balanced threshold for clear speech and whispers
           vadSilenceMs: 400, // MATCHED WITH BACKEND: 400ms silence timeout (was 600)
           backendUrl: backendUrl,
-          authToken: "", // Add auth token if needed
+          authToken: localStorage.getItem("gatewayToken") || "",
         };
 
         const initResult = await window.electronAPI.nativeAudioInitialize(config);
@@ -641,8 +609,8 @@ class AudioManager {
         this.nativeAudioInitialized = true;
       }
 
-      // Start native audio capture
-      const startResult = await window.electronAPI.nativeAudioStart();
+      // Start native audio capture with current mode
+      const startResult = await window.electronAPI.nativeAudioStart(this.mode);
       if (!startResult.success) {
         throw new Error(startResult.error || "Failed to start native audio");
       }

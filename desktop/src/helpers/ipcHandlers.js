@@ -324,21 +324,18 @@ class IPCHandlers {
           return {
             success: false,
             error:
-              "Centris backend is not available. Make sure the backend is running on http://127.0.0.1:5001",
+              "Centris gateway is not reachable. Check your internet connection or gateway status.",
           };
         }
 
-        // Convert Buffer to Blob for transcription
-        const audioBlob = new Blob([audioBuffer], { type: "audio/wav" });
-        const result = await centrisService.transcribeAudio(audioBlob);
-
-        debugLogger.log("Centris transcription result", {
-          success: result.success,
-          hasText: !!result.text,
-          error: result.error,
-        });
-
-        return result;
+        // Voice transcription is handled via the voice WebSocket (nativeAudioBridge).
+        // For the Web API fallback, we send audio via the gateway's voice WS.
+        // If we reach here, the native audio path wasn't available, so
+        // return an error directing the user to ensure native audio works.
+        return {
+          success: false,
+          error: "Audio transcription requires the native audio pipeline. Please restart the app.",
+        };
       } catch (error) {
         debugLogger.error("Centris transcription error", error);
         return {
@@ -1302,26 +1299,11 @@ class IPCHandlers {
     // ========================================
     // BACKEND MANAGEMENT HANDLERS
     // ========================================
-    // These handlers manage the Centris backend (local gateway or cloud Railway).
-
-    // Get the current backend/gateway URL (used by renderer for native audio and health checks)
-    ipcMain.handle("get-backend-url", () => {
-      return this.getActionApiBaseUrl();
-    });
+    // These handlers manage the Centris backend process (check, start, stop)
 
     // Check if backend is running and healthy (just check, don't start)
     ipcMain.handle("check-backend-health", async () => {
       try {
-        const baseUrl = this.getActionApiBaseUrl();
-        const isLocal =
-          baseUrl.startsWith("http://127.0.0.1") || baseUrl.startsWith("http://localhost");
-        if (!isLocal) {
-          const res = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
-            method: "GET",
-            signal: AbortSignal.timeout(5000),
-          });
-          return { success: true, healthy: res.ok };
-        }
         const isHealthy = await backendManager.checkBackendHealth();
         return { success: true, healthy: isHealthy };
       } catch (error) {
@@ -1333,16 +1315,6 @@ class IPCHandlers {
     // Check if backend is running (simple check only, no auto-start)
     ipcMain.handle("check-backend-running", async () => {
       try {
-        const baseUrl = this.getActionApiBaseUrl();
-        const isLocal =
-          baseUrl.startsWith("http://127.0.0.1") || baseUrl.startsWith("http://localhost");
-        if (!isLocal) {
-          const res = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
-            method: "GET",
-            signal: AbortSignal.timeout(5000),
-          });
-          return { success: true, running: res.ok };
-        }
         const isRunning = await backendManager.checkBackendRunning();
         return { success: true, running: isRunning };
       } catch (error) {
@@ -1351,19 +1323,9 @@ class IPCHandlers {
       }
     });
 
-    // Ensure backend is running (for cloud gateway we only check health; for local we check port)
+    // Ensure backend is running (check and start if needed)
     ipcMain.handle("ensure-backend-running", async () => {
       try {
-        const baseUrl = this.getActionApiBaseUrl();
-        const isLocal =
-          baseUrl.startsWith("http://127.0.0.1") || baseUrl.startsWith("http://localhost");
-        if (!isLocal) {
-          const res = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
-            method: "GET",
-            signal: AbortSignal.timeout(5000),
-          });
-          return { success: true, running: res.ok };
-        }
         const isRunning = await backendManager.ensureBackendRunning();
         return { success: true, running: isRunning };
       } catch (error) {

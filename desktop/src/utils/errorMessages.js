@@ -33,8 +33,7 @@ export const ErrorMessages = {
   },
   BACKEND_UNAVAILABLE: {
     title: "Service Unavailable",
-    description:
-      "The transcription service is not available. Make sure the backend is running on http://127.0.0.1:5001",
+    description: "The transcription service is not available. Check that the gateway is reachable.",
   },
   AUDIO_TOO_LARGE: {
     title: "Audio File Too Large",
