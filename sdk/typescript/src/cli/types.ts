@@ -107,6 +107,7 @@ export interface ObserveOptions extends CLIOptions {
 
 export interface ActOptions extends CLIOptions {
   kind: "navigate" | "click" | "type" | "press" | "wait" | "scroll";
+  nodeId?: number;
   target?: string;
   value?: string;
   amount?: number;

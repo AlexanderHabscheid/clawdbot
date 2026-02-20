@@ -1,8 +1,8 @@
 """
 {name} Connector for Centris
 
-A Browser/DOM connector with pre-mapped elements for fast, reliable automation.
-This makes Centris 10x faster by knowing exactly where to click instead of
+A browser connector with runtime node targets for fast, reliable automation.
+This makes Centris 10x faster by using deterministic actions instead of
 using LLM-in-the-loop screenshot analysis.
 
 NO OAUTH REQUIRED - uses the user's existing browser session.
@@ -11,7 +11,7 @@ The user is already logged into {name} in their browser.
 CENTRIS CONNECTOR FRAMEWORK:
     1. task_keywords - Words that trigger this connector (e.g., "gmail", "send email")
     2. url_patterns - URL regex patterns this connector handles
-    3. element_map - Pre-mapped DOM elements from Chrome extension
+    3. element_map - Runtime node targets from live snapshots
     4. page_element_sections - Which element sections apply to which page types
     5. get_page_type() - Detect current page type from URL
     6. api.get_tools() - Return tool definitions
@@ -24,8 +24,8 @@ Architecture:
         Screenshot → LLM: "click input" → Click
         Screenshot → LLM: "type text" → Type
     
-    WITH CONNECTOR (pre-mapped DOM, 1-3 seconds):
-        Connector injects: "compose_button = node_id 5"
+    WITH CONNECTOR (runtime route, 1-3 seconds):
+        Connector uses live snapshot node IDs
         LLM calls: click_node(5) → Instant success
 """
 
@@ -75,7 +75,7 @@ class {class_name}URLs:
 
 
 # =============================================================================
-# STATIC DOM ELEMENTS - UI Controls Only
+# STATIC UI TARGETS - Node IDs From Live Snapshots
 # =============================================================================
 # 
 # IMPORTANT: Only map STATIC UI elements that are the same for ALL users:
@@ -84,9 +84,9 @@ class {class_name}URLs:
 #   ✅ Form inputs (Text fields, dropdowns)
 #   ❌ DO NOT map dynamic content (individual emails, events, files)
 #
-# Use the Centris Chrome extension to get element IDs:
+# Use live snapshots to get node IDs:
 #   1. Navigate to the target page
-#   2. Click Centris extension icon → "Show Elements"
+#   2. Run: centris browser snapshot
 #   3. Copy the element IDs for STATIC UI controls only
 #
 # Element format: (node_id, element_type, description)
@@ -157,7 +157,7 @@ async def {python_id}_example_action(
             await browser_bridge.navigate_browser({class_name}URLs.BASE)
             await browser_bridge.wait(2000)
         
-        # Step 2: Click using pre-mapped node ID (from element_map)
+        # Step 2: Click using runtime node ID (from element_map)
         await browser_bridge.click_node(node_id={class_name}HomeElements.MAIN_CTA[0])
         await browser_bridge.wait(500)
         
@@ -245,12 +245,12 @@ class {class_name}ConnectorApi:
 @dataclass
 class {class_name}Connector:
     """
-    {name} connector - Browser/DOM automation with pre-mapped elements.
+    {name} connector - browser automation with runtime node targets.
     
     This connector uses the Centris Connector Framework for:
     - Intelligent selection via task_keywords
     - URL-based routing via url_patterns
-    - Pre-mapped DOM via element_map
+    - Runtime node targets via element_map
     - Page-aware context via page_element_sections
     """
     
@@ -260,7 +260,7 @@ class {class_name}Connector:
     id: str = "{connector_id}"
     name: str = "{name}"
     version: str = "1.0.0"
-    description: str = "Fast {name} automation using pre-mapped DOM elements."
+    description: str = "Fast {name} automation using runtime node targets."
     
     # REQUIRED: API for tool registration
     api: {class_name}ConnectorApi = field(default_factory={class_name}ConnectorApi)

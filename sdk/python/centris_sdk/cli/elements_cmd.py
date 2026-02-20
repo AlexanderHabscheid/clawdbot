@@ -266,7 +266,7 @@ def format_elements_for_export(
             'url': url,
             'domain': domain,
             'exportedAt': datetime.now().isoformat(),
-            'usage': f'Run: centris init {domain} --from-elements elements.json'
+            'usage': f'Run: centris browser snapshot and use nodeId values with centris browser click'
         },
         'connector': {
             'id': domain,
@@ -304,7 +304,7 @@ def elements_group():
     Workflow:
         1. Navigate to a website in Chrome
         2. Run: centris elements export -o elements.json
-        3. Run: centris init my-connector --from-elements elements.json
+        3. Use the exported node IDs with runtime browser/action APIs
     """
     pass
 
@@ -312,7 +312,6 @@ def elements_group():
 @elements_group.command("capture")
 @click.argument("url")
 @click.option("--output", "-o", type=click.Path(), help="Output file path (default: stdout)")
-@click.option("--sdk", is_flag=True, help="Format for SDK connector generation")
 @click.option("--wait", "-w", type=float, default=3.0, help="Seconds to wait after page load")
 @click.option("--pretty/--compact", default=True, help="Pretty print JSON")
 @click.pass_context
@@ -320,7 +319,6 @@ def capture_command(
     ctx: click.Context,
     url: str,
     output: Optional[str],
-    sdk: bool,
     wait: float,
     pretty: bool,
 ) -> None:
@@ -333,7 +331,7 @@ def capture_command(
     Examples:
         centris elements capture https://apply.ycombinator.com
         centris elements capture https://gmail.com -o gmail.json
-        centris elements capture https://example.com --sdk -o elements.json
+        centris elements capture https://example.com -o elements.json
     """
     deps = ctx.obj.get("deps") if ctx.obj else create_default_deps()
     console = deps.console
@@ -358,7 +356,7 @@ def capture_command(
         spin.update(f"Found {len(elements)} elements")
         
         # Format for export
-        formatted = format_elements_for_export(elements, captured_url, for_sdk=sdk)
+        formatted = format_elements_for_export(elements, captured_url, for_sdk=False)
         
         # Output
         indent = 2 if pretty else None
@@ -367,11 +365,6 @@ def capture_command(
         if output:
             Path(output).write_text(json_str)
             spin.success(f"Captured {len(elements)} elements to {output}")
-            
-            if sdk:
-                domain = formatted.get('connector', {}).get('id', 'my-connector')
-                console.echo(f"\n{theme.heading('Next steps:')}")
-                console.echo(f"  centris init {domain} --from-elements {output}")
         else:
             spin.success(f"Captured {len(elements)} elements")
             console.echo("")
@@ -380,13 +373,11 @@ def capture_command(
 
 @elements_group.command("export")
 @click.option("--output", "-o", type=click.Path(), help="Output file path (default: stdout)")
-@click.option("--sdk", is_flag=True, help="Format for SDK connector generation")
 @click.option("--pretty/--compact", default=True, help="Pretty print JSON")
 @click.pass_context
 def export_command(
     ctx: click.Context,
     output: Optional[str],
-    sdk: bool,
     pretty: bool,
 ) -> None:
     """
@@ -398,7 +389,6 @@ def export_command(
     Examples:
         centris elements export                      # Print to stdout
         centris elements export -o elements.json    # Save to file
-        centris elements export --sdk -o el.json    # SDK connector format
     """
     deps = ctx.obj.get("deps") if ctx.obj else create_default_deps()
     console = deps.console
@@ -424,7 +414,7 @@ def export_command(
         spin.update(f"Found {len(elements)} elements")
         
         # Format for export
-        formatted = format_elements_for_export(elements, url, for_sdk=sdk)
+        formatted = format_elements_for_export(elements, url, for_sdk=False)
         
         # Output
         indent = 2 if pretty else None
@@ -433,10 +423,6 @@ def export_command(
         if output:
             Path(output).write_text(json_str)
             spin.success(f"Exported {len(elements)} elements to {output}")
-            
-            if sdk:
-                console.echo(f"\n{theme.heading('Next steps:')}")
-                console.echo(f"  centris init {formatted['connector']['id']} --from-elements {output}")
         else:
             spin.success(f"Found {len(elements)} elements")
             console.echo("")
@@ -520,86 +506,14 @@ def generate_command(
     output: Optional[str],
 ) -> None:
     """
-    Generate a connector scaffold from browser page elements.
-    
-    With --url: Fully automated - navigates to URL and captures elements.
-    Without --url: Uses current browser page (requires navigation first).
-    
-    Examples:
-        # Fully automated (recommended)
-        centris elements generate yc-app --url https://apply.ycombinator.com
-        
-        # From current browser page
-        centris elements generate my-connector
+    Legacy command removed.
     """
-    deps = ctx.obj.get("deps") if ctx.obj else create_default_deps()
-    console = deps.console
-    
-    if url:
-        # Fully automated: navigate + capture
-        with Spinner(f"Capturing elements from {url}...") as spin:
-            try:
-                spin.update("Navigating to URL...")
-                result = capture_elements_from_url(deps, url, wait_seconds=wait)
-            except CentrisCLIError as e:
-                spin.fail(str(e))
-                raise
-            
-            elements = result.get('elements') or result.get('interactiveNodes') or result.get('_internalNodes') or []
-            captured_url = result.get('url', url)
-            
-            if not elements:
-                spin.fail("No interactive elements found")
-                console.echo(f"\n{theme.warn('!')} Try: --wait 5 to wait longer for page load")
-                return
-            
-            spin.success(f"Found {len(elements)} elements")
-    else:
-        # From current browser page
-        with Spinner("Fetching elements from browser...") as spin:
-            try:
-                result = fetch_elements_from_backend(deps)
-            except CentrisCLIError as e:
-                spin.fail(str(e))
-                raise
-            
-            elements = result.get('elements') or result.get('interactiveNodes') or result.get('_internalNodes') or []
-            captured_url = result.get('url', '')
-            
-            if not elements:
-                spin.fail("No interactive elements found")
-                console.echo(f"\n{theme.warn('!')} Navigate to a page first:")
-                console.echo(f"  centris browser navigate https://example.com")
-                console.echo(f"  centris elements generate {connector_id}")
-                console.echo(f"\n  Or use --url for fully automated capture:")
-                console.echo(f"  centris elements generate {connector_id} --url https://example.com")
-                return
-            
-            spin.success(f"Found {len(elements)} elements")
-    
-    # Format for SDK
-    sdk_data = format_elements_for_export(elements, captured_url, for_sdk=True)
-    
-    # Override connector ID
-    sdk_data['connector']['id'] = connector_id
-    sdk_data['connector']['name'] = connector_id.title().replace('-', ' ').replace('_', ' ')
-    
-    # Generate connector using init command
-    from centris_sdk.cli.init_cmd import create_connector_from_elements
-    
-    output_dir = Path(output) if output else Path.cwd() / connector_id
-    
-    with Spinner(f"Creating {connector_id}...") as spin:
-        result = create_connector_from_elements(
-            deps=deps,
-            connector_id=connector_id,
-            elements_data=sdk_data,
-            output=str(output_dir),
-        )
-        spin.success(f"Created {connector_id}")
-    
-    console.echo(f"\n{theme.heading('Next steps:')}")
-    console.echo(f"  cd {connector_id}")
-    console.echo(f"  # Edit connector.py to map fields to your data")
-    console.echo(f"  centris validate .")
-    console.echo(f"  centris test .")
+    _ = ctx
+    _ = connector_id
+    _ = url
+    _ = wait
+    _ = output
+    raise click.ClickException(
+        "elements generate was removed in migrated runtime. "
+        "Use `centris init <connector-id>` and runtime Action API route recording."
+    )

@@ -26,16 +26,7 @@ export type SendCommandFn = (
 export type IsConnectedFn = () => boolean;
 
 interface BrowserAction {
-  type:
-    | "navigate"
-    | "click"
-    | "click_nodeId"
-    | "type"
-    | "type_nodeId"
-    | "wait"
-    | "snapshot"
-    | "press_key";
-  selector?: string;
+  type: "navigate" | "click_nodeId" | "type_nodeId" | "wait" | "snapshot" | "press_key";
   nodeId?: number;
   value?: string;
   url?: string;
@@ -43,7 +34,6 @@ interface BrowserAction {
   timeout?: number;
   semanticRole?: string;
   capabilityContext?: string[];
-  fallbackSelectors?: string[];
 }
 
 /**
@@ -188,26 +178,14 @@ export class BrowserExecutor implements Executor {
       switch (mapping.action) {
         case "click":
           {
-            const action =
-              nodeId != null
-                ? ({
-                    type: "click_nodeId",
-                    nodeId,
-                    semanticRole: mapping.semanticRole,
-                    capabilityContext: mapping.context,
-                  } as BrowserAction)
-                : ({
-                    type: "click",
-                    selector: mapping.selector,
-                    semanticRole: mapping.semanticRole,
-                    capabilityContext: mapping.context,
-                  } as BrowserAction);
-            action.fallbackSelectors = this.buildSelectorChain(
-              action,
-              mapping.selector,
-              uiMappings,
-            );
-            actions.push(action);
+            if (nodeId != null) {
+              actions.push({
+                type: "click_nodeId",
+                nodeId,
+                semanticRole: mapping.semanticRole,
+                capabilityContext: mapping.context,
+              });
+            }
           }
           break;
 
@@ -216,28 +194,15 @@ export class BrowserExecutor implements Executor {
             ([key]) => mapping.semanticRole.includes(key) || mapping.context?.includes(key),
           );
           if (inputParam) {
-            const action =
-              nodeId != null
-                ? ({
-                    type: "type_nodeId",
-                    nodeId,
-                    value: String(inputParam[1]),
-                    semanticRole: mapping.semanticRole,
-                    capabilityContext: mapping.context,
-                  } as BrowserAction)
-                : ({
-                    type: "type",
-                    selector: mapping.selector,
-                    value: String(inputParam[1]),
-                    semanticRole: mapping.semanticRole,
-                    capabilityContext: mapping.context,
-                  } as BrowserAction);
-            action.fallbackSelectors = this.buildSelectorChain(
-              action,
-              mapping.selector,
-              uiMappings,
-            );
-            actions.push(action);
+            if (nodeId != null) {
+              actions.push({
+                type: "type_nodeId",
+                nodeId,
+                value: String(inputParam[1]),
+                semanticRole: mapping.semanticRole,
+                capabilityContext: mapping.context,
+              });
+            }
           }
           break;
         }
@@ -279,28 +244,12 @@ export class BrowserExecutor implements Executor {
           results.push(await send("navigate", { url: action.url }));
           break;
 
-        case "click":
-          results.push(
-            await this.executeSelectorFallback(action, (selector) =>
-              send("click_node", { selector }),
-            ),
-          );
-          break;
-
         case "click_nodeId":
-          results.push(await this.executeNodeOrSelectorFallback(action, "click_node"));
-          break;
-
-        case "type":
-          results.push(
-            await this.executeSelectorFallback(action, (selector) =>
-              send("type_text", { selector, text: action.value }),
-            ),
-          );
+          results.push(await this.executeNodeAction(action, "click_node"));
           break;
 
         case "type_nodeId":
-          results.push(await this.executeNodeOrSelectorFallback(action, "type_text", action.value));
+          results.push(await this.executeNodeAction(action, "type_text", action.value));
           break;
 
         case "snapshot":
@@ -320,57 +269,19 @@ export class BrowserExecutor implements Executor {
     return { executed: true, actions: actions.length, results };
   }
 
-  private async executeSelectorFallback(
-    action: BrowserAction,
-    call: (selector: string) => Promise<unknown>,
-  ): Promise<unknown> {
-    const selectors = [action.selector, ...(action.fallbackSelectors ?? [])].filter(
-      (selector): selector is string => typeof selector === "string" && selector.trim().length > 0,
-    );
-    const deduped = [...new Set(selectors)];
-    let lastError: unknown;
-    for (const selector of deduped) {
-      try {
-        return await call(selector);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    throw lastError instanceof Error
-      ? lastError
-      : new Error("All selector fallback attempts failed");
-  }
-
-  private async executeNodeOrSelectorFallback(
+  private async executeNodeAction(
     action: BrowserAction,
     command: "click_node" | "type_text",
     value?: string,
   ): Promise<unknown> {
+    if (typeof action.nodeId !== "number") {
+      throw new Error("nodeId is required for nodeId-based browser actions");
+    }
     const send = this.sendCommand!;
-    let nodeError: unknown;
-    if (typeof action.nodeId === "number") {
-      try {
-        if (command === "click_node") {
-          return await send(command, { nodeId: action.nodeId });
-        }
-        return await send(command, { nodeId: action.nodeId, text: value });
-      } catch (error) {
-        nodeError = error;
-      }
+    if (command === "click_node") {
+      return await send(command, { nodeId: action.nodeId });
     }
-
-    try {
-      if (command === "click_node") {
-        return await this.executeSelectorFallback(action, (selector) =>
-          send(command, { selector }),
-        );
-      }
-      return await this.executeSelectorFallback(action, (selector) =>
-        send(command, { selector, text: value }),
-      );
-    } catch (selectorError) {
-      throw selectorError ?? nodeError;
-    }
+    return await send(command, { nodeId: action.nodeId, text: value });
   }
 
   private async maybePersistLearnedRoute(params: {
@@ -496,14 +407,6 @@ export class BrowserExecutor implements Executor {
             steps.push({ navigate: action.url });
           }
           break;
-        case "click":
-          if (action.selector) {
-            steps.push({ click: action.selector });
-            fallbackChains.push(
-              this.buildSelectorChain(action, action.selector, uiMappings, snapshotSelectors),
-            );
-          }
-          break;
         case "click_nodeId": {
           const selector =
             typeof action.nodeId === "number" ? selectorByNodeId.get(action.nodeId) : undefined;
@@ -515,19 +418,6 @@ export class BrowserExecutor implements Executor {
           }
           break;
         }
-        case "type":
-          if (action.selector) {
-            steps.push({
-              type: {
-                target: action.selector,
-                value: action.value ?? "",
-              },
-            });
-            fallbackChains.push(
-              this.buildSelectorChain(action, action.selector, uiMappings, snapshotSelectors),
-            );
-          }
-          break;
         case "type_nodeId": {
           const selector =
             typeof action.nodeId === "number" ? selectorByNodeId.get(action.nodeId) : undefined;

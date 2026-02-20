@@ -1,8 +1,8 @@
 """
 TodoApp Connector - Complete Example
 
-A fully working example connector that demonstrates all key patterns:
-1. Selector definitions (the "knowledge")
+A fully working example connector that demonstrates key patterns:
+1. Runtime target definitions
 2. Tool implementations (browser automation recipes)
 3. Tool schema definitions (what LLM sees)
 4. Connector export
@@ -32,19 +32,12 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# STEP 1: Define Selectors (the "Knowledge")
+# STEP 1: Define Runtime Targets
 # =============================================================================
-# These CSS selectors are what make your connector fast.
-# Find them using browser DevTools (F12) → Elements → Right-click → Copy selector
+# This legacy example uses selector targets. Prefer runtime node IDs from live snapshots.
 
 class TodoAppSelectors:
-    """DOM selectors for TodoApp.
-    
-    Tips for finding good selectors:
-    - Use data-testid, aria-label, or unique attributes
-    - Avoid fragile selectors like nth-child or dynamic IDs
-    - Test selectors in browser console: document.querySelector('...')
-    """
+    """TodoApp interaction targets (legacy selector example)."""
     
     # Task Input
     NEW_TASK_INPUT = '[data-testid="new-task-input"], #new-task, .task-input input'

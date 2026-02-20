@@ -7,16 +7,14 @@ Connects to the Centris backend's browser agent.
 Commands:
     centris browser navigate "https://gmail.com"
     centris browser snapshot
-    centris browser click --selector "button.submit"
+    centris browser click --node-id 123
     centris browser type "Hello world"
     centris browser search "Python tutorials"
 """
 
 import asyncio
-import base64
 import json
 import sys
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 import click
@@ -83,20 +81,15 @@ class BrowserClient:
     
     async def click_element(
         self,
-        node_id: Optional[str] = None,
-        selector: Optional[str] = None,
-        text: Optional[str] = None,
+        node_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Click an element on the page."""
-        params = {}
-        if node_id:
-            params["nodeId"] = node_id
-        if selector:
-            params["selector"] = selector
-        if text:
-            params["text"] = text
-        
-        return await self.execute_tool("click_node", params)
+        if node_id is None:
+            return {
+                "success": False,
+                "error": "nodeId is required",
+            }
+        return await self.execute_tool("click_node", {"nodeId": node_id})
     
     async def type_text(self, text: str) -> Dict[str, Any]:
         """Type text into the focused element."""
@@ -166,7 +159,7 @@ def browser_group(ctx: click.Context, backend_url: str):
     Examples:
       centris browser navigate "https://gmail.com"
       centris browser snapshot
-      centris browser click --selector "button.submit"
+      centris browser click --node-id 123
       centris browser type "Hello world"
       centris browser search "Python tutorials"
     
@@ -275,43 +268,33 @@ def snapshot_command(ctx: click.Context, output_format: str, json_output: bool):
 
 
 @browser_group.command(name="click")
-@click.option("--node-id", "-n", help="Node ID to click (from snapshot)")
-@click.option("--selector", "-s", help="CSS selector to click")
-@click.option("--text", "-t", help="Click element containing this text")
+@click.option("--node-id", "-n", type=int, required=True, help="Node ID to click (from snapshot)")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.pass_context
 def click_command(
     ctx: click.Context,
-    node_id: Optional[str],
-    selector: Optional[str],
-    text: Optional[str],
+    node_id: int,
     json_output: bool,
 ):
     """
     Click an element on the page.
     
-    Specify element by node ID (from snapshot), CSS selector, or text content.
+    Node ID is required (from `centris browser snapshot`).
     
     \b
     Examples:
       centris browser click --node-id 123
-      centris browser click --selector "button.submit"
-      centris browser click --text "Sign In"
     """
     client: BrowserClient = ctx.obj["browser_client"]
     json_output = json_output or ctx.obj.get("json_output", False)
-    
-    if not any([node_id, selector, text]):
-        click.echo(theme.error("Error: Specify --node-id, --selector, or --text"))
-        ctx.exit(ExitCode.ERROR)
     
     if not check_backend(client, json_output):
         ctx.exit(ExitCode.ERROR)
     
     async def run():
-        return await client.click_element(node_id=node_id, selector=selector, text=text)
+        return await client.click_element(node_id=node_id)
     
-    target = node_id or selector or text
+    target = str(node_id)
     if not json_output:
         with Spinner(f"Clicking: {target}...") as spinner:
             result = asyncio.run(run())
@@ -507,36 +490,12 @@ def screenshot_command(ctx: click.Context, output: Optional[str], json_output: b
       centris browser screenshot -o page.png
       centris browser screenshot --json
     """
-    client: BrowserClient = ctx.obj["browser_client"]
-    json_output = json_output or ctx.obj.get("json_output", False)
-    
-    if not check_backend(client, json_output):
-        ctx.exit(ExitCode.ERROR)
-    
-    async def run():
-        return await client.take_screenshot()
-    
-    if not json_output:
-        with Spinner("Taking screenshot...") as spinner:
-            result = asyncio.run(run())
-            if result.get("success"):
-                # Save to file
-                output_path = Path(output or "screenshot.png")
-                image_data = result.get("image", "")
-                if image_data:
-                    image_bytes = base64.b64decode(image_data)
-                    output_path.write_bytes(image_bytes)
-                    spinner.success(f"Saved: {output_path}")
-                else:
-                    spinner.fail("No image data received")
-            else:
-                spinner.fail(result.get("error", "Screenshot failed"))
-    else:
-        result = asyncio.run(run())
-        click.echo(json.dumps(result, indent=2))
-    
-    if not result.get("success"):
-        ctx.exit(ExitCode.ERROR)
+    _ = output
+    _ = json_output
+    raise click.ClickException(
+        "Screenshot command is disabled in migrated runtime. "
+        "Use `centris browser snapshot` and `centris browser content`."
+    )
 
 
 __all__ = ["browser_group", "BrowserClient"]

@@ -30,14 +30,14 @@ pip install centris-sdk
 
 ## Development
 
-### 1. Define Selectors
+### 1. Capture Live Node IDs
 
-Edit `connector.py` and update the `{class_name}Selectors` class with the CSS selectors for your app:
+Run `centris browser snapshot` on your target page and update `{class_name}StaticControls` with those node IDs:
 
 ```python
-class {class_name}Selectors:
-    COMPOSE_BUTTON = '[data-testid="compose"]'  # Find via browser DevTools
-    SEND_BUTTON = '[type="submit"]'
+class {class_name}StaticControls:
+    COMPOSE_BUTTON = (10, "clickable", "Compose button")
+    SEND_BUTTON = (25, "clickable", "Send button")
 ```
 
 ### 2. Implement Tools
@@ -47,9 +47,9 @@ Add browser automation recipes using the `browser_bridge`:
 ```python
 async def {python_id}_send(tool_call_id, params, context):
     bridge = context.get("browser_bridge")
-    await bridge.click_node({class_name}Selectors.COMPOSE_BUTTON)
-    await bridge.input_text_node("#to", params["recipient"])
-    await bridge.click_node({class_name}Selectors.SEND_BUTTON)
+    await bridge.click_node(node_id={class_name}StaticControls.COMPOSE_BUTTON[0])
+    await bridge.type_text(params["recipient"])
+    await bridge.click_node(node_id={class_name}StaticControls.SEND_BUTTON[0])
     return {{"success": True}}
 ```
 
@@ -72,14 +72,12 @@ The `browser_bridge` provides these methods:
 | Method | Description |
 |--------|-------------|
 | `navigate_browser(url)` | Navigate to URL |
-| `click_node(selector)` | Click element |
-| `input_text_node(selector, text)` | Type into input |
+| `click_node(node_id=int)` | Click element |
 | `type_text(text)` | Type at cursor |
 | `press_key(key)` | Press keyboard key |
 | `wait(ms)` | Wait milliseconds |
 | `wait_for_selector(selector)` | Wait for element |
 | `get_page_content()` | Get page text |
-| `take_screenshot()` | Capture screenshot |
 
 ## Security
 

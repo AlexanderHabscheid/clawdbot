@@ -39,8 +39,8 @@ class BrowserBridge(ABC):
     
     WHAT YOU CAN DO:
     - Navigate to URLs
-    - Click elements by CSS selector
-    - Type text into inputs
+    - Click elements by runtime target (node ID preferred)
+    - Type text into focused/targeted inputs
     - Wait for elements/navigation
     - Read page content
     - Take screenshots
@@ -61,16 +61,18 @@ class BrowserBridge(ABC):
             await bridge.wait(2000)
             
             # Click compose
-            await bridge.click_node('[gh="cm"]')
+            await bridge.click_node(node_id=15)
             await bridge.wait(1000)
             
             # Fill email fields
-            await bridge.input_text_node('[name="to"]', params["to"])
-            await bridge.input_text_node('[name="subjectbox"]', params["subject"])
-            await bridge.input_text_node('[aria-label="Message Body"]', params["body"])
+            await bridge.type_text(params["to"])
+            await bridge.press_key("Tab")
+            await bridge.type_text(params["subject"])
+            await bridge.press_key("Tab")
+            await bridge.type_text(params["body"])
             
             # Send
-            await bridge.click_node('[aria-label*="Send"]')
+            await bridge.click_node(node_id=47)
             
             return {"success": True}
     """
@@ -120,10 +122,10 @@ class BrowserBridge(ABC):
     @abstractmethod
     async def click_node(self, selector: str) -> dict[str, Any]:
         """
-        Click an element by CSS selector.
+        Click an element by runtime reference.
         
         Args:
-            selector: CSS selector (e.g., '[data-testid="submit"]', '#btn-send')
+            selector: Element reference. Prefer node IDs from live snapshots.
             
         Returns:
             {"success": True} on success
@@ -137,7 +139,7 @@ class BrowserBridge(ABC):
         Clear and type text into an input element.
         
         Args:
-            selector: CSS selector for the input element
+            selector: Element reference for the input target
             text: Text to type
             
         Returns:

@@ -87,6 +87,7 @@ export async function runActActionCommand(options: ActOptions, ctx: CLIContext):
   const client = createClient(options);
   const result = await client.act({
     kind: options.kind,
+    nodeId: options.nodeId,
     target: options.target,
     value: options.value,
     amount: options.amount,

@@ -105,7 +105,7 @@ If you installed `[browser]` or `[all]`, you also need to install Chromium:
 playwright install chromium
 ```
 
-This enables `centris-py test . --browser` which verifies your selectors work in a real browser.
+This enables `centris-py test . --browser` which verifies your runtime browser interactions in a real browser.
 
 ## Quick Start (5 Minutes)
 
@@ -128,16 +128,15 @@ myapp/
 └── README.md         # Documentation
 ```
 
-### 2. Define Selectors
+### 2. Define Runtime Targets
 
-Edit `connector.py` - add your DOM selectors (use browser DevTools to find them):
+Edit `connector.py` to model runtime actions and node IDs discovered from live snapshots:
 
 ```python
-class MyAppSelectors:
-    """DOM selectors for MyApp - the knowledge that makes your connector fast."""
-    SEND_BUTTON = '[data-testid="send"]'
-    MESSAGE_INPUT = '[name="message"]'
-    SUCCESS_TOAST = '.toast-success'
+class MyAppNodes:
+    """Example runtime node targets (replace with live snapshot IDs)."""
+    SEND_BUTTON = 12
+    MESSAGE_INPUT = 8
 ```
 
 ### 3. Implement Tools
@@ -154,8 +153,9 @@ async def myapp_send_message(tool_call_id, params, context):
 
     # Navigate and interact
     await browser.navigate_browser("https://myapp.com")
-    await browser.input_text_node(MyAppSelectors.MESSAGE_INPUT, params["message"])
-    await browser.click_node(MyAppSelectors.SEND_BUTTON)
+    await browser.click_node(node_id=MyAppNodes.MESSAGE_INPUT)
+    await browser.type_text(params["message"])
+    await browser.click_node(node_id=MyAppNodes.SEND_BUTTON)
 
     return {"success": True, "message": "Message sent"}
 ```
@@ -181,8 +181,9 @@ Test Results:
   ✓ myapp_send_message (12ms)
     Browser Operations:
       → navigate_browser(url='https://myapp.com')
-      → input_text_node(selector='[name="message"]', text='test_message')
-      → click_node(selector='[data-testid="send"]')
+      → click_node(node_id=8)
+      → type_text(text='test_message')
+      → click_node(node_id=12)
 --------------------------------------------------
 Total: 1 | Passed: 1 | Failed: 0
 
@@ -200,20 +201,20 @@ Your connector is now available to all Centris users worldwide.
 
 ## CLI Reference
 
-| Command                                     | Description                                            |
-| ------------------------------------------- | ------------------------------------------------------ |
-| `centris-py init <id>`                      | Create new connector project                           |
-| `centris-py init <id> --template browser`   | Create browser automation connector                    |
-| `centris-py validate [path]`                | Validate connector structure                           |
-| `centris-py test [path]`                    | Test with mock browser (fast, syntax only)             |
-| `centris-py test [path] --browser`          | Test with real Playwright browser (verifies selectors) |
-| `centris-py test [path] --browser --headed` | Real browser with visible window                       |
-| `centris-py test [path] --live`             | Test via Centris backend (requires server running)     |
-| `centris-py test [path] --show-ops`         | Show browser operations performed                      |
-| `centris-py serve [path]`                   | Start dev server with playground                       |
-| `centris-py publish [path]`                 | Publish to registry                                    |
-| `centris-py search <query>`                 | Search the registry                                    |
-| `centris-py list`                           | List available connectors                              |
+| Command                                     | Description                                                  |
+| ------------------------------------------- | ------------------------------------------------------------ |
+| `centris-py init <id>`                      | Create new connector project                                 |
+| `centris-py init <id> --template browser`   | Create browser automation connector                          |
+| `centris-py validate [path]`                | Validate connector structure                                 |
+| `centris-py test [path]`                    | Test with mock browser (fast, syntax only)                   |
+| `centris-py test [path] --browser`          | Test with real Playwright browser (verifies runtime actions) |
+| `centris-py test [path] --browser --headed` | Real browser with visible window                             |
+| `centris-py test [path] --live`             | Test via Centris backend (requires server running)           |
+| `centris-py test [path] --show-ops`         | Show browser operations performed                            |
+| `centris-py serve [path]`                   | Start dev server with playground                             |
+| `centris-py publish [path]`                 | Publish to registry                                          |
+| `centris-py search <query>`                 | Search the registry                                          |
+| `centris-py list`                           | List available connectors                                    |
 
 ## Browser Bridge API
 
@@ -233,19 +234,13 @@ tab = await browser.get_active_tab()
 ### Clicking
 
 ```python
-# Click by CSS selector
-await browser.click_node('[data-testid="submit"]')
-
-# Click by aria label
-await browser.click_node('[aria-label="Send"]')
+# Click by node ID (preferred)
+await browser.click_node(node_id=42)
 ```
 
 ### Typing
 
 ```python
-# Input text into a field
-await browser.input_text_node('[name="email"]', "user@example.com")
-
 # Type at current focus
 await browser.type_text("Hello world")
 
@@ -281,13 +276,13 @@ Here's a real-world example - the Gmail connector:
 ```python
 """Gmail Connector - compiled browser automation for Gmail."""
 
-class GmailSelectors:
-    """Gmail's DOM selectors - the knowledge that makes this fast."""
-    COMPOSE_BUTTON = '[gh="cm"]'
-    COMPOSE_TO = '[aria-label="To recipients"]'
-    COMPOSE_SUBJECT = '[name="subjectbox"]'
-    COMPOSE_BODY = '[aria-label="Message Body"]'
-    COMPOSE_SEND = '[aria-label*="Send"]'
+class GmailNodes:
+    """Example node IDs from live snapshots."""
+    COMPOSE_BUTTON = 15
+    COMPOSE_TO = 29
+    COMPOSE_SUBJECT = 31
+    COMPOSE_BODY = 33
+    COMPOSE_SEND = 47
 
 async def gmail_send_email(tool_call_id, params, context):
     """Send email via Gmail - 10x faster than LLM-in-loop."""
@@ -300,16 +295,19 @@ async def gmail_send_email(tool_call_id, params, context):
     await browser.wait(2000)
 
     # Click compose
-    await browser.click_node(GmailSelectors.COMPOSE_BUTTON)
+    await browser.click_node(node_id=GmailNodes.COMPOSE_BUTTON)
     await browser.wait(1000)
 
     # Fill fields
-    await browser.input_text_node(GmailSelectors.COMPOSE_TO, to)
-    await browser.input_text_node(GmailSelectors.COMPOSE_SUBJECT, subject)
-    await browser.input_text_node(GmailSelectors.COMPOSE_BODY, body)
+    await browser.click_node(node_id=GmailNodes.COMPOSE_TO)
+    await browser.type_text(to)
+    await browser.click_node(node_id=GmailNodes.COMPOSE_SUBJECT)
+    await browser.type_text(subject)
+    await browser.click_node(node_id=GmailNodes.COMPOSE_BODY)
+    await browser.type_text(body)
 
     # Send
-    await browser.click_node(GmailSelectors.COMPOSE_SEND)
+    await browser.click_node(node_id=GmailNodes.COMPOSE_SEND)
 
     return {"success": True, "message": f"Email sent to {to}"}
 ```
@@ -321,19 +319,19 @@ Three testing modes, from fastest to most thorough:
 ### 1. Mock Testing (Fastest)
 
 ```bash
-# Fast syntax check - records operations but doesn't verify selectors
+# Fast syntax check - records operations but doesn't verify live browser state
 centris-py test .
 
 # With verbose output
 centris-py test . -v --show-ops
 ```
 
-**Best for**: Quick iteration during development. Verifies your code runs without errors, but does NOT check if selectors actually exist on the page.
+**Best for**: Quick iteration during development. Verifies your code runs without errors, but does NOT check live browser node state.
 
 ### 2. Real Browser Testing (Recommended)
 
 ```bash
-# Launches a real Playwright browser - verifies selectors exist
+# Launches a real Playwright browser - verifies runtime interactions
 centris-py test . --browser
 
 # Watch the browser (headed mode)
@@ -343,16 +341,12 @@ centris-py test . --browser --headed
 centris-py test . --browser --show-ops
 ```
 
-**Best for**: Validating selectors before publishing. If a selector doesn't exist, you get actionable errors:
+**Best for**: Validating runtime interactions before publishing.
 
 ```
 ✗ gmail_send_email (3421ms)
-  Error: Failed to click selector '[gh="cm"]' (element not found within timeout)
-  Hint: Selector '[gh="cm"]' not found, but found similar: '[gh="mtm"]'. Try updating your selector to match.
-  Similar selectors found:
-    • [gh="mtm"]
-    • [aria-label="Main menu"]
-    • [data-testid="compose-button"]
+  Error: Failed to click runtime target (element not found within timeout)
+  Hint: Capture a fresh snapshot and refresh node IDs for this flow.
 ```
 
 **Requires**: `pip install centris-sdk[browser] && playwright install chromium`
@@ -394,7 +388,7 @@ async def test_send_message_mock(mock_browser):
     assert any(op.action == "navigate_browser" for op in ops)
     assert any(op.action == "click_node" for op in ops)
 
-# Real browser tests (slower, but validates selectors)
+# Real browser tests (slower, but validates runtime interactions)
 @pytest.fixture
 async def real_browser():
     async with PlaywrightBrowserBridge(headless=True) as browser:
@@ -411,7 +405,7 @@ async def test_send_message_real(real_browser):
         {"browser_bridge": real_browser}
     )
 
-    # If this fails, result contains hint and similar selectors
+    # If this fails, result contains runtime diagnostics
     if not result.get("success"):
         print(f"Error: {result.get('error')}")
         print(f"Hint: {result.get('hint')}")
@@ -448,7 +442,7 @@ A typical connector project:
 ```
 myapp/
 ├── connector.py        # Main implementation
-│   ├── MyAppSelectors  # DOM selectors (the "knowledge")
+│   ├── MyAppNodes      # Runtime node targets
 │   ├── MyAppURLs       # URL patterns
 │   ├── myapp_*         # Tool functions (browser automation recipes)
 │   ├── MyAppConnectorApi  # Tool registration
@@ -528,7 +522,7 @@ For full versioning documentation, see:
 
 **This is the most important concept for building connectors.**
 
-### What CAN Be Pre-Mapped (Static DOM)
+### What CAN Use Stable Runtime Targets (Static DOM)
 
 | Element     | Example                  | Mappable? |
 | ----------- | ------------------------ | --------- |
@@ -546,7 +540,7 @@ element_map = {
 }
 ```
 
-### What CANNOT Be Pre-Mapped (Dynamic DOM)
+### What CANNOT Use Stable Runtime Targets (Dynamic DOM)
 
 | Content           | Example           | Mappable? |
 | ----------------- | ----------------- | --------- |

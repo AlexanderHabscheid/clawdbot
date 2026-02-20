@@ -10,16 +10,7 @@ Takes a template-generated connector and uses LLM to:
 4. Create comprehensive tests
 
 Usage:
-    # Refine existing connector with AI
     centris refine ./my-connector
-    
-    # Generate + refine in one step
-    centris init my-app --capture-url https://example.com --ai
-    
-    # Use specific model
-    centris refine ./my-connector --model gpt-4o
-    centris refine ./my-connector --model claude-3.5-sonnet
-    centris refine ./my-connector --model deepseek
 """
 
 import asyncio
@@ -47,7 +38,7 @@ Your task is to refine a browser automation connector by:
 4. Creating field validation
 
 Context:
-- Centris uses pre-mapped DOM element IDs from Chrome extension
+- Centris uses runtime node IDs from live browser snapshots
 - Elements have types: typeable (input fields), clickable (buttons), selectable (dropdowns)
 - The connector should use browser_bridge methods: click_node, type_text, wait, press_key
 
@@ -255,7 +246,7 @@ async def refine_connector(
     if not element_mapping:
         raise CentrisCLIError(
             "No element mapping found in connector.json",
-            hint="Generate with: centris init --capture-url <url>"
+            hint="Use runtime route recording and action APIs to build connector behavior"
         )
     
     # Load data structure (if provided)
@@ -315,28 +306,18 @@ def refine_command(
         centris refine ./my-connector --data data.json
         centris refine ./my-connector --model claude-3.5-sonnet
     """
-    deps = ctx.obj.get("deps") if ctx.obj else create_default_deps()
-    console = deps.console
-    
-    connector_dir = Path(connector_path)
-    data_file = Path(data) if data else None
-    
-    with Spinner(f"Refining connector with AI ({model})...") as spin:
-        try:
-            result = asyncio.run(refine_connector(
-                connector_path=connector_dir,
-                data_file=data_file,
-                model=model,
-            ))
-        except CentrisCLIError as e:
-            spin.fail(str(e))
-            raise
-        
-        spin.success("Refinement complete")
-    
-    # Show refinement
-    console.echo(f"\n{theme.heading('AI Refinement:')}")
-    console.echo(result["refinement"])
+    _ = ctx
+    _ = connector_path
+    _ = data
+    _ = model
+    _ = dry_run
+    raise CentrisCLIError(
+        "centris refine is no longer supported in migrated runtime.",
+        hint=(
+            "Use runtime Action API route recording and verification "
+            "instead of element-mapping refinement."
+        ),
+    )
     
     if dry_run:
         console.echo(f"\n{theme.muted('(dry run - no files modified)')}")

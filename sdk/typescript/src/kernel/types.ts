@@ -32,11 +32,20 @@ export interface KernelObserveRequest {
 export interface KernelObserveResult {
   url: string;
   title?: string;
-  interactive?: Array<{ name: string; selector?: string }>;
+  interactive?: Array<{
+    name: string;
+    nodeId?: number;
+    type?: string;
+    role?: string;
+    /** @deprecated Runtime actions should use nodeId, not selector strings. */
+    selector?: string;
+  }>;
 }
 
 export interface KernelActRequest {
   kind: KernelActionKind;
+  /** Preferred for click/type actions when available from observe(). */
+  nodeId?: number;
   target?: string;
   value?: string;
   amount?: number;

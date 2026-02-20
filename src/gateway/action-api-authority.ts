@@ -362,6 +362,7 @@ async function runAct(params: Record<string, unknown>): Promise<Record<string, u
   if (!kind) {
     throw new Error("kind is required");
   }
+  const nodeId = asNumber(params.nodeId);
 
   if (kind === "navigate") {
     const url = asString(params.value) ?? asString(params.target);
@@ -374,12 +375,16 @@ async function runAct(params: Record<string, unknown>): Promise<Record<string, u
 
   if (kind === "click") {
     const target = asString(params.target);
-    if (!target) {
-      throw new Error("click requires target");
-    }
-    const nodeId = Number.parseInt(target, 10);
-    if (Number.isFinite(nodeId) && `${nodeId}` === target.trim()) {
+    if (Number.isFinite(nodeId)) {
       await sendExtensionCommand("click_node", { nodeId });
+      return { ok: true };
+    }
+    if (!target) {
+      throw new Error("click requires nodeId or target");
+    }
+    const parsedTargetNodeId = Number.parseInt(target, 10);
+    if (Number.isFinite(parsedTargetNodeId) && `${parsedTargetNodeId}` === target.trim()) {
+      await sendExtensionCommand("click_node", { nodeId: parsedTargetNodeId });
     } else {
       await sendExtensionCommand("click_node", { selector: target });
     }
@@ -389,10 +394,14 @@ async function runAct(params: Record<string, unknown>): Promise<Record<string, u
   if (kind === "type") {
     const target = asString(params.target);
     const value = asString(params.value) ?? "";
+    if (Number.isFinite(nodeId)) {
+      await sendExtensionCommand("type_into_node", { nodeId, text: value });
+      return { ok: true };
+    }
     if (target) {
-      const nodeId = Number.parseInt(target, 10);
-      if (Number.isFinite(nodeId) && `${nodeId}` === target.trim()) {
-        await sendExtensionCommand("type_into_node", { nodeId, text: value });
+      const parsedTargetNodeId = Number.parseInt(target, 10);
+      if (Number.isFinite(parsedTargetNodeId) && `${parsedTargetNodeId}` === target.trim()) {
+        await sendExtensionCommand("type_into_node", { nodeId: parsedTargetNodeId, text: value });
       } else {
         await sendExtensionCommand("type_text", { selector: target, text: value });
       }
@@ -583,11 +592,46 @@ export async function handleActionApiEnvelope(
     if (method === "observe") {
       const snapshot = await getSnapshot(asString(params.instruction));
       const metadata = (snapshot.metadata as Record<string, unknown> | undefined) ?? {};
+      const internalNodes = Array.isArray(snapshot._internalNodes)
+        ? (snapshot._internalNodes as Array<Record<string, unknown>>)
+        : [];
+      const internalByNodeId = new Map<number, Record<string, unknown>>();
+      for (const node of internalNodes) {
+        const id = asNumber(node.nodeId) ?? asNumber(node.id);
+        if (typeof id === "number") {
+          internalByNodeId.set(id, node);
+        }
+      }
       const interactive = Array.isArray(snapshot.interactiveNodes)
-        ? (snapshot.interactiveNodes as Array<Record<string, unknown>>).map((node) => ({
-            name: asString(node.n) ?? asString(node.name) ?? "",
-            selector: asString(node.selector),
-          }))
+        ? (snapshot.interactiveNodes as Array<Record<string, unknown>>).map((node) => {
+            const nodeId = asNumber(node.id) ?? asNumber(node.nodeId);
+            const internal = typeof nodeId === "number" ? internalByNodeId.get(nodeId) : undefined;
+            const item: Record<string, unknown> = {
+              name:
+                asString(node.n) ??
+                asString(node.name) ??
+                asString(internal?.name) ??
+                asString(internal?.textContent) ??
+                "",
+            };
+            const resolvedNodeId = nodeId ?? asNumber(internal?.nodeId);
+            const type = asString(node.t) ?? asString(node.type) ?? asString(internal?.type);
+            const role = asString(node.r) ?? asString(node.role) ?? asString(internal?.role);
+            const selector = asString(internal?.selector) ?? asString(node.selector);
+            if (typeof resolvedNodeId === "number") {
+              item.nodeId = resolvedNodeId;
+            }
+            if (type) {
+              item.type = type;
+            }
+            if (role) {
+              item.role = role;
+            }
+            if (selector) {
+              item.selector = selector;
+            }
+            return item;
+          })
         : [];
       return {
         specVersion,

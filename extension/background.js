@@ -780,7 +780,7 @@ async function handleClick(data) {
   if (nodeId) {
     return await clickNode(validation.tabId, nodeId);
   } else if (selector) {
-    return await smartClick(validation.tabId, { text: selector });
+    return await handleClickElement({ tabId: validation.tabId, selector });
   }
 
   return { success: false, error: "nodeId or selector is required" };

@@ -59,6 +59,7 @@ describe("BrowserExecutor", () => {
         },
         {
           selector: "#composer",
+          nodeId: 43,
           semanticRole: "message",
           action: "type",
           context: ["send_message", "message"],
@@ -79,18 +80,13 @@ describe("BrowserExecutor", () => {
       nodeId: 42,
     });
     expect(sendCommand).toHaveBeenNthCalledWith(2, "type_text", {
-      selector: "#composer",
+      nodeId: 43,
       text: "hello world",
     });
   });
 
-  it("retries click with selector fallback when primary selector fails", async () => {
-    const sendCommand = vi.fn(async (type: string, data?: Record<string, unknown>) => {
-      if (type === "click_node" && data?.selector === "#primary") {
-        throw new Error("primary selector failed");
-      }
-      return { ok: true };
-    });
+  it("returns NO_ACTIONS when only selector-based mappings are provided", async () => {
+    const sendCommand = vi.fn().mockResolvedValue({ ok: true });
     const executor = new BrowserExecutor({
       sendCommand,
       isConnected: () => true,
@@ -115,14 +111,14 @@ describe("BrowserExecutor", () => {
     };
 
     const result = await executor.execute("slack", "send_message", {}, context);
-    expect(result.ok).toBe(true);
-    expect(sendCommand).toHaveBeenNthCalledWith(1, "click_node", { selector: "#primary" });
-    expect(sendCommand).toHaveBeenNthCalledWith(2, "click_node", {
-      selector: "[data-testid='send']",
-    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("NO_ACTIONS");
+    }
+    expect(sendCommand).toHaveBeenCalledTimes(0);
   });
 
-  it("retries nodeId action with selector fallback when nodeId fails", async () => {
+  it("fails nodeId action when nodeId is stale instead of silently falling back to selectors", async () => {
     const sendCommand = vi.fn(async (type: string, data?: Record<string, unknown>) => {
       if (type === "type_text" && typeof data?.nodeId === "number") {
         throw new Error("stale node id");
@@ -159,15 +155,12 @@ describe("BrowserExecutor", () => {
       { message: "hello world" },
       context,
     );
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
     expect(sendCommand).toHaveBeenNthCalledWith(1, "type_text", {
       nodeId: 42,
       text: "hello world",
     });
-    expect(sendCommand).toHaveBeenNthCalledWith(2, "type_text", {
-      selector: "[data-testid='composer']",
-      text: "hello world",
-    });
+    expect(sendCommand).toHaveBeenCalledTimes(1);
   });
 
   it("reports availability from bound connection probe", async () => {
@@ -193,6 +186,7 @@ describe("BrowserExecutor", () => {
       uiMappings: [
         {
           selector: "#go",
+          nodeId: 7,
           semanticRole: "open",
           action: "click",
           context: ["open_page"],
@@ -204,7 +198,7 @@ describe("BrowserExecutor", () => {
 
     expect(result.ok).toBe(true);
     expect(sendCommand).toHaveBeenCalledWith("click_node", {
-      selector: "#go",
+      nodeId: 7,
     });
   });
 

@@ -208,6 +208,7 @@ export function createCLI(): Command {
     .command("act")
     .description("Execute a runtime action via Action API")
     .requiredOption("--kind <kind>", "Action kind: navigate|click|type|press|wait|scroll")
+    .option("--node-id <id>", "Preferred nodeId target from observe() for click/type actions")
     .option("--target <target>", "Action target")
     .option("--value <value>", "Action value")
     .option("--amount <amount>", "Numeric amount for wait/scroll")
@@ -222,6 +223,8 @@ export function createCLI(): Command {
       await runActActionCommand(
         {
           ...options,
+          nodeId:
+            typeof options.nodeId === "string" ? Number.parseInt(options.nodeId, 10) : undefined,
           amount:
             typeof options.amount === "string" ? Number.parseInt(options.amount, 10) : undefined,
           timeoutMs:

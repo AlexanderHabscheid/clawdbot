@@ -10,7 +10,7 @@ Usage:
     # Get available tools
     tools = connector.api.get_tools()
     
-    # See selectors
+    # See legacy selector targets (prefer runtime node IDs in new connectors)
     from centris_sdk.examples.todoapp import TodoAppSelectors
     print(TodoAppSelectors.NEW_TASK_INPUT)
 """

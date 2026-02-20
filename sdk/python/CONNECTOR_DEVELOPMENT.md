@@ -242,14 +242,13 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# SELECTORS - Domain knowledge for fast automation
+# RUNTIME TARGETS - Live snapshot node IDs
 # =============================================================================
 
-class ExampleSelectors:
-    """DOM selectors - the knowledge that makes automation fast."""
-    SEARCH_INPUT = '[data-testid="search-input"]'
-    SEARCH_BUTTON = '[data-testid="search-button"]'
-    RESULT_ITEM = '.search-result-item'
+class ExampleNodes:
+    """Node IDs captured from live browser snapshots."""
+    SEARCH_INPUT = 11
+    SEARCH_BUTTON = 14
 
 
 class ExampleURLs:
@@ -300,11 +299,12 @@ async def example_search(
         await browser_bridge.wait(2000)
 
         # Enter search query
-        await browser_bridge.input_text_node(ExampleSelectors.SEARCH_INPUT, query)
+        await browser_bridge.click_node(node_id=ExampleNodes.SEARCH_INPUT)
+        await browser_bridge.type_text(query)
         await browser_bridge.wait(300)
 
         # Click search
-        await browser_bridge.click_node(ExampleSelectors.SEARCH_BUTTON)
+        await browser_bridge.click_node(node_id=ExampleNodes.SEARCH_BUTTON)
         await browser_bridge.wait(2000)
 
         logger.info(f"[Example] Search completed for: {query}")
@@ -421,7 +421,7 @@ class ExampleConnector:
 # This is what ConnectorManager.load() looks for
 connector = ExampleConnector()
 
-__all__ = ["connector", "ExampleConnector", "ExampleSelectors"]
+__all__ = ["connector", "ExampleConnector", "ExampleNodes"]
 ```
 
 ## Browser Bridge API Reference
@@ -445,16 +445,13 @@ tab = await browser_bridge.get_active_tab()
 # Click by node ID (from Chrome extension)
 await browser_bridge.click_node(node_id: int)
 
-# Click by CSS selector
-await browser_bridge.click_node(selector: str)
+# Click by node ID
+await browser_bridge.click_node(node_id: int)
 ```
 
 ### Typing
 
 ```python
-# Type into specific element
-await browser_bridge.input_text_node(selector: str, text: str)
-
 # Type at current focus
 await browser_bridge.type_text(text: str)
 
