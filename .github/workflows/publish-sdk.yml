@@ -2,20 +2,25 @@ name: Publish SDKs
 
 on:
   push:
-    tags:
-      - "sdk-v*"
+    branches: [centris-overlay]
+    paths:
+      - "sdk/**"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publish-typescript:
     runs-on: ubuntu-latest
+    # Skip if this push was an auto-bump commit from this workflow
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
     defaults:
       run:
         working-directory: sdk/typescript
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
@@ -23,19 +28,54 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - run: npm ci
-      - run: npm run build
-      - run: npm test -- --run
-      - run: npm publish --access public
+
+      - name: Check if publish needed
+        id: check
+        run: |
+          LOCAL=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view centris-sdk version 2>/dev/null || echo "0.0.0")
+          echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
+          echo "published=$PUBLISHED" >> "$GITHUB_OUTPUT"
+          if [ "$LOCAL" = "$PUBLISHED" ]; then
+            npm version patch --no-git-tag-version
+            BUMPED=$(node -p "require('./package.json').version")
+            echo "version=$BUMPED" >> "$GITHUB_OUTPUT"
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$LOCAL" >> "$GITHUB_OUTPUT"
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - run: npm run build
+      - run: npm test -- --run
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Commit version bump
+        if: steps.check.outputs.bumped == 'true'
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sdk/typescript/package.json
+          git commit -m "sdk/ts: auto-bump to v${{ steps.check.outputs.version }} [skip ci]"
+          git push
+
   publish-python:
     runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
     defaults:
       run:
         working-directory: sdk/python
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
@@ -44,19 +84,55 @@ jobs:
       - name: Install build tools
         run: pip install --upgrade build twine
 
-      - name: Run tests
+      - name: Install package for testing
+        run: pip install -e ".[all,dev]"
+
+      - name: Check if publish needed
+        id: check
         run: |
-          pip install -e ".[all,dev]"
-          python -m pytest -q
+          LOCAL=$(python3 -c "
+          import re
+          text = open('pyproject.toml').read()
+          print(re.search(r'version\s*=\s*\"([^\"]+)\"', text).group(1))
+          ")
+          PUBLISHED=$(pip index versions centris-sdk 2>/dev/null | head -1 | sed 's/.*(\(.*\))/\1/' || echo "0.0.0")
+          echo "local=$LOCAL"
+          echo "published=$PUBLISHED"
+          echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
+          echo "published=$PUBLISHED" >> "$GITHUB_OUTPUT"
+          if [ "$LOCAL" = "$PUBLISHED" ]; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$LOCAL"
+            PATCH=$((PATCH + 1))
+            NEW="$MAJOR.$MINOR.$PATCH"
+            sed -i "s/version = \"$LOCAL\"/version = \"$NEW\"/" pyproject.toml
+            echo "version=$NEW" >> "$GITHUB_OUTPUT"
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$LOCAL" >> "$GITHUB_OUTPUT"
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - run: python -m pytest -q
 
       - name: Build package
-        run: python -m build
+        run: |
+          rm -rf dist build
+          python -m build
 
-      - name: Check dist
-        run: python -m twine check dist/*
+      - run: python -m twine check dist/*
 
       - name: Upload to PyPI
         run: python -m twine upload dist/*
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+
+      - name: Commit version bump
+        if: steps.check.outputs.bumped == 'true'
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sdk/python/pyproject.toml
+          git commit -m "sdk/py: auto-bump to v${{ steps.check.outputs.version }} [skip ci]"
+          git push
