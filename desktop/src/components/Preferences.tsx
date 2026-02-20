@@ -89,21 +89,22 @@ export default function Preferences({ onComplete }: PreferencesProps) {
           setOperatingMode(modeSetting);
         }
 
-        // Try to sync mode with backend (non-blocking)
         try {
           const backendUrl = DEFAULT_BACKEND_URL || "http://127.0.0.1:5001";
-          const response = await fetch(`${backendUrl}/api/mode/status`, { method: "GET" });
+          const response = await fetch(`${backendUrl}/api/mode/status`, {
+            method: "GET",
+            signal: AbortSignal.timeout(3000),
+          });
           if (response.ok) {
             const data = await response.json();
             if (data.current_mode) {
-              // Backend is authoritative - update local if different
               if (data.current_mode !== operatingMode) {
                 setOperatingMode(data.current_mode as OperatingMode);
                 window.localStorage?.setItem(STORAGE_KEYS.CENTRIS_MODE, data.current_mode);
               }
             }
           }
-        } catch (backendError) {
+        } catch {
           console.log("[Preferences] Backend not available, using local mode setting");
         }
 
@@ -194,12 +195,12 @@ export default function Preferences({ onComplete }: PreferencesProps) {
         window.localStorage.setItem(STORAGE_KEYS.CENTRIS_MODE, newMode);
       }
 
-      // Sync with backend
       const backendUrl = DEFAULT_BACKEND_URL || "http://127.0.0.1:5001";
       const response = await fetch(`${backendUrl}/api/mode/switch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: newMode }),
+        signal: AbortSignal.timeout(3000),
       });
 
       if (response.ok) {

@@ -114,7 +114,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
     const checkBackend = async () => {
       try {
         const backendUrl = DEFAULT_BACKEND_URL || "http://127.0.0.1:5001";
-        const response = await fetch(`${backendUrl}/api/health`, {
+        const response = await fetch(`${backendUrl}/health`, {
           method: "GET",
           signal: AbortSignal.timeout(3000),
         });
@@ -186,7 +186,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
 
         try {
           const backendUrl = DEFAULT_BACKEND_URL || "http://127.0.0.1:5001";
-          const response = await fetch(`${backendUrl}/api/mode/status`, { method: "GET" });
+          const response = await fetch(`${backendUrl}/api/mode/status`, {
+            method: "GET",
+            signal: AbortSignal.timeout(3000),
+          });
           if (response.ok) {
             const data = await response.json();
             if (data.current_mode) {
@@ -256,7 +259,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: newMode }),
-      });
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => {});
 
       toast({
         title: newMode === "action" ? "Action Mode" : "Dictation Mode",

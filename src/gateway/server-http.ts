@@ -76,6 +76,8 @@ const HOOK_AUTH_FAILURE_LIMIT = 20;
 const HOOK_AUTH_FAILURE_WINDOW_MS = 60_000;
 const HOOK_AUTH_FAILURE_TRACK_MAX = 2048;
 
+let centrisDesktopMode: "action" | "dictation" = "action";
+
 type HookDispatchers = {
   dispatchWakeHook: (value: { text: string; mode: "now" | "next-heartbeat" }) => void;
   dispatchAgentHook: (value: {
@@ -486,9 +488,30 @@ export function createGatewayHttpServer(opts: {
         void handleRequest(req, res);
       });
 
+  function setCorsHeaders(req: IncomingMessage, res: ServerResponse) {
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization, X-Cache-Key, X-User-Id, X-Session-Id",
+      );
+      res.setHeader("Access-Control-Max-Age", "86400");
+    }
+  }
+
   async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     // Don't interfere with WebSocket upgrades; ws handles the 'upgrade' event.
     if (String(req.headers.upgrade ?? "").toLowerCase() === "websocket") {
+      return;
+    }
+
+    setCorsHeaders(req, res);
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
       return;
     }
 
@@ -497,10 +520,32 @@ export function createGatewayHttpServer(opts: {
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
       const requestPath = new URL(req.url ?? "/", "http://localhost").pathname;
 
-      // Health check for Centris extension local gateway detection
-      if (requestPath === "/health" && req.method === "GET") {
+      // Health check — supports both /health and /api/health
+      if ((requestPath === "/health" || requestPath === "/api/health") && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true, gateway: "centris" }));
+        return;
+      }
+
+      // Desktop mode status — returns current operating mode
+      if (requestPath === "/api/mode/status" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ current_mode: centrisDesktopMode }));
+        return;
+      }
+
+      // Desktop mode switch — sets operating mode (action / dictation)
+      if (requestPath === "/api/mode/switch" && req.method === "POST") {
+        const body = await readJsonBody(req).catch(() => null);
+        const mode = (body as Record<string, unknown> | null)?.mode;
+        if (mode === "action" || mode === "dictation") {
+          centrisDesktopMode = mode;
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, current_mode: centrisDesktopMode }));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "mode must be 'action' or 'dictation'" }));
+        }
         return;
       }
 
