@@ -250,7 +250,10 @@ function pruneAndDecayManifest(manifest: CentrisManifest, now: Date): void {
 
     const entries = Object.entries(route.actions);
     if (entries.length > MAX_ACTIONS_PER_ROUTE) {
-      const sorted = [...entries].toSorted((a, b) => compareActionPriority(a[1], b[1]));
+      const sorted = [...entries].toSorted(
+        (a: [string, ManifestAction], b: [string, ManifestAction]) =>
+          compareActionPriority(a[1], b[1]),
+      );
       route.actions = Object.fromEntries(sorted.slice(0, MAX_ACTIONS_PER_ROUTE));
     }
   }

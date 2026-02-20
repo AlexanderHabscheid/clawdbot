@@ -79,7 +79,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "centris": "node --loader ts-node/esm src/cli/bin.ts",
+    "centris": "node dist/cli/bin.js",
     "clean": "rm -rf dist",
     "dev": "tsc --watch",
     "format": "biome format --write src",

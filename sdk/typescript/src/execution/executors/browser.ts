@@ -595,7 +595,9 @@ export class BrowserExecutor implements Executor {
     return [...candidates]
       .map((selector) => selector.trim())
       .filter(Boolean)
-      .toSorted((a, b) => this.selectorStabilityScore(b) - this.selectorStabilityScore(a))
+      .toSorted((a: string, b: string) => {
+        return this.selectorStabilityScore(b) - this.selectorStabilityScore(a);
+      })
       .slice(0, 5);
   }
 

@@ -25,15 +25,11 @@ if (process.argv.includes("--dev") && process.env.NODE_ENV !== "development") {
   logger.debug("[main.js] 🔧 Development mode enabled via --dev flag");
 }
 
-// CRITICAL: Fix GPU rendering issues on macOS
-// Some systems have SharedImageManager errors that cause blank windows
-// Disable GPU acceleration to use software rendering as a fallback
+// GPU tuning for macOS — WebGL renders offscreen (not in DOM) so the
+// compositor never creates shared image mailboxes for it, which avoids
+// the SharedImageManager::ProduceSkia errors entirely.
 if (process.platform === "darwin") {
   app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
-  app.commandLine.appendSwitch("disable-software-rasterizer");
-  // Enable GPU rasterization for better performance where it works
-  app.commandLine.appendSwitch("enable-accelerated-2d-canvas");
-  // Ignore GPU blocklist to allow hardware acceleration to attempt
   app.commandLine.appendSwitch("ignore-gpu-blocklist");
 }
 

@@ -207,17 +207,28 @@ const GalaxyBackground: React.FC<GalaxyBackgroundProps> = ({
   transparent = false,
 }) => {
   const ctnDom = useRef<HTMLDivElement>(null);
+  const displayCanvasRef = useRef<HTMLCanvasElement>(null);
   const targetMousePos = useRef({ x: 0.5, y: 0.5 });
   const smoothMousePos = useRef({ x: 0.5, y: 0.5 });
   const targetMouseActive = useRef(0.0);
   const smoothMouseActive = useRef(0.0);
 
   useEffect(() => {
-    if (!ctnDom.current) return;
+    if (!ctnDom.current || !displayCanvasRef.current) return;
     const ctn = ctnDom.current;
+    const displayCanvas = displayCanvasRef.current;
+    const ctx2d = displayCanvas.getContext("2d");
+    if (!ctx2d) return;
+
+    // OGL renders to its own internal canvas which is NEVER added to the DOM.
+    // This avoids Electron's SharedImageManager::ProduceSkia errors caused by
+    // the Chromium compositor creating broken shared image mailboxes for
+    // in-DOM WebGL canvases. Each frame we blit the result to a visible 2D canvas.
     const renderer = new Renderer({
       alpha: transparent,
       premultipliedAlpha: false,
+      preserveDrawingBuffer: true,
+      antialias: false,
     });
     const gl = renderer.gl;
 
@@ -232,14 +243,13 @@ const GalaxyBackground: React.FC<GalaxyBackgroundProps> = ({
     let program: Program;
 
     function resize() {
-      const scale = 1;
-      renderer.setSize(ctn.offsetWidth * scale, ctn.offsetHeight * scale);
+      const w = ctn.offsetWidth;
+      const h = ctn.offsetHeight;
+      renderer.setSize(w, h);
+      displayCanvas.width = w;
+      displayCanvas.height = h;
       if (program) {
-        program.uniforms.uResolution.value = new Color(
-          gl.canvas.width,
-          gl.canvas.height,
-          gl.canvas.width / gl.canvas.height,
-        );
+        program.uniforms.uResolution.value = new Color(w, h, w / h);
       }
     }
     window.addEventListener("resize", resize, false);
@@ -299,9 +309,11 @@ const GalaxyBackground: React.FC<GalaxyBackgroundProps> = ({
       program.uniforms.uMouseActiveFactor.value = smoothMouseActive.current;
 
       renderer.render({ scene: mesh });
+
+      // Blit WebGL framebuffer to visible 2D canvas
+      ctx2d.drawImage(gl.canvas, 0, 0);
     }
     animateId = requestAnimationFrame(update);
-    ctn.appendChild(gl.canvas);
 
     function handleMouseMove(e: MouseEvent) {
       const rect = ctn.getBoundingClientRect();
@@ -326,9 +338,6 @@ const GalaxyBackground: React.FC<GalaxyBackgroundProps> = ({
       if (mouseInteraction) {
         ctn.removeEventListener("mousemove", handleMouseMove);
         ctn.removeEventListener("mouseleave", handleMouseLeave);
-      }
-      if (gl.canvas && gl.canvas.parentNode === ctn) {
-        ctn.removeChild(gl.canvas);
       }
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
@@ -363,7 +372,9 @@ const GalaxyBackground: React.FC<GalaxyBackgroundProps> = ({
         pointerEvents: "none",
         zIndex: 0,
       }}
-    />
+    >
+      <canvas ref={displayCanvasRef} style={{ display: "block" }} />
+    </div>
   );
 };
 
