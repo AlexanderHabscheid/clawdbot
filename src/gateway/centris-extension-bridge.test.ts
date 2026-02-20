@@ -93,6 +93,8 @@ describe("centris-extension-bridge", () => {
   describe("validateExtensionToken", () => {
     it("denies non-local clients when token is not configured", () => {
       vi.stubEnv("CENTRIS_EXTENSION_TOKEN", "");
+      vi.stubEnv("OPENCLAW_GATEWAY_TOKEN", "");
+      vi.stubEnv("CENTRIS_GATEWAY_TOKEN", "");
       expect(
         validateExtensionToken("/ws/centris/extension", {
           clientIp: "8.8.8.8",
@@ -103,9 +105,22 @@ describe("centris-extension-bridge", () => {
 
     it("allows local clients when token is not configured", () => {
       vi.stubEnv("CENTRIS_EXTENSION_TOKEN", "");
+      vi.stubEnv("OPENCLAW_GATEWAY_TOKEN", "");
+      vi.stubEnv("CENTRIS_GATEWAY_TOKEN", "");
       expect(
         validateExtensionToken("/ws/centris/extension", {
           clientIp: "127.0.0.1",
+          allowLocalWithoutToken: true,
+        }),
+      ).toBe(true);
+    });
+
+    it("accepts OPENCLAW_GATEWAY_TOKEN when extension token is unset", () => {
+      vi.stubEnv("CENTRIS_EXTENSION_TOKEN", "");
+      vi.stubEnv("OPENCLAW_GATEWAY_TOKEN", "shared-token");
+      expect(
+        validateExtensionToken("/ws/centris/extension?token=shared-token", {
+          clientIp: "203.0.113.5",
           allowLocalWithoutToken: true,
         }),
       ).toBe(true);

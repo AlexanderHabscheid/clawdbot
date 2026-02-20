@@ -143,15 +143,21 @@ export function isCentrisExtensionPath(pathname: string): boolean {
 }
 
 /**
- * Validate the extension connection token from the URL query string.
- * If CENTRIS_EXTENSION_TOKEN is set, the `?token=` param must match.
- * If not set, all connections are accepted (local dev / unconfigured).
+ * Validate extension/desktop/voice bridge token from the URL query string.
+ * Token precedence:
+ *   1) CENTRIS_EXTENSION_TOKEN
+ *   2) OPENCLAW_GATEWAY_TOKEN
+ *   3) CENTRIS_GATEWAY_TOKEN
+ * If no token is configured, only private/loopback clients may connect when explicitly allowed.
  */
 export function validateExtensionToken(
   url: string | undefined,
   opts?: { clientIp?: string; allowLocalWithoutToken?: boolean },
 ): boolean {
-  const requiredToken = process.env.CENTRIS_EXTENSION_TOKEN?.trim();
+  const requiredToken =
+    process.env.CENTRIS_EXTENSION_TOKEN?.trim() ||
+    process.env.OPENCLAW_GATEWAY_TOKEN?.trim() ||
+    process.env.CENTRIS_GATEWAY_TOKEN?.trim();
   if (!requiredToken) {
     // Fail closed by default. If explicitly allowed, only trust private/loopback clients.
     return opts?.allowLocalWithoutToken === true && isPrivateOrLoopbackAddress(opts.clientIp);

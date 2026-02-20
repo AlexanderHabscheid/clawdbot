@@ -120,8 +120,11 @@ class CentrisBackendService {
       try {
         let url = `${this.wsURL}/ws/centris/voice`;
         // Attach token as query param for WebSocket auth (headers not supported in browser WS)
-        if (this.gatewayToken) {
-          url += `?token=${encodeURIComponent(this.gatewayToken)}`;
+        const voiceToken =
+          (typeof process !== "undefined" && process.env?.CENTRIS_EXTENSION_TOKEN) ||
+          this.gatewayToken;
+        if (voiceToken) {
+          url += `?token=${encodeURIComponent(voiceToken)}`;
         }
         this.voiceWs = new WebSocket(url);
         this.voiceWs.onopen = () => {

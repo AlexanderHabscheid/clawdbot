@@ -313,28 +313,68 @@ class IPCHandlers {
           };
         }
 
-        // Dynamic import for ES module compatibility
-        const { default: CentrisBackendService } =
-          await import("../services/centrisBackendService.js");
-        const centrisService = new CentrisBackendService();
-
-        // Check backend health first
-        const isHealthy = await centrisService.checkHealth();
-        if (!isHealthy) {
+        // Web fallback path when native audio pipeline is unavailable:
+        // transcribe directly with OpenAI-compatible audio endpoint.
+        let apiKey = process.env.OPENAI_API_KEY || "";
+        if (!apiKey && this.environmentManager?.getOpenAIKey) {
+          try {
+            const resolved = await this.environmentManager.getOpenAIKey();
+            if (typeof resolved === "string") {
+              apiKey = resolved;
+            }
+          } catch {
+            // ignore
+          }
+        }
+        apiKey = String(apiKey || "").trim();
+        if (!apiKey || apiKey === "your_openai_api_key_here") {
           return {
             success: false,
             error:
-              "Centris gateway is not reachable. Check your internet connection or gateway status.",
+              "OpenAI API key is required for non-native audio fallback transcription. Set OPENAI_API_KEY and try again.",
           };
         }
 
-        // Voice transcription is handled via the voice WebSocket (nativeAudioBridge).
-        // For the Web API fallback, we send audio via the gateway's voice WS.
-        // If we reach here, the native audio path wasn't available, so
-        // return an error directing the user to ensure native audio works.
+        const form = new FormData();
+        form.append("file", new Blob([audioBuffer], { type: "audio/webm" }), "recording.webm");
+        form.append("model", "whisper-1");
+
+        const transcriptionResponse = await fetch(
+          "https://api.openai.com/v1/audio/transcriptions",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: form,
+          },
+        );
+
+        if (!transcriptionResponse.ok) {
+          const errorText = await transcriptionResponse.text().catch(() => "");
+          return {
+            success: false,
+            error: errorText || `Transcription API failed: HTTP ${transcriptionResponse.status}`,
+          };
+        }
+
+        const transcriptionJson = await transcriptionResponse.json();
+        const text =
+          transcriptionJson && typeof transcriptionJson.text === "string"
+            ? transcriptionJson.text.trim()
+            : "";
+
+        if (!text) {
+          return {
+            success: false,
+            error: "Transcription succeeded but returned no text.",
+          };
+        }
+
         return {
-          success: false,
-          error: "Audio transcription requires the native audio pipeline. Please restart the app.",
+          success: true,
+          text,
+          source: "openai-fallback",
         };
       } catch (error) {
         debugLogger.error("Centris transcription error", error);

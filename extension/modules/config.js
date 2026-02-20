@@ -26,8 +26,8 @@ const CONFIG = {
   PRODUCTION_HOSTS: ["centris-ai-production.up.railway.app"],
   PRODUCTION_HTTP_URL: "https://centris-ai-production.up.railway.app",
 
-  // Default token for production gateway auth (used when no user override is stored)
-  DEFAULT_EXTENSION_TOKEN: "770d3dd81270f86cdb2ec3ead5251c2a1dc8c2c1bf890481fe746622769ebbfd",
+  // No baked-in token. Users/devs should set extension_token explicitly when auth is enabled.
+  DEFAULT_EXTENSION_TOKEN: "",
 
   // Local gateway ports to auto-detect (dev)
   LOCAL_PORTS: [18789, 19001],
