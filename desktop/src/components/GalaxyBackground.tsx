@@ -1,324 +1,368 @@
+import { Renderer, Program, Mesh, Color, Triangle } from "ogl";
 import React, { useEffect, useRef } from "react";
 
+const vertexShader = `
+attribute vec2 uv;
+attribute vec2 position;
+
+varying vec2 vUv;
+
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position, 0, 1);
+}
+`;
+
+const fragmentShader = `
+precision highp float;
+
+uniform float uTime;
+uniform vec3 uResolution;
+uniform vec2 uFocal;
+uniform vec2 uRotation;
+uniform float uStarSpeed;
+uniform float uDensity;
+uniform float uHueShift;
+uniform float uSpeed;
+uniform vec2 uMouse;
+uniform float uGlowIntensity;
+uniform float uSaturation;
+uniform bool uMouseRepulsion;
+uniform float uTwinkleIntensity;
+uniform float uRotationSpeed;
+uniform float uRepulsionStrength;
+uniform float uMouseActiveFactor;
+uniform float uAutoCenterRepulsion;
+uniform bool uTransparent;
+
+varying vec2 vUv;
+
+#define NUM_LAYER 4.0
+#define STAR_COLOR_CUTOFF 0.2
+#define MAT45 mat2(0.7071, -0.7071, 0.7071, 0.7071)
+#define PERIOD 3.0
+
+float Hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float tri(float x) {
+  return abs(fract(x) * 2.0 - 1.0);
+}
+
+float tris(float x) {
+  float t = fract(x);
+  return 1.0 - smoothstep(0.0, 1.0, abs(2.0 * t - 1.0));
+}
+
+float trisn(float x) {
+  float t = fract(x);
+  return 2.0 * (1.0 - smoothstep(0.0, 1.0, abs(2.0 * t - 1.0))) - 1.0;
+}
+
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+float Star(vec2 uv, float flare) {
+  float d = length(uv);
+  float m = (0.05 * uGlowIntensity) / d;
+  float rays = smoothstep(0.0, 1.0, 1.0 - abs(uv.x * uv.y * 1000.0));
+  m += rays * flare * uGlowIntensity;
+  uv *= MAT45;
+  rays = smoothstep(0.0, 1.0, 1.0 - abs(uv.x * uv.y * 1000.0));
+  m += rays * 0.3 * flare * uGlowIntensity;
+  m *= smoothstep(1.0, 0.2, d);
+  return m;
+}
+
+vec3 StarLayer(vec2 uv) {
+  vec3 col = vec3(0.0);
+
+  vec2 gv = fract(uv) - 0.5;
+  vec2 id = floor(uv);
+
+  for (int y = -1; y <= 1; y++) {
+    for (int x = -1; x <= 1; x++) {
+      vec2 offset = vec2(float(x), float(y));
+      vec2 si = id + vec2(float(x), float(y));
+      float seed = Hash21(si);
+      float size = fract(seed * 345.32);
+      float glossLocal = tri(uStarSpeed / (PERIOD * seed + 1.0));
+      float flareSize = smoothstep(0.9, 1.0, size) * glossLocal;
+
+      float red = smoothstep(STAR_COLOR_CUTOFF, 1.0, Hash21(si + 1.0)) + STAR_COLOR_CUTOFF;
+      float blu = smoothstep(STAR_COLOR_CUTOFF, 1.0, Hash21(si + 3.0)) + STAR_COLOR_CUTOFF;
+      float grn = min(red, blu) * seed;
+      vec3 base = vec3(red, grn, blu);
+
+      float hue = atan(base.g - base.r, base.b - base.r) / (2.0 * 3.14159) + 0.5;
+      hue = fract(hue + uHueShift / 360.0);
+      float sat = length(base - vec3(dot(base, vec3(0.299, 0.587, 0.114)))) * uSaturation;
+      float val = max(max(base.r, base.g), base.b);
+      base = hsv2rgb(vec3(hue, sat, val));
+
+      vec2 pad = vec2(tris(seed * 34.0 + uTime * uSpeed / 10.0), tris(seed * 38.0 + uTime * uSpeed / 30.0)) - 0.5;
+
+      float star = Star(gv - offset - pad, flareSize);
+      vec3 color = base;
+
+      float twinkle = trisn(uTime * uSpeed + seed * 6.2831) * 0.5 + 1.0;
+      twinkle = mix(1.0, twinkle, uTwinkleIntensity);
+      star *= twinkle;
+
+      col += star * size * color;
+    }
+  }
+
+  return col;
+}
+
+void main() {
+  vec2 focalPx = uFocal * uResolution.xy;
+  vec2 uv = (vUv * uResolution.xy - focalPx) / uResolution.y;
+
+  vec2 mouseNorm = uMouse - vec2(0.5);
+
+  if (uAutoCenterRepulsion > 0.0) {
+    vec2 centerUV = vec2(0.0, 0.0);
+    float centerDist = length(uv - centerUV);
+    vec2 repulsion = normalize(uv - centerUV) * (uAutoCenterRepulsion / (centerDist + 0.1));
+    uv += repulsion * 0.05;
+  } else if (uMouseRepulsion) {
+    vec2 mousePosUV = (uMouse * uResolution.xy - focalPx) / uResolution.y;
+    float mouseDist = length(uv - mousePosUV);
+    vec2 repulsion = normalize(uv - mousePosUV) * (uRepulsionStrength / (mouseDist + 0.1));
+    uv += repulsion * 0.05 * uMouseActiveFactor;
+  } else {
+    vec2 mouseOffset = mouseNorm * 0.1 * uMouseActiveFactor;
+    uv += mouseOffset;
+  }
+
+  float autoRotAngle = uTime * uRotationSpeed;
+  mat2 autoRot = mat2(cos(autoRotAngle), -sin(autoRotAngle), sin(autoRotAngle), cos(autoRotAngle));
+  uv = autoRot * uv;
+
+  uv = mat2(uRotation.x, -uRotation.y, uRotation.y, uRotation.x) * uv;
+
+  vec3 col = vec3(0.0);
+
+  for (float i = 0.0; i < 1.0; i += 1.0 / NUM_LAYER) {
+    float depth = fract(i + uStarSpeed * uSpeed);
+    float scale = mix(20.0 * uDensity, 0.5 * uDensity, depth);
+    float fade = depth * smoothstep(1.0, 0.9, depth);
+    col += StarLayer(uv * scale + i * 453.32) * fade;
+  }
+
+  if (uTransparent) {
+    float alpha = length(col);
+    alpha = smoothstep(0.0, 0.3, alpha);
+    alpha = min(alpha, 1.0);
+    gl_FragColor = vec4(col, alpha);
+  } else {
+    gl_FragColor = vec4(col, 1.0);
+  }
+}
+`;
+
 interface GalaxyBackgroundProps {
-  starCount?: number;
+  focal?: [number, number];
+  rotation?: [number, number];
+  starSpeed?: number;
+  density?: number;
+  hueShift?: number;
+  disableAnimation?: boolean;
   speed?: number;
-  gridSize?: number;
-  showGrid?: boolean;
+  mouseInteraction?: boolean;
+  glowIntensity?: number;
+  saturation?: number;
+  mouseRepulsion?: boolean;
+  repulsionStrength?: number;
+  twinkleIntensity?: number;
+  rotationSpeed?: number;
+  autoCenterRepulsion?: number;
+  transparent?: boolean;
 }
 
 const GalaxyBackground: React.FC<GalaxyBackgroundProps> = ({
-  starCount = 800,
+  focal = [0.5, 0.5],
+  rotation = [1.0, 0.0],
+  starSpeed = 0.5,
+  density = 1,
+  hueShift = 270,
+  disableAnimation = false,
   speed = 0.5,
-  gridSize = 40,
-  showGrid = true,
+  mouseInteraction = true,
+  glowIntensity = 0.3,
+  saturation = 0,
+  mouseRepulsion = true,
+  repulsionStrength = 2,
+  twinkleIntensity = 0.3,
+  rotationSpeed = 0.05,
+  autoCenterRepulsion = 0,
+  transparent = false,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number | null>(null);
+  const ctnDom = useRef<HTMLDivElement>(null);
+  const targetMousePos = useRef({ x: 0.5, y: 0.5 });
+  const smoothMousePos = useRef({ x: 0.5, y: 0.5 });
+  const targetMouseActive = useRef(0.0);
+  const smoothMouseActive = useRef(0.0);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
+    if (!ctnDom.current) return;
+    const ctn = ctnDom.current;
+    const renderer = new Renderer({
+      alpha: transparent,
+      premultipliedAlpha: false,
+    });
+    const gl = renderer.gl;
+
+    if (transparent) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.clearColor(0, 0, 0, 0);
+    } else {
+      gl.clearColor(0, 0, 0, 1);
     }
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return;
-    }
+    let program: Program;
 
-    let width = window.innerWidth;
-    let height = window.innerHeight;
-
-    canvas.width = width;
-    canvas.height = height;
-
-    // Star particles - black and white only
-    class Star {
-      x: number;
-      y: number;
-      z: number;
-      layer: number;
-      speed: number;
-      opacity: number;
-      pulse: number;
-      pulseSpeed: number;
-
-      constructor(layer = 0) {
-        this.layer = layer;
-        this.x = Math.random() * width;
-        this.y = Math.random() * height;
-        this.z = Math.random() * 1500 + 500;
-
-        const layerMultiplier = 1 + this.layer * 0.5;
-        this.speed = (Math.random() * 2 + 1) * speed * layerMultiplier;
-        this.opacity = Math.random() * 0.5 + 0.5;
-        this.pulse = Math.random() * Math.PI * 2;
-        this.pulseSpeed = Math.random() * 0.02 + 0.01;
-      }
-
-      reset() {
-        this.x = Math.random() * width;
-        this.y = Math.random() * height;
-        this.z = 1500;
-      }
-
-      update() {
-        this.z -= this.speed * 10;
-        this.pulse += this.pulseSpeed;
-
-        if (this.z <= 0) {
-          this.z = 1500;
-          this.x = Math.random() * width;
-          this.y = Math.random() * height;
-        }
-      }
-
-      draw() {
-        if (!ctx) {
-          return;
-        }
-
-        const centerX = width / 2;
-        const centerY = height / 2;
-
-        const k = 128 / Math.max(this.z, 1);
-        const px = (this.x - centerX) * k + centerX;
-        const py = (this.y - centerY) * k + centerY;
-
-        if (px < 0 || px > width || py < 0 || py > height) {
-          this.reset();
-          return;
-        }
-
-        const size = Math.max(0.1, (1 - this.z / 1500) * 3 + 0.5);
-        const pulseOpacity = Math.max(
-          0,
-          Math.min(1, this.opacity * (0.7 + 0.3 * Math.sin(this.pulse))),
+    function resize() {
+      const scale = 1;
+      renderer.setSize(ctn.offsetWidth * scale, ctn.offsetHeight * scale);
+      if (program) {
+        program.uniforms.uResolution.value = new Color(
+          gl.canvas.width,
+          gl.canvas.height,
+          gl.canvas.width / gl.canvas.height,
         );
-
-        ctx.save();
-        ctx.globalAlpha = pulseOpacity;
-
-        // White glow
-        const glowRadius = Math.max(0.1, size * 4);
-        const gradient = ctx.createRadialGradient(px, py, 0, px, py, glowRadius);
-        gradient.addColorStop(0, "#ffffff");
-        gradient.addColorStop(0.5, "rgba(255, 255, 255, 0.25)");
-        gradient.addColorStop(1, "transparent");
-
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(px, py, glowRadius, 0, Math.PI * 2);
-        ctx.fill();
-
-        // White core
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(px, py, Math.max(0.1, size * 0.5), 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.restore();
-
-        // White trail for depth layers
-        if (this.layer > 0 && size > 0.2) {
-          const prevK = 128 / Math.max(this.z + this.speed * 10, 1);
-          const prevPx = (this.x - centerX) * prevK + centerX;
-          const prevPy = (this.y - centerY) * prevK + centerY;
-
-          ctx.save();
-          ctx.globalAlpha = pulseOpacity * 0.3;
-          ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = Math.max(0.1, size * 0.5);
-          ctx.beginPath();
-          ctx.moveTo(prevPx, prevPy);
-          ctx.lineTo(px, py);
-          ctx.stroke();
-          ctx.restore();
-        }
       }
     }
+    window.addEventListener("resize", resize, false);
+    resize();
 
-    // Subtle nebula - grayscale only
-    class Nebula {
-      x: number;
-      y: number;
-      radius: number;
-      opacity: number;
-      drift: { x: number; y: number };
+    const geometry = new Triangle(gl);
+    program = new Program(gl, {
+      vertex: vertexShader,
+      fragment: fragmentShader,
+      uniforms: {
+        uTime: { value: 0 },
+        uResolution: {
+          value: new Color(gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height),
+        },
+        uFocal: { value: new Float32Array(focal) },
+        uRotation: { value: new Float32Array(rotation) },
+        uStarSpeed: { value: starSpeed },
+        uDensity: { value: density },
+        uHueShift: { value: hueShift },
+        uSpeed: { value: speed },
+        uMouse: {
+          value: new Float32Array([smoothMousePos.current.x, smoothMousePos.current.y]),
+        },
+        uGlowIntensity: { value: glowIntensity },
+        uSaturation: { value: saturation },
+        uMouseRepulsion: { value: mouseRepulsion },
+        uTwinkleIntensity: { value: twinkleIntensity },
+        uRotationSpeed: { value: rotationSpeed },
+        uRepulsionStrength: { value: repulsionStrength },
+        uMouseActiveFactor: { value: 0.0 },
+        uAutoCenterRepulsion: { value: autoCenterRepulsion },
+        uTransparent: { value: transparent },
+      },
+    });
 
-      constructor() {
-        this.x = Math.random() * width;
-        this.y = Math.random() * height;
-        this.radius = Math.random() * 300 + 200;
-        this.opacity = Math.random() * 0.02 + 0.005;
-        this.drift = {
-          x: (Math.random() - 0.5) * 0.1,
-          y: (Math.random() - 0.5) * 0.1,
-        };
+    const mesh = new Mesh(gl, { geometry, program });
+    let animateId: number;
+
+    function update(t: number) {
+      animateId = requestAnimationFrame(update);
+      if (!disableAnimation) {
+        program.uniforms.uTime.value = t * 0.001;
+        program.uniforms.uStarSpeed.value = (t * 0.001 * starSpeed) / 10.0;
       }
 
-      update() {
-        this.x += this.drift.x;
-        this.y += this.drift.y;
+      const lerpFactor = 0.05;
+      smoothMousePos.current.x +=
+        (targetMousePos.current.x - smoothMousePos.current.x) * lerpFactor;
+      smoothMousePos.current.y +=
+        (targetMousePos.current.y - smoothMousePos.current.y) * lerpFactor;
 
-        if (this.x < -this.radius) {
-          this.x = width + this.radius;
-        }
-        if (this.x > width + this.radius) {
-          this.x = -this.radius;
-        }
-        if (this.y < -this.radius) {
-          this.y = height + this.radius;
-        }
-        if (this.y > height + this.radius) {
-          this.y = -this.radius;
-        }
-      }
+      smoothMouseActive.current +=
+        (targetMouseActive.current - smoothMouseActive.current) * lerpFactor;
 
-      draw() {
-        if (!ctx) {
-          return;
-        }
+      program.uniforms.uMouse.value[0] = smoothMousePos.current.x;
+      program.uniforms.uMouse.value[1] = smoothMousePos.current.y;
+      program.uniforms.uMouseActiveFactor.value = smoothMouseActive.current;
 
-        const safeRadius = Math.max(1, this.radius);
-        const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, safeRadius);
+      renderer.render({ scene: mesh });
+    }
+    animateId = requestAnimationFrame(update);
+    ctn.appendChild(gl.canvas);
 
-        const opacityHex = Math.floor(Math.max(0, Math.min(1, this.opacity)) * 255)
-          .toString(16)
-          .padStart(2, "0");
-        gradient.addColorStop(0, "#ffffff" + opacityHex);
-        gradient.addColorStop(0.5, "rgba(255, 255, 255, 0.02)");
-        gradient.addColorStop(1, "transparent");
-
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, safeRadius, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    function handleMouseMove(e: MouseEvent) {
+      const rect = ctn.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = 1.0 - (e.clientY - rect.top) / rect.height;
+      targetMousePos.current = { x, y };
+      targetMouseActive.current = 1.0;
     }
 
-    // Initialize
-    const stars: Star[] = [];
-    for (let i = 0; i < starCount; i++) {
-      const layer = Math.floor(Math.random() * 3);
-      stars.push(new Star(layer));
+    function handleMouseLeave() {
+      targetMouseActive.current = 0.0;
     }
 
-    const nebulae: Nebula[] = [];
-    for (let i = 0; i < 5; i++) {
-      nebulae.push(new Nebula());
+    if (mouseInteraction) {
+      ctn.addEventListener("mousemove", handleMouseMove);
+      ctn.addEventListener("mouseleave", handleMouseLeave);
     }
-
-    let gridOffset = 0;
-    let time = 0;
-
-    const animate = () => {
-      // Clear with motion blur
-      ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
-      ctx.fillRect(0, 0, width, height);
-
-      time += 0.016;
-
-      // Draw nebulae
-      nebulae.forEach((nebula) => {
-        nebula.update();
-        nebula.draw();
-      });
-
-      // Draw grid - white/gray only
-      if (showGrid) {
-        gridOffset = (gridOffset + speed * 0.5) % gridSize;
-
-        ctx.save();
-
-        // Horizontal lines
-        for (let y = gridOffset; y < height; y += gridSize) {
-          const distFromCenter = Math.abs(y - height / 2) / (height / 2);
-          const opacity = 0.02 + 0.03 * (1 - distFromCenter);
-
-          ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(width, y);
-          ctx.stroke();
-        }
-
-        // Vertical lines
-        for (let x = 0; x < width; x += gridSize) {
-          const distFromCenter = Math.abs(x - width / 2) / (width / 2);
-          const opacity = 0.02 + 0.03 * (1 - distFromCenter);
-
-          ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, height);
-          ctx.stroke();
-        }
-
-        // Scanning line - white
-        const scanY = ((time * 50) % (height + 100)) - 50;
-        const scanGradient = ctx.createLinearGradient(0, scanY - 50, 0, scanY + 50);
-        scanGradient.addColorStop(0, "transparent");
-        scanGradient.addColorStop(0.5, "rgba(255, 255, 255, 0.1)");
-        scanGradient.addColorStop(1, "transparent");
-
-        ctx.fillStyle = scanGradient;
-        ctx.fillRect(0, scanY - 50, width, 100);
-
-        ctx.restore();
-      }
-
-      // Draw stars
-      stars.forEach((star) => {
-        star.update();
-        star.draw();
-      });
-
-      // Central glow - white only
-      const orbX = width / 2;
-      const orbY = height / 2;
-      const orbRadius = Math.max(1, 100 + Math.sin(time * 2) * 20);
-
-      const orbGradient = ctx.createRadialGradient(orbX, orbY, 0, orbX, orbY, orbRadius);
-      orbGradient.addColorStop(0, "rgba(255, 255, 255, 0.08)");
-      orbGradient.addColorStop(0.5, "rgba(255, 255, 255, 0.03)");
-      orbGradient.addColorStop(1, "transparent");
-
-      ctx.fillStyle = orbGradient;
-      ctx.beginPath();
-      ctx.arc(orbX, orbY, orbRadius, 0, Math.PI * 2);
-      ctx.fill();
-
-      animationRef.current = requestAnimationFrame(animate);
-    };
-
-    animate();
-
-    const handleResize = () => {
-      width = window.innerWidth;
-      height = window.innerHeight;
-      canvas.width = width;
-      canvas.height = height;
-    };
-
-    window.addEventListener("resize", handleResize);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
+      cancelAnimationFrame(animateId);
+      window.removeEventListener("resize", resize);
+      if (mouseInteraction) {
+        ctn.removeEventListener("mousemove", handleMouseMove);
+        ctn.removeEventListener("mouseleave", handleMouseLeave);
       }
+      if (gl.canvas && gl.canvas.parentNode === ctn) {
+        ctn.removeChild(gl.canvas);
+      }
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
-  }, [starCount, speed, gridSize, showGrid]);
+  }, [
+    focal,
+    rotation,
+    starSpeed,
+    density,
+    hueShift,
+    disableAnimation,
+    speed,
+    mouseInteraction,
+    glowIntensity,
+    saturation,
+    mouseRepulsion,
+    twinkleIntensity,
+    rotationSpeed,
+    repulsionStrength,
+    autoCenterRepulsion,
+    transparent,
+  ]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="fixed inset-0 w-full h-full pointer-events-none"
-      style={{ zIndex: 0 }}
+    <div
+      ref={ctnDom}
+      style={{
+        width: "100%",
+        height: "100%",
+        position: "fixed",
+        top: 0,
+        left: 0,
+        pointerEvents: "none",
+        zIndex: 0,
+      }}
     />
   );
 };

@@ -438,8 +438,20 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
 
   return (
     <div className="min-h-screen bg-black text-white flex overflow-hidden relative">
-      {/* Galaxy Background - black and white */}
-      <GalaxyBackground starCount={800} speed={0.5} gridSize={40} showGrid={true} />
+      <GalaxyBackground
+        mouseRepulsion
+        mouseInteraction
+        density={1}
+        glowIntensity={0.3}
+        saturation={0}
+        hueShift={270}
+        twinkleIntensity={0.3}
+        rotationSpeed={0.05}
+        repulsionStrength={2}
+        starSpeed={0.3}
+        speed={0.5}
+        transparent={false}
+      />
 
       {/* Sidebar - clean black/white */}
       <aside className="w-56 border-r border-white/5 bg-black/80 backdrop-blur-xl p-4 flex flex-col z-10">

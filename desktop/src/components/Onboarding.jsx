@@ -2690,7 +2690,20 @@ export default function Onboarding({ onComplete }) {
       }}
     >
       {/* Galaxy Background */}
-      <GalaxyBackground starCount={800} speed={0.5} gridSize={40} showGrid={true} />
+      <GalaxyBackground
+        mouseRepulsion
+        mouseInteraction
+        density={1}
+        glowIntensity={0.3}
+        saturation={0}
+        hueShift={270}
+        twinkleIntensity={0.3}
+        rotationSpeed={0.05}
+        repulsionStrength={2}
+        starSpeed={0.3}
+        speed={0.5}
+        transparent={false}
+      />
 
       {/* Scrollable content container */}
       <div

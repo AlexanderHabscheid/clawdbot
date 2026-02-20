@@ -67,6 +67,7 @@
     "electron-updater": "^6.6.2",
     "framer-motion": "^12.23.26",
     "lucide-react": "^0.518.0",
+    "ogl": "^1.0.11",
     "onnxruntime-web": "^1.23.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
