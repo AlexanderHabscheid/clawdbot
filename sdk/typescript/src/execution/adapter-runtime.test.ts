@@ -3,6 +3,10 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { AdapterRuntime } from "./adapter-runtime.js";
 
+const fixtureModulePath = pathToFileURL(
+  path.resolve(import.meta.dirname, "__fixtures__/adapter-handler.ts"),
+).href;
+
 describe("AdapterRuntime", () => {
   it("blocks destructive operations without explicit approval", async () => {
     const runtime = new AdapterRuntime();
@@ -17,9 +21,7 @@ describe("AdapterRuntime", () => {
         operation: "crm.contact.delete",
         input: { id: "1" },
         sdk: {
-          modulePath: pathToFileURL(
-            path.resolve("sdk/typescript/src/execution/__fixtures__/adapter-handler.ts"),
-          ).href,
+          modulePath: fixtureModulePath,
           exportName: "execute",
         },
       },
@@ -42,9 +44,7 @@ describe("AdapterRuntime", () => {
         operation: "crm.contact.lookup",
         input: { email: "ada@example.com" },
         sdk: {
-          modulePath: pathToFileURL(
-            path.resolve("sdk/typescript/src/execution/__fixtures__/adapter-handler.ts"),
-          ).href,
+          modulePath: fixtureModulePath,
           exportName: "execute",
         },
       },

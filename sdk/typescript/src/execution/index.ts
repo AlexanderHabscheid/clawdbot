@@ -20,6 +20,12 @@ export type {
   ExecutorMetadata,
   UIMapping,
 } from "./types.js";
+export type {
+  AdapterSpec,
+  AdapterTransport,
+  AdapterOperation,
+  AdapterExecutionOptions,
+} from "./adapter-runtime.js";
 
 // Helper functions for creating results (inspired by clawdbot patterns)
 export { executorSuccess, executorError } from "./types.js";

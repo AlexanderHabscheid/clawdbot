@@ -9,69 +9,51 @@ description = "Centris SDK for building connectors and integrations"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-authors = [
-    { name = "Centris AI", email = "developers@centris.ai" },
-]
+authors = [{ name = "Centris AI", email = "developers@centris.ai" }]
 keywords = [
-    "centris",
-    "sdk",
-    "connector",
-    "mcp",
-    "ai",
-    "automation",
-    "agent",
-    "langchain",
-    "crewai",
+  "centris",
+  "sdk",
+  "connector",
+  "mcp",
+  "ai",
+  "automation",
+  "agent",
+  "langchain",
+  "crewai",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = [
-    "click>=8.0.0",
-    "httpx>=0.25.0",
-]
+dependencies = ["click>=8.0.0", "httpx>=0.25.0"]
 
 [project.optional-dependencies]
 # Server/Gateway features
-server = [
-    "fastapi>=0.100.0",
-    "uvicorn[standard]>=0.23.0",
-]
+server = ["fastapi>=0.100.0", "uvicorn[standard]>=0.23.0"]
 # Browser automation
-browser = [
-    "playwright>=1.40.0",
-]
+browser = ["playwright>=1.40.0"]
 # Desktop automation
-desktop = [
-    "pyautogui>=0.9.54",
-    "pillow>=10.0.0",
-]
+desktop = ["pyautogui>=0.9.54", "pillow>=10.0.0"]
 # Enhanced CLI experience
-cli = [
-    "rich>=13.0.0",
-    "python-dotenv>=1.0.0",
-]
+cli = ["rich>=13.0.0", "python-dotenv>=1.0.0"]
 # All features
-all = [
-    "centris-sdk[server,browser,desktop,cli]",
-]
+all = ["centris-sdk[server,browser,desktop,cli]"]
 # Development
 dev = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.5.0",
+  "pytest>=7.0.0",
+  "pytest-asyncio>=0.21.0",
+  "pytest-cov>=4.0.0",
+  "black>=23.0.0",
+  "ruff>=0.1.0",
+  "mypy>=1.5.0",
 ]
 
 [project.scripts]
@@ -117,7 +99,7 @@ python_functions = ["test_*"]
 # These modules are the stable user-facing contract that must stay high-confidence.
 addopts = "--cov=centris_sdk.client --cov=centris_sdk.connector --cov=centris_sdk.validation --cov=centris_sdk.plugin_api --cov-report=term-missing --cov-fail-under=70 -v"
 markers = [
-    "slow: marks tests as slow",
-    "integration: marks tests as integration tests",
-    "live: marks tests that require live services",
+  "slow: marks tests as slow",
+  "integration: marks tests as integration tests",
+  "live: marks tests that require live services",
 ]

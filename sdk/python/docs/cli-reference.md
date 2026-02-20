@@ -32,6 +32,7 @@ Publishing and packaging:
 
 - `publish`
 - `package`
+- publish API contract: `POST /api/connectors` (legacy fallback: `POST /api/registry/publish`)
 
 Discovery and installation:
 

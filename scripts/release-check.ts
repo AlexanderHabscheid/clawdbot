@@ -1,7 +1,8 @@
 #!/usr/bin/env -S node --import tsx
 
 import { execSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import os from "node:os";
 import { join, resolve } from "node:path";
 
 type PackFile = { path: string };
@@ -22,10 +23,15 @@ type PackageJson = {
 };
 
 function runPackDry(): PackResult[] {
+  const cacheDir = mkdtempSync(join(os.tmpdir(), "openclaw-npm-cache-"));
   const raw = execSync("npm pack --dry-run --json --ignore-scripts", {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 1024 * 1024 * 100,
+    env: {
+      ...process.env,
+      npm_config_cache: cacheDir,
+    },
   });
   return JSON.parse(raw) as PackResult[];
 }

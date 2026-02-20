@@ -716,8 +716,12 @@ export function createGatewayHttpServer(opts: {
 
       // Desktop mode switch — sets operating mode (action / dictation)
       if (requestPath === "/api/mode/switch" && req.method === "POST") {
-        const body = await readJsonBody(req).catch(() => null);
-        const mode = (body as Record<string, unknown> | null)?.mode;
+        const body = await readJsonBody(req, 16 * 1024).catch(() => ({ ok: false as const }));
+        const value =
+          body.ok && typeof body.value === "object" && body.value !== null
+            ? (body.value as Record<string, unknown>)
+            : null;
+        const mode = value?.mode;
         if (mode === "action" || mode === "dictation") {
           centrisDesktopMode = mode;
           res.writeHead(200, { "Content-Type": "application/json" });

@@ -29,6 +29,54 @@ interface PublishPayload {
   };
 }
 
+async function publishToRegistry(params: {
+  registryUrl: string;
+  apiKey: string;
+  payload: PublishPayload;
+}): Promise<{ warnings?: string[] }> {
+  const { registryUrl, apiKey, payload } = params;
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+
+  // Primary contract shared with the Python SDK CLI.
+  const primary = await fetch(`${registryUrl}/api/connectors`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (primary.ok) {
+    return (await primary.json()) as { warnings?: string[] };
+  }
+
+  // Compatibility fallback for older registry deployments.
+  if (primary.status === 404 || primary.status === 405 || primary.status === 501) {
+    const fallback = await fetch(`${registryUrl}/api/registry/publish`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        manifest: {
+          id: payload.connector.id,
+          name: payload.connector.name,
+          version: payload.connector.version,
+          description: payload.connector.description,
+          tools: payload.tools,
+        },
+        package: payload.package,
+      }),
+    });
+    if (fallback.ok) {
+      return (await fallback.json()) as { warnings?: string[] };
+    }
+    const error = await fallback.text();
+    throw new Error(`Registry returned ${fallback.status}: ${error}`);
+  }
+
+  const error = await primary.text();
+  throw new Error(`Registry returned ${primary.status}: ${error}`);
+}
+
 export async function publishConnector(options: PublishOptions, ctx: CLIContext): Promise<void> {
   const { logger } = ctx;
   const connectorPath = path.resolve(ctx.cwd, options.path ?? ".");
@@ -179,21 +227,11 @@ export async function publishConnector(options: PublishOptions, ctx: CLIContext)
   logger.info("Publishing to registry...");
 
   try {
-    const response = await fetch(`${registryUrl}/api/connectors`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(payload),
+    const result = await publishToRegistry({
+      registryUrl,
+      apiKey: String(apiKey),
+      payload,
     });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Registry returned ${response.status}: ${error}`);
-    }
-
-    const result = (await response.json()) as { warnings?: string[] };
     logger.success("Published successfully!");
     logger.info(`  URL: ${registryUrl}/connectors/${payload.connector.id}`);
 

@@ -14,9 +14,9 @@ Commands:
 - centris package .           → Just create .connector file (no install)
 
 The registry API accepts:
-- POST /api/registry/publish - Upload connector package
-- GET /api/registry/connectors - List connectors
-- GET /api/registry/connectors/:id - Get details
+- POST /api/connectors - Publish connector metadata/package
+- GET /connectors/:id - Connector details page
+- Legacy compatibility: POST /api/registry/publish
 """
 
 import click
@@ -105,7 +105,8 @@ async def publish_to_registry(
 ) -> dict[str, Any]:
     """Publish package to Centris registry.
     
-    Uses the new registry API at /api/registry/publish.
+    Primary contract: POST /api/connectors
+    Compatibility fallback: POST /api/registry/publish
     """
     try:
         import httpx
@@ -139,28 +140,55 @@ async def publish_to_registry(
             "Content-Type": "application/json",
         }
         
-        # Upload to registry
-        upload_url = f"{registry_url}/api/registry/publish"
-        response = await client.post(
-            upload_url,
-            json={
-                "manifest": manifest,
-                "package_base64": package_base64,
+        # Primary shared contract used by both SDK CLIs.
+        connector_payload = {
+            "connector": {
+                "id": package_info["id"],
+                "name": package_info["name"],
+                "description": package_info.get("description", ""),
+                "version": package_info["version"],
             },
+            "tools": manifest.get("tools", []),
+            "package": {
+                "name": f"centris-connector-{package_info['id']}",
+                "version": package_info["version"],
+                "filename": package_info["filename"],
+                "checksum": package_info["checksum"],
+                "size": package_info["size"],
+                "tarball_base64": package_base64,
+            },
+        }
+        primary = await client.post(
+            f"{registry_url}/api/connectors",
+            json=connector_payload,
             headers=headers,
             timeout=120.0,
         )
-        
-        result = response.json()
-        
-        if response.status_code == 401:
+        if primary.status_code == 401:
             raise ValueError("Invalid API key. Get your key from https://centris.ai/dashboard")
-        
-        if response.status_code != 200 or not result.get("success"):
-            error = result.get("error", response.text)
+        if primary.status_code in (404, 405, 501):
+            fallback = await client.post(
+                f"{registry_url}/api/registry/publish",
+                json={
+                    "manifest": manifest,
+                    "package_base64": package_base64,
+                },
+                headers=headers,
+                timeout=120.0,
+            )
+            if fallback.status_code == 401:
+                raise ValueError("Invalid API key. Get your key from https://centris.ai/dashboard")
+            result = fallback.json()
+            if not (200 <= fallback.status_code < 300) or not result.get("success"):
+                error = result.get("error", fallback.text)
+                raise ValueError(f"Publish failed: {error}")
+            return result
+
+        result = primary.json()
+        if not (200 <= primary.status_code < 300):
+            error = result.get("error", primary.text) if isinstance(result, dict) else primary.text
             raise ValueError(f"Publish failed: {error}")
-        
-        return result
+        return result if isinstance(result, dict) else {"success": True}
 
 
 def install_locally(

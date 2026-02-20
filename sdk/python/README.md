@@ -197,6 +197,8 @@ Total: 1 | Passed: 1 | Failed: 0
 centris-py publish .
 ```
 
+Registry publish API: `POST /api/connectors` (legacy fallback: `POST /api/registry/publish`).
+
 Your connector is now available to all Centris users worldwide.
 
 ## CLI Reference

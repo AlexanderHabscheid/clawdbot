@@ -10,7 +10,30 @@ permissions:
   contents: write
 
 jobs:
+  contract-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build TypeScript SDK CLI
+        run: |
+          cd sdk/typescript
+          npm ci
+          npm run build
+      - name: Install Python SDK CLI
+        run: |
+          cd sdk/python
+          pip install -e ".[all,dev]"
+      - name: Check cross-CLI do contract
+        run: node scripts/check-centris-sdk-cli-contract.mjs
+
   publish-typescript:
+    needs: [contract-gate]
     runs-on: ubuntu-latest
     # Skip if this push was an auto-bump commit from this workflow
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
@@ -67,6 +90,7 @@ jobs:
           git push
 
   publish-python:
+    needs: [contract-gate]
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     defaults:
