@@ -228,6 +228,17 @@ async function runCentrisDoTask(params: {
   });
 
   const runId = `ctask_${params.task.id}`;
+  const contextObj =
+    params.context && typeof params.context === "object" && !Array.isArray(params.context)
+      ? (params.context as Record<string, unknown>)
+      : undefined;
+  const outputSchema = contextObj?.outputSchema;
+  const outputSchemaValid =
+    outputSchema &&
+    typeof outputSchema === "object" &&
+    !Array.isArray(outputSchema) &&
+    Object.keys(outputSchema).length > 0;
+
   const result = await agentCommand(
     {
       message: params.command,
@@ -236,6 +247,7 @@ async function runCentrisDoTask(params: {
       deliver: false,
       messageChannel: "webchat",
       bestEffortDeliver: false,
+      outputSchema: outputSchemaValid ? (outputSchema as Record<string, unknown>) : undefined,
     },
     defaultRuntime,
     createDefaultDeps(),

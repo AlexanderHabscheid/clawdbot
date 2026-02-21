@@ -84,6 +84,31 @@ function resolveFallbackRetryPrompt(params: { body: string; isFallbackRetry: boo
   return "Continue where you left off. The previous model attempt failed or timed out.";
 }
 
+/** Build system prompt block instructing the LLM to return JSON matching the schema. */
+function buildOutputSchemaPrompt(schema: Record<string, unknown>): string {
+  const schemaJson = JSON.stringify(schema);
+  return `OUTPUT FORMAT: You must return your final response as valid JSON matching this schema. Return only the JSON object, no markdown code blocks, no explanatory text before or after.
+Schema: ${schemaJson}`;
+}
+
+function resolveExtraSystemPrompt(opts: AgentCommandOpts): string | undefined {
+  const parts: string[] = [];
+  if (opts.extraSystemPrompt?.trim()) {
+    parts.push(opts.extraSystemPrompt.trim());
+  }
+  if (
+    opts.outputSchema &&
+    typeof opts.outputSchema === "object" &&
+    !Array.isArray(opts.outputSchema)
+  ) {
+    parts.push(buildOutputSchemaPrompt(opts.outputSchema));
+  }
+  if (parts.length === 0) {
+    return undefined;
+  }
+  return parts.join("\n\n");
+}
+
 function runAgentAttempt(params: {
   providerOverride: string;
   modelOverride: string;
@@ -128,7 +153,7 @@ function runAgentAttempt(params: {
       thinkLevel: params.resolvedThinkLevel,
       timeoutMs: params.timeoutMs,
       runId: params.runId,
-      extraSystemPrompt: params.opts.extraSystemPrompt,
+      extraSystemPrompt: resolveExtraSystemPrompt(params.opts),
       cliSessionId,
       images: params.isFallbackRetry ? undefined : params.opts.images,
       streamParams: params.opts.streamParams,
@@ -173,7 +198,7 @@ function runAgentAttempt(params: {
     runId: params.runId,
     lane: params.opts.lane,
     abortSignal: params.opts.abortSignal,
-    extraSystemPrompt: params.opts.extraSystemPrompt,
+    extraSystemPrompt: resolveExtraSystemPrompt(params.opts),
     inputProvenance: params.opts.inputProvenance,
     streamParams: params.opts.streamParams,
     agentDir: params.agentDir,

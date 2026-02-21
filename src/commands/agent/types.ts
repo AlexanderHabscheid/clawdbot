@@ -76,4 +76,10 @@ export type AgentCommandOpts = {
   inputProvenance?: InputProvenance;
   /** Per-call stream param overrides (best-effort). */
   streamParams?: AgentStreamParams;
+  /**
+   * JSON Schema for structured extraction. When set, the agent is instructed to
+   * return its final response as valid JSON matching this schema.
+   * Used by Centris extract() and executeTask(outputSchema).
+   */
+  outputSchema?: Record<string, unknown>;
 };

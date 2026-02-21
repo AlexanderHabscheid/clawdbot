@@ -198,6 +198,52 @@ describe("gateway centris compatibility HTTP endpoints", () => {
     expect(typeof json.monthly_limit).toBe("number");
   });
 
+  test("POST /api/v1/do passes outputSchema from context to agentCommand", async () => {
+    const schema = {
+      type: "object",
+      properties: {
+        products: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { name: { type: "string" }, price: { type: "number" } },
+          },
+        },
+      },
+    };
+    readJsonBodyMock.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        command: "Get first 3 products with name and price",
+        async: false,
+        context: { outputSchema: schema },
+      },
+    });
+    agentCommandMock.mockResolvedValueOnce({
+      payloads: [{ text: '{"products":[{"name":"Widget","price":9.99}]}' }],
+      meta: { agentMeta: { usage: { input: 50, output: 30, total: 80 } } },
+    });
+
+    const server = createServer();
+    const response = createResponse();
+
+    await dispatchRequest(
+      server,
+      createRequest({ path: "/api/v1/do", method: "POST" }),
+      response.res,
+    );
+
+    expect(response.res.statusCode).toBe(200);
+    const json = JSON.parse(response.getBody()) as Record<string, unknown>;
+    expect(json.status).toBe("completed");
+    expect(agentCommandMock).toHaveBeenCalledTimes(1);
+    const call = agentCommandMock.mock.calls[0];
+    expect(call[0]).toMatchObject({
+      message: "Get first 3 products with name and price",
+      outputSchema: schema,
+    });
+  });
+
   test("POST /api/v1/do rejects unsupported Accept-Version", async () => {
     const server = createServer();
     const response = createResponse();
