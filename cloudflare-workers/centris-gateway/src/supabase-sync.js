@@ -2,6 +2,10 @@
  * Supabase Sync Module for Cloudflare Workers
  * ============================================
  *
+ * @deprecated This module is part of the OLD user learnings/patterns system.
+ * The target architecture is per-user memory in a server/database storage
+ * (Supabase table or bucket), not KV + legacy RPC. See docs/MEMORY_ARCHITECTURE.md.
+ *
  * OPTIMIZED FOR 100K+ USERS - Minimal KV writes
  *
  * This module handles bi-directional sync between Cloudflare KV (edge cache)

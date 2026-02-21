@@ -398,7 +398,38 @@ export default {
 
       // ═══════════════════════════════════════════════════════════════════════
       // 🔄 SUPABASE SYNC ROUTES - Edge ↔ Supabase bi-directional sync
+      // @deprecated Use centris_web_memory (Supabase) per docs/MEMORY_ARCHITECTURE.md
+      // Gate with CENTRIS_DEPRECATE_OLD_SYNC=1 to return 410 Gone
       // ═══════════════════════════════════════════════════════════════════════
+      const oldSyncDeprecated =
+        env.CENTRIS_DEPRECATE_OLD_SYNC === "1" || env.CENTRIS_DEPRECATE_OLD_SYNC === "true";
+      const isOldSyncPath =
+        path === "/api/sync/pull" ||
+        path === "/api/v1/sync/pull" ||
+        path === "/api/sync/push" ||
+        path === "/api/v1/sync/push" ||
+        path === "/api/sync/full" ||
+        path === "/api/v1/sync/full" ||
+        path === "/api/sync/status" ||
+        path === "/api/v1/sync/status" ||
+        path === "/api/learning/add" ||
+        path === "/api/v1/learning/add";
+      if (oldSyncDeprecated && isOldSyncPath) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            deprecated: true,
+            code: "DEPRECATED",
+            message:
+              "Old patterns/learnings sync is deprecated. Use per-user centris_web_memory (Supabase). See docs/MEMORY_ARCHITECTURE.md",
+          }),
+          {
+            status: 410,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          },
+        );
+      }
+
       // Pull user data from Supabase to KV (call on login)
       if (path === "/api/sync/pull" || path === "/api/v1/sync/pull") {
         const response = await handleSyncPull(request, env);

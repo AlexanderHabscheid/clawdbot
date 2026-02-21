@@ -12,6 +12,7 @@ import { loadManifests } from "../../sdk/typescript/src/manifest/loader.js";
 import { validateWebMemoryIndexPayload } from "../../sdk/typescript/src/web-memory/ingest.js";
 import { isCentrisDesktopConnected, sendDesktopCommand } from "./centris-desktop-bridge.js";
 import { isCentrisExtensionConnected, sendExtensionCommand } from "./centris-extension-bridge.js";
+import { getWebMemoryStore } from "./web-memory-store.js";
 
 type KernelSuccessCheck =
   | { type: "url_contains"; value: string }
@@ -113,8 +114,17 @@ type WebMemoryEntry = {
 const ACTION_SPEC_VERSION = "2026-02-19";
 const sessions = new Map<string, RecordedSession>();
 const routes = new Map<string, RecordedRoute>();
-const webMemory = new Map<string, WebMemoryEntry>();
 let activeRecordingSessionId: string | null = null;
+
+function extractUserId(params: Record<string, unknown>): string | undefined {
+  const uid = asString(params.userId);
+  if (uid) {
+    return uid;
+  }
+  const session = asObject(params.session);
+  const meta = session ? asObject(session.metadata) : undefined;
+  return meta ? asString(meta.userId) : undefined;
+}
 let webMemoryHits = 0;
 let webMemoryMisses = 0;
 let webMemoryResolveMsTotal = 0;
@@ -647,49 +657,6 @@ function buildWebMemoryCacheKey(url: string, intent?: string): string {
     .digest("hex")
     .slice(0, 16);
   return `wm_${digest}`;
-}
-
-function cleanupExpiredWebMemory(now = Date.now()): void {
-  for (const [key, entry] of webMemory.entries()) {
-    const expiresAt = Date.parse(entry.expiresAt);
-    if (Number.isFinite(expiresAt) && expiresAt <= now) {
-      webMemory.delete(key);
-    }
-  }
-}
-
-function resolveWebMemoryEntry(params: {
-  url: string;
-  intent?: string;
-  maxAgeMs?: number;
-}): WebMemoryEntry | undefined {
-  cleanupExpiredWebMemory();
-  const normalizedUrl = normalizeUrl(params.url);
-  const normalizedIntent = (params.intent ?? "").trim().toLowerCase();
-  const now = Date.now();
-  const maxAge = typeof params.maxAgeMs === "number" ? Math.max(0, params.maxAgeMs) : undefined;
-
-  const candidates = [...webMemory.values()].filter((entry) => {
-    if (entry.normalizedUrl !== normalizedUrl) {
-      return false;
-    }
-    if (normalizedIntent && (entry.intent ?? "").trim().toLowerCase() !== normalizedIntent) {
-      return false;
-    }
-    if (maxAge != null) {
-      const createdAt = Date.parse(entry.createdAt);
-      if (Number.isFinite(createdAt) && now - createdAt > maxAge) {
-        return false;
-      }
-    }
-    return true;
-  });
-
-  if (candidates.length === 0) {
-    return undefined;
-  }
-  candidates.sort((a, b) => b.confidence - a.confidence);
-  return candidates[0];
 }
 
 async function persistRecordedRoute(params: {
@@ -1493,7 +1460,8 @@ export async function handleActionApiEnvelope(
         expiresAt,
         resolveHits: 0,
       };
-      webMemory.set(cacheKey, entry);
+      const store = getWebMemoryStore(extractUserId(params));
+      await store.set(cacheKey, entry);
 
       return {
         specVersion,
@@ -1547,10 +1515,12 @@ export async function handleActionApiEnvelope(
         return actionError(method, id, "INVALID_REQUEST", "url is required");
       }
       const maxAgeMs = asNumber(params.maxAgeMs);
-      const entry = resolveWebMemoryEntry({
-        url,
-        intent: asString(params.intent),
-        maxAgeMs,
+      const store = getWebMemoryStore(extractUserId(params));
+      await store.cleanupExpired();
+      const entry = await store.resolve({
+        normalizedUrl: normalizeUrl(url),
+        normalizedIntent: (asString(params.intent) ?? "").trim().toLowerCase(),
+        maxAgeMs: typeof maxAgeMs === "number" ? Math.max(0, maxAgeMs) : undefined,
       });
       const resolveMs = Date.now() - startedAt;
       webMemoryResolveMsTotal += resolveMs;
@@ -1571,7 +1541,7 @@ export async function handleActionApiEnvelope(
       }
 
       webMemoryHits++;
-      entry.resolveHits++;
+      await store.incrementResolveHits(entry.cacheKey);
       return {
         specVersion,
         method,
@@ -1601,7 +1571,12 @@ export async function handleActionApiEnvelope(
       const intent = asString(params.intent);
       const routeId = asString(params.routeId);
       const operation = deriveActionKind(asString(params.operation));
-      const entry = resolveWebMemoryEntry({ url, intent });
+      const store = getWebMemoryStore(extractUserId(params));
+      await store.cleanupExpired();
+      const entry = await store.resolve({
+        normalizedUrl: normalizeUrl(url),
+        normalizedIntent: (intent ?? "").trim().toLowerCase(),
+      });
       const requestPageFingerprintId = asString(params.pageFingerprintId);
       const requestParams = asObject(params.params) ?? {};
 
@@ -1617,8 +1592,8 @@ export async function handleActionApiEnvelope(
         ) {
           try {
             const memoryResult = await runRouteMemory({
-              routeMemory: entry.routeMemory,
-              actionIndex: entry.actionIndex,
+              routeMemory: entry.routeMemory as ActionRouteMemory,
+              actionIndex: entry.actionIndex as ActionIndexEntry[],
               url,
             });
             const executeMs = Date.now() - startedAt;
@@ -1699,29 +1674,16 @@ export async function handleActionApiEnvelope(
     }
 
     if (method === "web.memory.invalidate") {
-      cleanupExpiredWebMemory();
+      const store = getWebMemoryStore(extractUserId(params));
+      await store.cleanupExpired();
       const scope = asString(params.scope) ?? "url";
       const url = asString(params.url);
       const playbookId = asString(params.playbookId);
-      let invalidated = 0;
-      if (scope === "all") {
-        invalidated = webMemory.size;
-        webMemory.clear();
-      } else if (playbookId && webMemory.has(playbookId)) {
-        webMemory.delete(playbookId);
-        invalidated = 1;
-      } else if (url) {
-        const normalizedUrl = normalizeUrl(url);
-        const domain = toDomain(url);
-        for (const [key, entry] of webMemory.entries()) {
-          const urlMatch = entry.normalizedUrl === normalizedUrl;
-          const domainMatch = scope === "domain" && entry.domain === domain;
-          if (urlMatch || domainMatch) {
-            webMemory.delete(key);
-            invalidated++;
-          }
-        }
-      }
+      const invalidated = await store.deleteByScope({
+        scope: scope === "all" ? "all" : playbookId ? "playbook" : (scope as "url" | "domain"),
+        url,
+        playbookId,
+      });
 
       return {
         specVersion,
@@ -1736,8 +1698,9 @@ export async function handleActionApiEnvelope(
     }
 
     if (method === "web.memory.stats") {
-      cleanupExpiredWebMemory();
-      const entries = [...webMemory.values()];
+      const store = getWebMemoryStore(extractUserId(params));
+      await store.cleanupExpired();
+      const entries = await store.list();
       const indexedPages = new Set(entries.map((entry) => entry.normalizedUrl)).size;
       const indexedActions = entries.reduce((sum, entry) => sum + entry.actionIndex.length, 0);
       const indexedRoutes = entries.reduce((sum, entry) => sum + (entry.routeMemory ? 1 : 0), 0);

@@ -123,6 +123,9 @@ ENABLE_AGGRESSIVE_CACHING = "true"
 # Supabase URL (public, safe in vars)
 SUPABASE_URL = "https://ygjihbumpqwmflhojapm.supabase.co"
 
+# Gate deprecated sync endpoints (set to "1" to return 410 Gone for /api/sync/*, /api/learning/add)
+# CENTRIS_DEPRECATE_OLD_SYNC = "0"
+
 # ========================================
 # Secrets (set via wrangler secret put)
 # ========================================
