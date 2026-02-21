@@ -105,7 +105,19 @@ from centris_sdk.client import (
     AuthenticationError,
     RateLimitError,
     do,  # Convenience function
+    execute_task,  # High-level task API
     DEFAULT_API_VERSION,  # Current stable API version
+)
+from centris_sdk.extract import extract, ExtractResult
+from centris_sdk.execute_task import ExecuteTaskResult
+from centris_sdk.action_cache import (
+    ActionCache,
+    RecordRouteResult,
+    StopRouteRecordingResult,
+    record_route as record_route_cache,
+    stop_route_recording,
+    build_action_cache,
+    replay_route,
 )
 
 # Core connector classes
@@ -261,7 +273,18 @@ __all__ = [
     "AuthenticationError",
     "RateLimitError",
     "do",
+    "execute_task",
     "DEFAULT_API_VERSION",
+    "extract",
+    "ExtractResult",
+    "ExecuteTaskResult",
+    "ActionCache",
+    "RecordRouteResult",
+    "StopRouteRecordingResult",
+    "record_route_cache",
+    "stop_route_recording",
+    "build_action_cache",
+    "replay_route",
     # Main classes (Decorator pattern)
     "CentrisConnector",
     "Capability",

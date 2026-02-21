@@ -465,6 +465,30 @@ class RateLimitError(CentrisError):
     pass
 
 
+class _ActionCacheClient:
+    """Convenience namespace for action cache operations."""
+
+    def __init__(self, client: "Centris"):
+        self._client = client
+
+    def record_route(self, intent: str, **kwargs) -> "RecordRouteResult":
+        from centris_sdk.action_cache import record_route
+        return record_route(self._client, intent, **kwargs)
+
+    def stop_route_recording(self, session_id: str, **kwargs) -> "StopRouteRecordingResult":
+        from centris_sdk.action_cache import stop_route_recording
+        return stop_route_recording(self._client, session_id, **kwargs)
+
+    def replay_route(self, cache: "ActionCache", **kwargs) -> dict:
+        from centris_sdk.action_cache import replay_route
+        return replay_route(self._client, cache, **kwargs)
+
+    @staticmethod
+    def build_action_cache(route_id: str, **kwargs) -> "ActionCache":
+        from centris_sdk.action_cache import build_action_cache
+        return build_action_cache(route_id, **kwargs)
+
+
 class _WebMemoryClient:
     """Convenience namespace for web memory operations."""
 
@@ -571,6 +595,7 @@ class Centris:
             self.base_url = None
 
         self.web_memory = _WebMemoryClient(self)
+        self.cache = _ActionCacheClient(self)
     
     def _detect_base_url(self) -> str:
         """Detect if local or cloud API should be used."""
@@ -787,6 +812,39 @@ class Centris:
             api_version=version_info.get("api_version"),
             api_version_warning=version_info.get("api_version_warning"),
             deprecation_info=version_info.get("deprecation_info"),
+        )
+
+    def extract(
+        self,
+        instruction: str,
+        schema: Dict[str, Any],
+        *,
+        async_mode: bool = False,
+        wait: bool = True,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> "ExtractResult":
+        """Extract structured data from the current page using natural language."""
+        from centris_sdk.extract import extract
+        return extract(self, instruction, schema, async_mode=async_mode, wait=wait, context=context)
+
+    def execute_task(
+        self,
+        task: str,
+        *,
+        async_mode: bool = False,
+        wait: bool = True,
+        output_schema: Optional[Dict[str, Any]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> "ExecuteTaskResult":
+        """Execute a natural-language task. High-level API over do()."""
+        from centris_sdk.execute_task import execute_task as _execute_task
+        return _execute_task(
+            self,
+            task,
+            async_mode=async_mode,
+            wait=wait,
+            output_schema=output_schema,
+            context=context,
         )
     
     def _execute_local(self, command: str, context: Optional[Dict[str, Any]] = None) -> CentrisResult:
@@ -1370,6 +1428,16 @@ class Centris:
     def close(self):
         """Close the HTTP client."""
         self._client.close()
+
+
+def execute_task(
+    task: str,
+    api_key: Optional[str] = None,
+    **kwargs: Any,
+) -> "ExecuteTaskResult":
+    """Execute a task without creating a client. High-level API over do()."""
+    with Centris(api_key=api_key) as client:
+        return client.execute_task(task, **kwargs)
 
 
 # Convenience function for one-off usage

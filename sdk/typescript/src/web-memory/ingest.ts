@@ -129,6 +129,9 @@ export function validateWebMemoryIndexPayload(
   const actions = Array.isArray(payload.actionIndex) ? payload.actionIndex : [];
   for (let index = 0; index < actions.length; index++) {
     const entry = actions[index];
+    if (!entry) {
+      continue;
+    }
     const actionId = entry.actionId?.trim() ?? "";
     const affordance = entry.affordance;
     if (!actionId) {

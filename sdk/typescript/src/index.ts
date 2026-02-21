@@ -370,6 +370,7 @@ export {
 export {
   Centris,
   do,
+  executeTask,
   DEFAULT_API_VERSION,
   CentrisError,
   AuthenticationError,
@@ -379,6 +380,29 @@ export {
   type CentrisClientOptions,
   type DeprecationCallback,
 } from "./client/index.js";
+
+export {
+  extract,
+  schemaToJsonSchema,
+  type ExtractOptions,
+  type ExtractResult,
+  type JsonSchema,
+} from "./client/extract.js";
+
+export { type ExecuteTaskOptions, type ExecuteTaskResult } from "./client/execute-task.js";
+
+export {
+  recordRoute as recordRouteCache,
+  stopRouteRecording,
+  buildActionCache,
+  replayRoute,
+  type ActionCache,
+  type RecordRouteOptions as CacheRecordRouteOptions,
+  type RecordRouteResult as CacheRecordRouteResult,
+  type StopRouteRecordingOptions,
+  type StopRouteRecordingResult,
+  type ReplayRouteOptions,
+} from "./client/action-cache.js";
 
 // =============================================================================
 // CLI

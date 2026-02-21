@@ -98,6 +98,7 @@ export type {
   ActionWebMemoryStatsResult,
 } from "../action-api/index.js";
 
+import type { TSchema, Static } from "@sinclair/typebox";
 import type {
   ActionDesktopAppsResult,
   ActionDesktopClickRequest,
@@ -141,6 +142,9 @@ import type {
   KernelVerifyResult,
 } from "../kernel/index.js";
 import { ACTION_API_SPEC_VERSION } from "../action-api/index.js";
+import * as actionCacheModule from "./action-cache.js";
+import * as executeTaskModule from "./execute-task.js";
+import * as extractModule from "./extract.js";
 
 interface ParsedVersionHeaders {
   apiVersion?: string;
@@ -199,6 +203,36 @@ export class Centris {
     execute: (request: ActionWebMemoryExecuteRequest) => this.webMemoryExecute(request),
     invalidate: (request: ActionWebMemoryInvalidateRequest) => this.webMemoryInvalidate(request),
     stats: (request: ActionWebMemoryStatsRequest = {}) => this.webMemoryStats(request),
+  };
+
+  /** Structured extraction: get typed data from pages. */
+  async extract<T extends TSchema>(
+    instruction: string,
+    schema: T,
+    options?: extractModule.ExtractOptions,
+  ): Promise<extractModule.ExtractResult<Static<T>>> {
+    return extractModule.extract(this, instruction, schema, options ?? {});
+  }
+
+  /** High-level task execution with optional structured output. */
+  async executeTask(
+    task: string,
+    options?: executeTaskModule.ExecuteTaskOptions,
+  ): Promise<executeTaskModule.ExecuteTaskResult<unknown>> {
+    return executeTaskModule.executeTask(this, task, options ?? {});
+  }
+
+  /** Action cache: record and replay flows. */
+  readonly cache = {
+    recordRoute: (intent: string, opts?: actionCacheModule.RecordRouteOptions) =>
+      actionCacheModule.recordRoute(this, intent, opts),
+    stopRouteRecording: (sessionId: string, opts?: actionCacheModule.StopRouteRecordingOptions) =>
+      actionCacheModule.stopRouteRecording(this, sessionId, opts),
+    replayRoute: (
+      cache: actionCacheModule.ActionCache,
+      opts?: actionCacheModule.ReplayRouteOptions,
+    ) => actionCacheModule.replayRoute(this, cache, opts),
+    buildActionCache: actionCacheModule.buildActionCache,
   };
 
   constructor(options: CentrisClientOptions = {}) {
@@ -630,4 +664,13 @@ async function executeDo(
   });
 }
 
-export { executeDo as do };
+async function executeTaskStandalone(
+  task: string,
+  options?: Omit<CentrisClientOptions, "fetchImpl"> &
+    executeTaskModule.ExecuteTaskOptions & { fetchImpl?: typeof fetch },
+): Promise<executeTaskModule.ExecuteTaskResult<unknown>> {
+  const client = new Centris(options);
+  return client.executeTask(task, options);
+}
+
+export { executeDo as do, executeTaskStandalone as executeTask };
