@@ -168,10 +168,10 @@ function fromRow(row: Record<string, unknown>): WebMemoryEntry {
     pageFingerprint: payload.pageFingerprint as WebMemoryEntry["pageFingerprint"],
     actionIndex: (payload.actionIndex as Array<Record<string, unknown>>) ?? [],
     routeMemory: payload.routeMemory as WebMemoryEntry["routeMemory"],
-    confidence: row.confidence != null ? Number(row.confidence) : 0.5,
+    confidence: Number(row.confidence) || 0.5,
     createdAt: row.created_at as string,
     expiresAt: row.expires_at as string,
-    resolveHits: row.resolve_hits != null ? Number(row.resolve_hits) : 0,
+    resolveHits: Number(row.resolve_hits) || 0,
   };
 }
 

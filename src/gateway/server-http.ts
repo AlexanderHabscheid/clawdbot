@@ -12,6 +12,7 @@ import type { CanvasHostHandler } from "../canvas-host/server.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
+import type { WebMemoryEntry } from "./web-memory-store.js";
 import { resolveAgentAvatar } from "../agents/identity-avatar.js";
 import {
   A2UI_PATH,
@@ -77,6 +78,7 @@ import { isPrivateOrLoopbackAddress, resolveGatewayClientIp } from "./net.js";
 import { handleOpenAiHttpRequest } from "./openai-http.js";
 import { handleOpenResponsesHttpRequest } from "./openresponses-http.js";
 import { handleToolsInvokeHttpRequest } from "./tools-invoke-http.js";
+import { getWebMemoryStore } from "./web-memory-store.js";
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 type HookAuthFailure = { count: number; windowStartedAtMs: number };
@@ -192,15 +194,72 @@ function extractContextUser(context: unknown): string | undefined {
   if (!context || typeof context !== "object") {
     return undefined;
   }
-  const direct = (context as { user?: unknown }).user;
+  const obj = context as Record<string, unknown>;
+  const direct = obj.user;
   if (typeof direct === "string" && direct.trim().length > 0) {
     return direct.trim();
   }
-  const nested = (context as { user?: { id?: unknown } }).user?.id;
+  const nested = (obj.user as { id?: unknown } | undefined)?.id;
   if (typeof nested === "string" && nested.trim().length > 0) {
     return nested.trim();
   }
+  const userId = obj.userId;
+  if (typeof userId === "string" && userId.trim().length > 0) {
+    return userId.trim();
+  }
   return undefined;
+}
+
+function extractContextUrl(context: unknown): string | undefined {
+  if (!context || typeof context !== "object") {
+    return undefined;
+  }
+  const url = (context as { url?: unknown }).url;
+  return typeof url === "string" && url.trim().length > 0 ? url.trim() : undefined;
+}
+
+function normalizeUrlForWebMemory(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    const withScheme = trimmed.startsWith("http") ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(withScheme);
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return trimmed.toLowerCase();
+  }
+}
+
+function formatWebMemoryContext(entry: WebMemoryEntry): string {
+  const parts: string[] = [
+    `[WEB MEMORY] Prior route for this URL+intent (confidence: ${entry.confidence.toFixed(2)}). Use when elements match.`,
+  ];
+  const steps = entry.routeMemory?.steps;
+  if (steps?.length) {
+    const stepSummary = steps
+      .map((s) => {
+        const op = (s.operation as string) ?? "click";
+        const params = s.params as Record<string, unknown> | undefined;
+        const label = (params?.semanticLabel ?? s.actionId ?? "") as string;
+        return `${op}: ${label || "—"}`;
+      })
+      .join(" → ");
+    parts.push(`Steps: ${stepSummary}`);
+  }
+  const index = entry.actionIndex as Array<Record<string, unknown>> | undefined;
+  if (index?.length) {
+    const labels = index
+      .map((a) => (a.semanticLabel ?? a.affordance ?? a.actionId) as string)
+      .filter(Boolean)
+      .slice(0, 5);
+    if (labels.length) {
+      parts.push(`Elements: ${labels.join(", ")}`);
+    }
+  }
+  return parts.join("\n");
 }
 
 function recordTaskStatus(task: CentrisTaskRecord, status: CentrisTaskStatus): void {
@@ -239,6 +298,30 @@ async function runCentrisDoTask(params: {
     !Array.isArray(outputSchema) &&
     Object.keys(outputSchema).length > 0;
 
+  // Web memory: inject prior routes as context. Never skip the LLM.
+  const url = extractContextUrl(params.context);
+  const userId = extractContextUser(params.context);
+  const intent = params.command.trim().toLowerCase();
+  let webMemoryPrompt: string | undefined;
+  if (url && intent) {
+    try {
+      const store = getWebMemoryStore(userId);
+      await store.cleanupExpired();
+      const entry = await store.resolve({
+        normalizedUrl: normalizeUrlForWebMemory(url),
+        normalizedIntent: intent,
+      });
+      if (entry && entry.confidence >= 0.5) {
+        webMemoryPrompt = formatWebMemoryContext(entry);
+      }
+    } catch {
+      // Ignore web memory errors; agent runs normally
+    }
+  }
+
+  // extraSystemPrompt: web memory only. outputSchema is merged by agentCommand.
+  const extraSystemPrompt = webMemoryPrompt ?? undefined;
+
   const result = await agentCommand(
     {
       message: params.command,
@@ -248,6 +331,7 @@ async function runCentrisDoTask(params: {
       messageChannel: "webchat",
       bestEffortDeliver: false,
       outputSchema: outputSchemaValid ? (outputSchema as Record<string, unknown>) : undefined,
+      extraSystemPrompt,
     },
     defaultRuntime,
     createDefaultDeps(),

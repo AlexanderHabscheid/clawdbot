@@ -446,6 +446,13 @@ async function handleDesktopAppMessage(message) {
         break;
 
       // ═══════════════════════════════════════════════════════════════════════
+      // COMBINED WAIT + SNAPSHOT (single round-trip)
+      // ═══════════════════════════════════════════════════════════════════════
+      case "wait_stable_and_snapshot":
+        result = await handleWaitStableAndSnapshot(data);
+        break;
+
+      // ═══════════════════════════════════════════════════════════════════════
       // BATCH OPERATIONS
       // ═══════════════════════════════════════════════════════════════════════
       case "batch":
@@ -1364,19 +1371,54 @@ async function handleMonitorTabChanges(data) {
   return { success: true, monitoring: true, tabId };
 }
 
+async function handleWaitStableAndSnapshot(data) {
+  const { tabId, stableMs, timeoutMs, instruction, maxChars, includeContent } = data || {};
+  const validation = await validateTab(tabId);
+  if (!validation.success) return validation;
+
+  // MutationObserver-based wait instead of hardcoded sleep
+  await waitForDomStable(validation.tabId, stableMs || 200, timeoutMs || 3000);
+
+  const mergedOptions = {
+    instruction: instruction || "",
+    maxChars: maxChars || 4000,
+  };
+  const snapshot = await getInteractiveSnapshot(validation.tabId, mergedOptions);
+
+  if (includeContent) {
+    try {
+      const readable = await getReadableContent(validation.tabId, {});
+      const content = readable?.content || readable?.text;
+      if (typeof content === "string") {
+        snapshot.pageContent =
+          content.length > 3000 ? content.slice(0, 3000) + "\n...[truncated]" : content;
+      }
+    } catch {
+      /* readable content is non-fatal */
+    }
+  }
+
+  return snapshot;
+}
+
 async function handleBatchCommands(data) {
-  const { commands } = data || {};
+  const { commands, stopOnFailure } = data || {};
   if (!commands || !Array.isArray(commands)) {
     return { success: false, error: "commands array is required" };
   }
 
   const results = [];
-  for (const cmd of commands) {
-    const result = await handleDesktopAppMessage(cmd);
+  for (let i = 0; i < commands.length; i++) {
+    const cmd = commands[i];
+    // Strip id to suppress per-command responses; batch returns all results at once
+    const result = await handleDesktopAppMessage({ type: cmd.type, data: cmd.data || {} });
     results.push(result);
+    if (result.success === false && stopOnFailure !== false) {
+      return { success: false, results, failedAt: i, error: result.error };
+    }
   }
 
-  return { success: true, results };
+  return { success: true, results, count: results.length };
 }
 
 async function handleShowReadingIndicator(data) {

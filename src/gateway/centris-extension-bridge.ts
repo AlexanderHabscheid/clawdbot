@@ -120,6 +120,26 @@ export async function sendExtensionCommand(
   });
 }
 
+/**
+ * Send multiple commands as a single batch over one WebSocket round-trip.
+ * The extension executes them sequentially and returns all results at once.
+ * Stops at the first failure unless stopOnFailure is false.
+ */
+export async function sendExtensionBatch(
+  commands: Array<{ type: string; data?: Record<string, unknown> }>,
+  opts: { timeoutMs?: number; stopOnFailure?: boolean } = {},
+): Promise<{ success: boolean; results: Array<unknown>; failedAt?: number; error?: string }> {
+  const result = (await sendExtensionCommand(
+    "batch",
+    {
+      commands: commands.map((cmd) => ({ type: cmd.type, data: cmd.data || {} })),
+      stopOnFailure: opts.stopOnFailure ?? true,
+    },
+    opts.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS,
+  )) as { success: boolean; results: Array<unknown>; failedAt?: number; error?: string };
+  return result;
+}
+
 /** Returns bridge health info for status endpoints. */
 export function getCentrisExtensionStatus(): {
   connected: boolean;
