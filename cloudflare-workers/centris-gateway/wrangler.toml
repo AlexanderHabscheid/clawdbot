@@ -151,20 +151,15 @@ SUPABASE_URL = "https://ygjihbumpqwmflhojapm.supabase.co"
 # ========================================
 # Custom Domain (sentris.io)
 # ========================================
-# Prerequisite: sentris.io must be added to your Cloudflare account's DNS.
-# Add an AAAA record: api.sentris.io → 100:: (proxied) — the Worker handles everything.
-# Or use the custom_domains binding below (Cloudflare auto-creates DNS).
+# Custom Domain lets Cloudflare create the DNS record and cert automatically.
+# DELETE any existing AAAA/CNAME for api.sentris.io before deploy — Custom Domain will create it.
 #
-# Desktop/SDK clients hit:   https://api.sentris.io/v1/chat/completions (proxied to Railway)
-# Cloudflare API routes:     https://api.sentris.io/api/chat, /api/command, etc.
-# Extension WebSocket:       wss://centris-ai-production.up.railway.app/ws/centris/extension (direct)
-#
-# The Worker proxies /v1/* to Railway so the full agent pipeline runs there.
-# Cloudflare provides WAF, DDoS, caching, analytics, and a stable domain.
+# Desktop/SDK: https://api.sentris.io/v1/chat/completions (proxied to Railway)
+# Extension WS: wss://centris-ai-production.up.railway.app/ws/centris/extension (direct)
 
 [[routes]]
-pattern = "api.sentris.io/*"
-zone_name = "sentris.io"
+pattern = "api.sentris.io"
+custom_domain = true
 
 # ========================================
 # Deployment Environments
