@@ -159,6 +159,10 @@ export async function createGatewayRuntimeState(params: {
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_PAYLOAD_BYTES,
+    perMessageDeflate: {
+      zlibDeflateOptions: { level: 1 }, // fast compression — snapshots are highly repetitive JSON
+      threshold: 256, // only compress messages > 256 bytes (skip tiny pings)
+    },
   });
   for (const server of httpServers) {
     attachGatewayUpgradeHandler({

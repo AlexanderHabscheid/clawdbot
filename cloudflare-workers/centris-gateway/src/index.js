@@ -158,6 +158,36 @@ export default {
 
     try {
       // =====================================================
+      // PROXY: Forward agent pipeline requests to Railway
+      // =====================================================
+      // The full agent loop (tools, extension bridge, multi-turn reasoning)
+      // runs on Railway. Cloudflare proxies HTTP requests so all traffic
+      // enters through one domain (sentris.io) with WAF, DDoS, and analytics.
+      // WebSocket connections (extension, voice) still go direct to Railway.
+
+      const RAILWAY_ORIGIN =
+        env.RAILWAY_GATEWAY_URL || "https://centris-ai-production.up.railway.app";
+
+      if (path.startsWith("/v1/")) {
+        const proxyUrl = `${RAILWAY_ORIGIN}${path}${url.search}`;
+        const proxyHeaders = new Headers(request.headers);
+        proxyHeaders.set("X-Forwarded-For", request.headers.get("CF-Connecting-IP") || "");
+        proxyHeaders.set("X-Forwarded-Proto", "https");
+        const proxyResponse = await fetch(proxyUrl, {
+          method: request.method,
+          headers: proxyHeaders,
+          body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined,
+          redirect: "follow",
+        });
+        const responseHeaders = new Headers(proxyResponse.headers);
+        Object.entries(corsHeaders).forEach(([k, v]) => responseHeaders.set(k, v));
+        return new Response(proxyResponse.body, {
+          status: proxyResponse.status,
+          headers: responseHeaders,
+        });
+      }
+
+      // =====================================================
       // ROUTE HANDLING
       // =====================================================
 

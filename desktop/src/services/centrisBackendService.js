@@ -13,7 +13,9 @@
 // Developers can override with CENTRIS_GATEWAY_URL for local dev.
 // There is no auto-detect toggle — packaged app → cloud, dev build → override.
 
-const PRODUCTION_GATEWAY_URL = "https://centris-ai-production.up.railway.app";
+// HTTP traffic goes through Cloudflare (sentris.io) for WAF, caching, analytics.
+// WebSocket stays direct to Railway — CF Workers can't proxy long-lived WS.
+const PRODUCTION_GATEWAY_URL = "https://api.sentris.io";
 const PRODUCTION_GATEWAY_WS_URL = "wss://centris-ai-production.up.railway.app";
 
 const GATEWAY_URL =

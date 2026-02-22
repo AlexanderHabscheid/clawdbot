@@ -46,6 +46,10 @@ if [ -f "$CONFIG_FILE" ]; then
       if (!c.tools.profile || c.tools.profile === 'full') c.tools.profile = 'centris';
       if (!c.session) c.session = {};
       if (!c.session.dmScope || c.session.dmScope === 'main') c.session.dmScope = 'per-channel-peer';
+      if (!c.models) c.models = {};
+      if (!c.models.providers) c.models.providers = {};
+      if (!c.models.providers.google) c.models.providers.google = {};
+      if (!c.models.providers.google.baseUrl) c.models.providers.google.baseUrl = 'https://gateway.ai.cloudflare.com/v1/7cd2b493d94c63bba7fb6b1813984ce0/centris-ai-gateway/google-ai-studio/v1beta';
       if (!c.agents) c.agents = {};
       if (!c.agents.defaults) c.agents.defaults = {};
       if (!c.agents.defaults.model) c.agents.defaults.model = {};
@@ -68,6 +72,13 @@ else
   "session": {
     "dmScope": "per-channel-peer"
   },
+  "models": {
+    "providers": {
+      "google": {
+        "baseUrl": "https://gateway.ai.cloudflare.com/v1/7cd2b493d94c63bba7fb6b1813984ce0/centris-ai-gateway/google-ai-studio/v1beta"
+      }
+    }
+  },
   "agents": {
     "defaults": {
       "model": {
@@ -86,5 +97,5 @@ else
   }
 }
 CONF
-  echo "[centris-init] Created config with centris profile, Gemini default model, and /v1/chat/completions enabled"
+  echo "[centris-init] Created config with centris profile, Gemini default model, Cloudflare AI Gateway, and /v1/chat/completions enabled"
 fi
