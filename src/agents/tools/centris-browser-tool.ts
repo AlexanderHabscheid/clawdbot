@@ -22,6 +22,7 @@ import { Type } from "@sinclair/typebox";
 import {
   isCentrisExtensionConnected,
   sendExtensionCommand,
+  sendExtensionBatch,
   waitForExtension,
 } from "../../gateway/centris-extension-bridge.js";
 import {
@@ -65,6 +66,10 @@ export const CentrisBrowserToolSchema = Type.Object({
   meta: Type.Optional(Type.Boolean()),
   // snapshot: instruction for keyword-aware filtering
   instruction: Type.Optional(Type.String()),
+  // multi-action: JSON array of sequential actions executed without LLM round-trips between them.
+  // Each element: {"action":"click","nodeId":42} or {"action":"type","text":"hello"} etc.
+  // Only the final page state is returned. Stops on first failure.
+  actions: Type.Optional(Type.String()),
 });
 
 export function createCentrisBrowserTool(): AnyAgentTool {
@@ -82,6 +87,10 @@ export function createCentrisBrowserTool(): AnyAgentTool {
       "",
       "Elements: {id, t, n} — id=nodeId, t=cl/ty/se, n=label.",
       "BATCH tool calls: click + type(no nodeId) in same turn when click opens an editor.",
+      "",
+      "MULTI-ACTION: pass actions (JSON array) to chain steps without LLM round-trips.",
+      'Example: actions=\'[{"action":"click","nodeId":42},{"action":"type","text":"hello"},{"action":"click","nodeId":78}]\'',
+      "Supported: click, type, navigate, scroll, press_key. Returns final page state only.",
     ].join("\n"),
     parameters: CentrisBrowserToolSchema,
     execute: async (_toolCallId, args) => {
@@ -98,6 +107,12 @@ export function createCentrisBrowserTool(): AnyAgentTool {
       }
 
       const params = args as Record<string, unknown>;
+
+      // ─── Multi-action: execute a sequence without LLM round-trips ─────
+      if (typeof params.actions === "string") {
+        return await executeActionSequence(params.actions);
+      }
+
       const action = readStringParam(params, "action", { required: true });
 
       switch (action) {
@@ -188,16 +203,15 @@ export function createCentrisBrowserTool(): AnyAgentTool {
           //   Turn 3: text summary
           if (clickResult.success !== false) {
             try {
-              await new Promise((r) => setTimeout(r, 500));
-              // Fetch snapshot and readable content in parallel
-              const [snap, readable] = await Promise.all([
-                sendExtensionCommand("get_interactive_snapshot", {
-                  maxChars: 4000,
-                }) as Promise<Record<string, unknown>>,
-                sendExtensionCommand("get_readable_content", {}) as Promise<
-                  Record<string, unknown>
-                >,
-              ]);
+              // Event-driven wait + snapshot + readable content in one round-trip.
+              // Replaces hardcoded 500ms sleep + 2 parallel extension commands (3 RTTs)
+              // with a single combined command (1 RTT).
+              const snap = (await sendExtensionCommand("wait_stable_and_snapshot", {
+                stableMs: 150,
+                timeoutMs: 1500,
+                maxChars: 4000,
+                includeContent: true,
+              })) as Record<string, unknown>;
               const nodes = snap?.interactiveNodes;
               if (Array.isArray(nodes)) {
                 const slim = nodes.slice(0, 20).map((node: Record<string, unknown>) => ({
@@ -208,17 +222,8 @@ export function createCentrisBrowserTool(): AnyAgentTool {
                 clickResult.postClickElements = slim;
                 clickResult.url = (snap.metadata as Record<string, unknown>)?.url;
               }
-              // Include page content so model doesn't need a separate read_page call
-              let content =
-                typeof readable.content === "string"
-                  ? readable.content
-                  : typeof readable.text === "string"
-                    ? readable.text
-                    : undefined;
+              const content = snap.pageContent;
               if (typeof content === "string") {
-                if (content.length > 3000) {
-                  content = content.slice(0, 3000) + "\n...[truncated]";
-                }
                 clickResult.pageContent = content;
               }
             } catch {
@@ -282,11 +287,12 @@ export function createCentrisBrowserTool(): AnyAgentTool {
           // This saves a full round-trip (old system: 7 turns → 3 turns).
           if (navResult.success !== false) {
             try {
-              // Wait for page load before snapshotting.
-              // 500ms was too short for heavy SPAs (Gmail, etc.) — returned 1 element
-              // and forced extra read_page + snapshot calls (6 turns instead of 3).
-              await new Promise((r) => setTimeout(r, 1500));
-              const snap = (await sendExtensionCommand("get_interactive_snapshot", {
+              // Event-driven wait: MutationObserver detects when the DOM stabilizes
+              // instead of a hardcoded 1500ms sleep. Typically resolves in 200-600ms
+              // for fast pages, still waits up to 3s for heavy SPAs (Gmail, etc.).
+              const snap = (await sendExtensionCommand("wait_stable_and_snapshot", {
+                stableMs: 300,
+                timeoutMs: 3000,
                 instruction:
                   typeof params.instruction === "string" ? params.instruction : undefined,
                 maxChars: 4000,
@@ -362,11 +368,12 @@ export function createCentrisBrowserTool(): AnyAgentTool {
 
                   // Classify: main content vs chrome
                   const isNav = landmark === "navigation" || landmark === "nav";
+                  const isBanner = landmark === "banner" || landmark === "header"; // Waffle, app switcher, etc.
                   const isMain = landmark === "main";
                   // Position heuristic: sidebar items typically x < 200
                   const isSidebarPosition = bounds && bounds.x < 200;
 
-                  if (isNav || (isSidebarPosition && !isMain)) {
+                  if (isNav || isBanner || (isSidebarPosition && !isMain)) {
                     other.push(node);
                   } else {
                     mainContent.push(node);
@@ -499,4 +506,136 @@ export function createCentrisBrowserTool(): AnyAgentTool {
       }
     },
   };
+}
+
+/**
+ * Execute a sequence of browser actions in one tool call.
+ * Builds a batch of extension commands (interleaving DOM-stable waits for
+ * click/navigate/type) and sends them in a single WebSocket round-trip.
+ * Returns only the final page state so the LLM gets one consolidated result.
+ */
+async function executeActionSequence(actionsJson: string) {
+  let actions: Array<Record<string, unknown>>;
+  try {
+    actions = JSON.parse(actionsJson);
+  } catch {
+    throw new Error("Invalid actions JSON. Expected array of {action, nodeId?, text?, url?, ...}");
+  }
+  if (!Array.isArray(actions) || actions.length === 0) {
+    throw new Error("actions must be a non-empty array");
+  }
+
+  // Build the batch command list with interleaved DOM-stable waits
+  const batchCmds: Array<{ type: string; data: Record<string, unknown> }> = [];
+
+  for (const act of actions) {
+    const action = act.action as string;
+    switch (action) {
+      case "click":
+        if (typeof act.nodeId !== "number") {
+          throw new Error("nodeId (number) required for click in actions array");
+        }
+        batchCmds.push({ type: "click_node", data: { nodeId: act.nodeId } });
+        batchCmds.push({ type: "wait_for_dom_stable", data: { stableMs: 150, timeoutMs: 1500 } });
+        break;
+      case "type":
+        if (!act.text) {
+          throw new Error("text required for type in actions array");
+        }
+        if (typeof act.nodeId === "number") {
+          batchCmds.push({ type: "type_into_node", data: { nodeId: act.nodeId, text: act.text } });
+        } else {
+          batchCmds.push({ type: "global_type", data: { text: act.text } });
+        }
+        break;
+      case "navigate":
+        if (!act.url) {
+          throw new Error("url required for navigate in actions array");
+        }
+        batchCmds.push({ type: "navigate_browser", data: { url: act.url } });
+        batchCmds.push({ type: "wait_for_dom_stable", data: { stableMs: 300, timeoutMs: 3000 } });
+        break;
+      case "scroll":
+        batchCmds.push({
+          type: "scroll",
+          data: { direction: act.direction || "down", amount: act.amount || 400 },
+        });
+        break;
+      case "press_key":
+        if (!act.key) {
+          throw new Error("key required for press_key in actions array");
+        }
+        batchCmds.push({
+          type: "press_key",
+          data: {
+            key: act.key,
+            ctrl: Boolean(act.ctrl),
+            alt: Boolean(act.alt),
+            shift: Boolean(act.shift),
+            meta: Boolean(act.meta),
+          },
+        });
+        break;
+      default:
+        throw new Error(`Unknown action "${action}" in actions array`);
+    }
+  }
+
+  // Append final snapshot + readable content so we return the end state
+  batchCmds.push({ type: "wait_for_dom_stable", data: { stableMs: 150, timeoutMs: 1500 } });
+  batchCmds.push({ type: "get_interactive_snapshot", data: { maxChars: 4000 } });
+  batchCmds.push({ type: "get_readable_content", data: {} });
+
+  // One WebSocket round-trip for the entire sequence
+  const batch = await sendExtensionBatch(batchCmds, { stopOnFailure: true });
+  const results = batch.results || [];
+
+  if (!batch.success && batch.failedAt !== undefined) {
+    // Map failedAt index back to the original action
+    const failedResult = results[batch.failedAt] as Record<string, unknown> | undefined;
+    return jsonResult({
+      error: `Action sequence failed at step ${batch.failedAt}: ${batch.error || "unknown"}`,
+      completedSteps: batch.failedAt,
+      totalSteps: batchCmds.length,
+      needsSnapshot: failedResult?.needsSnapshot ?? true,
+    });
+  }
+
+  // Extract final snapshot and readable content from the last two results
+  const snapResult = results[results.length - 2] as Record<string, unknown> | undefined;
+  const readResult = results[results.length - 1] as Record<string, unknown> | undefined;
+
+  const output: Record<string, unknown> = {
+    success: true,
+    completedActions: actions.length,
+  };
+
+  if (snapResult) {
+    const nodes = snapResult.interactiveNodes;
+    if (Array.isArray(nodes)) {
+      output.interactiveNodes = nodes.slice(0, 20).map((node: Record<string, unknown>) => ({
+        id: node.id ?? node.nodeId,
+        t: node.t ?? node.type,
+        n: typeof node.n === "string" ? node.n.slice(0, 60) : (node.name ?? ""),
+      }));
+    }
+    output.url = (snapResult.metadata as Record<string, unknown>)?.url;
+  }
+
+  if (readResult) {
+    let content =
+      typeof readResult.content === "string"
+        ? readResult.content
+        : typeof readResult.text === "string"
+          ? readResult.text
+          : undefined;
+    if (typeof content === "string") {
+      if (content.length > 3000) {
+        content = content.slice(0, 3000) + "\n...[truncated]";
+      }
+      output.pageContent = content;
+    }
+  }
+
+  return jsonResult(output);
 }

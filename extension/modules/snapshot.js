@@ -1314,14 +1314,17 @@ async function getInteractiveSnapshot(tabId, options = {}) {
           !!el.closest('[role="alertdialog"]') ||
           !!el.closest("dialog");
 
-        // Get closest landmark
+        // Get closest landmark. Check chrome (banner/header/nav) before main so
+        // waffle/app-switcher in headers are tagged correctly and excluded from main content.
         const closestLandmark =
-          el.closest('[role="main"]') ||
+          el.closest('[role="banner"]') ||
+          el.closest("header") ||
           el.closest('[role="navigation"]') ||
+          el.closest("nav") ||
+          el.closest('[role="main"]') ||
+          el.closest("main") ||
           el.closest('[role="form"]') ||
           el.closest('[role="search"]') ||
-          el.closest("main") ||
-          el.closest("nav") ||
           el.closest("form");
         const landmarkRole =
           closestLandmark?.getAttribute("role") || closestLandmark?.tagName?.toLowerCase() || "";
