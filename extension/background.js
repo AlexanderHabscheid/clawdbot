@@ -535,6 +535,25 @@ async function handleDesktopAppMessage(message) {
         break;
 
       // ═══════════════════════════════════════════════════════════════════════
+      // SELECT, FILL, PDF, UPLOAD
+      // ═══════════════════════════════════════════════════════════════════════
+      case "select_option":
+        result = await handleSelectOption(data);
+        break;
+
+      case "fill_node":
+        result = await handleFillNode(data);
+        break;
+
+      case "generate_pdf":
+        result = await handleGeneratePdf(data);
+        break;
+
+      case "upload_file":
+        result = await handleUploadFile(data);
+        break;
+
+      // ═══════════════════════════════════════════════════════════════════════
       // UNKNOWN COMMAND
       // ═══════════════════════════════════════════════════════════════════════
       default:
@@ -1597,6 +1616,60 @@ async function handleFindBestInput(data) {
   }
 
   return await findBestInput(validation.tabId, purpose || "search");
+}
+
+async function handleSelectOption(data) {
+  const { tabId, nodeId, value } = data || {};
+  const validation = await validateTab(tabId);
+  if (!validation.success) {
+    return validation;
+  }
+  if (!nodeId) {
+    return { success: false, error: "nodeId is required" };
+  }
+  if (!value && value !== "") {
+    return { success: false, error: "value is required" };
+  }
+  return await selectOption(validation.tabId, nodeId, value);
+}
+
+async function handleFillNode(data) {
+  const { tabId, nodeId, text } = data || {};
+  const validation = await validateTab(tabId);
+  if (!validation.success) {
+    return validation;
+  }
+  if (!nodeId) {
+    return { success: false, error: "nodeId is required" };
+  }
+  if (typeof text !== "string") {
+    return { success: false, error: "text is required" };
+  }
+  return await fillNode(validation.tabId, nodeId, text);
+}
+
+async function handleGeneratePdf(data) {
+  const { tabId } = data || {};
+  const validation = await validateTab(tabId);
+  if (!validation.success) {
+    return validation;
+  }
+  return await generatePdf(validation.tabId);
+}
+
+async function handleUploadFile(data) {
+  const { tabId, nodeId, filePath } = data || {};
+  const validation = await validateTab(tabId);
+  if (!validation.success) {
+    return validation;
+  }
+  if (!nodeId) {
+    return { success: false, error: "nodeId is required" };
+  }
+  if (!filePath) {
+    return { success: false, error: "filePath is required" };
+  }
+  return await uploadFile(validation.tabId, nodeId, filePath);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

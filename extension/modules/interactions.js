@@ -689,6 +689,441 @@ async function globalType(tabId, text) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// HOVER NODE - Hover by nodeId (strict, same resolution as clickNode)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Hover over an element by nodeId — reveals dropdowns, menus, tooltips.
+ * Uses the same strict resolution strategy as clickNode (directRef → htmlId).
+ *
+ * @param {number} tabId - Tab ID
+ * @param {number} nodeId - Node ID from snapshot
+ * @returns {Promise<Object>} - Result object
+ */
+async function hoverNode(tabId, nodeId) {
+  const nodeIdMappings = globalThis.nodeIdMappings || new Map();
+
+  const tabMapping = nodeIdMappings.get(tabId);
+  if (!tabMapping) {
+    return {
+      success: false,
+      error: "No snapshot data for this tab. Call getInteractiveSnapshot first.",
+      needsSnapshot: true,
+    };
+  }
+
+  const nodeInfo = tabMapping.get(nodeId);
+  if (!nodeInfo) {
+    return {
+      success: false,
+      error: `Node ID ${nodeId} not found. The page may have changed - call getInteractiveSnapshot to get fresh node IDs.`,
+      needsSnapshot: true,
+    };
+  }
+
+  if (typeof logWithTimestamp === "function") {
+    const name = (nodeInfo.name || nodeInfo.ariaLabel || `Node ${nodeId}`).substring(0, 50);
+    logWithTimestamp("info", `🖱️ HOVERING: "${name}" (nodeId=${nodeId})`);
+  }
+
+  if (typeof ensureVisualizationsInjected === "function") {
+    await ensureVisualizationsInjected(tabId);
+  }
+
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: (nodeInfo) => {
+      let element = null;
+
+      // Strategy 0: Direct DOM reference
+      if (nodeInfo.nodeId != null && window.__centrisNodeMap) {
+        const el = window.__centrisNodeMap.get(nodeInfo.nodeId);
+        if (el && el.isConnected) {
+          element = el;
+        }
+      }
+
+      // Strategy 1: htmlId fallback
+      if (!element && nodeInfo.htmlId) {
+        element = document.getElementById(nodeInfo.htmlId);
+      }
+
+      if (!element) {
+        return {
+          success: false,
+          error: "Element stale - direct reference lost.",
+          needsSnapshot: true,
+          staleElement: true,
+        };
+      }
+
+      element.scrollIntoView({ behavior: "instant", block: "center" });
+
+      const rect = element.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      if (window.centrisHighlightElement) {
+        window.centrisHighlightElement(rect.left, rect.top, rect.width, rect.height);
+      }
+
+      const eventOptions = {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: centerX,
+        clientY: centerY,
+      };
+
+      element.dispatchEvent(new MouseEvent("mouseenter", eventOptions));
+      element.dispatchEvent(new MouseEvent("mouseover", eventOptions));
+      element.dispatchEvent(new MouseEvent("mousemove", eventOptions));
+
+      return {
+        success: true,
+        hovered: true,
+        position: { x: centerX, y: centerY },
+      };
+    },
+    args: [nodeInfo],
+  });
+
+  if (!results || !results[0] || results[0].result === undefined) {
+    return { success: false, error: "Script execution failed", needsSnapshot: true };
+  }
+
+  return results[0].result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SELECT OPTION - Select a value from a <select> element by nodeId
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Select an option from a <select> element by nodeId.
+ * Matches by value first, then by option text content (case-insensitive).
+ *
+ * @param {number} tabId - Tab ID
+ * @param {number} nodeId - Node ID from snapshot
+ * @param {string} value - Option value or visible text to match
+ * @returns {Promise<Object>} - Result object
+ */
+async function selectOption(tabId, nodeId, value) {
+  const nodeIdMappings = globalThis.nodeIdMappings || new Map();
+
+  const tabMapping = nodeIdMappings.get(tabId);
+  if (!tabMapping) {
+    return { success: false, error: "No snapshot data for this tab", needsSnapshot: true };
+  }
+
+  const nodeInfo = tabMapping.get(nodeId);
+  if (!nodeInfo) {
+    return { success: false, error: `Node ID ${nodeId} not found`, needsSnapshot: true };
+  }
+
+  if (typeof logWithTimestamp === "function") {
+    logWithTimestamp("info", `📋 SELECT: nodeId=${nodeId} value="${value}"`);
+  }
+
+  if (typeof ensureVisualizationsInjected === "function") {
+    await ensureVisualizationsInjected(tabId);
+  }
+
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: (nodeInfo, value) => {
+      let element = null;
+
+      if (nodeInfo.nodeId != null && window.__centrisNodeMap) {
+        const el = window.__centrisNodeMap.get(nodeInfo.nodeId);
+        if (el && el.isConnected) {
+          element = el;
+        }
+      }
+      if (!element && nodeInfo.htmlId) {
+        element = document.getElementById(nodeInfo.htmlId);
+      }
+
+      if (!element) {
+        return { success: false, error: "Element not found", needsSnapshot: true };
+      }
+
+      if (element.tagName !== "SELECT") {
+        return {
+          success: false,
+          error: `Element is <${element.tagName.toLowerCase()}>, not <select>`,
+        };
+      }
+
+      const options = Array.from(element.options);
+
+      // Try exact value match first
+      let match = options.find((o) => o.value === value);
+      // Then case-insensitive text match
+      if (!match) {
+        const lower = value.toLowerCase();
+        match = options.find((o) => o.textContent.trim().toLowerCase() === lower);
+      }
+      // Partial text match as last resort
+      if (!match) {
+        const lower = value.toLowerCase();
+        match = options.find((o) => o.textContent.trim().toLowerCase().includes(lower));
+      }
+
+      if (!match) {
+        const available = options.map((o) => `"${o.textContent.trim()}" (${o.value})`).join(", ");
+        return {
+          success: false,
+          error: `No option matching "${value}". Available: ${available.substring(0, 200)}`,
+        };
+      }
+
+      element.value = match.value;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+
+      return {
+        success: true,
+        selectedValue: match.value,
+        selectedText: match.textContent.trim(),
+      };
+    },
+    args: [nodeInfo, value],
+  });
+
+  return results[0]?.result || { success: false, error: "Select operation failed" };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FILL NODE - Clear and replace field content by nodeId
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Clear an element's content and fill with new text.
+ * For standard inputs: sets element.value directly.
+ * For contenteditable: selectAll + delete + insertText.
+ *
+ * @param {number} tabId - Tab ID
+ * @param {number} nodeId - Node ID from snapshot
+ * @param {string} text - Text to fill
+ * @returns {Promise<Object>} - Result object
+ */
+async function fillNode(tabId, nodeId, text) {
+  const nodeIdMappings = globalThis.nodeIdMappings || new Map();
+
+  const tabMapping = nodeIdMappings.get(tabId);
+  if (!tabMapping) {
+    return { success: false, error: "No snapshot data for this tab", needsSnapshot: true };
+  }
+
+  const nodeInfo = tabMapping.get(nodeId);
+  if (!nodeInfo) {
+    return { success: false, error: `Node ID ${nodeId} not found`, needsSnapshot: true };
+  }
+
+  if (typeof logWithTimestamp === "function") {
+    logWithTimestamp("info", `✏️ FILL: nodeId=${nodeId} text="${text.substring(0, 30)}..."`);
+  }
+
+  if (typeof ensureVisualizationsInjected === "function") {
+    await ensureVisualizationsInjected(tabId);
+  }
+
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: (nodeInfo, text) => {
+      let element = null;
+
+      if (nodeInfo.nodeId != null && window.__centrisNodeMap) {
+        const el = window.__centrisNodeMap.get(nodeInfo.nodeId);
+        if (el && el.isConnected) {
+          element = el;
+        }
+      }
+      if (!element && nodeInfo.htmlId) {
+        element = document.getElementById(nodeInfo.htmlId);
+      }
+
+      if (!element) {
+        return { success: false, error: "Element not found", needsSnapshot: true };
+      }
+
+      element.scrollIntoView({ behavior: "instant", block: "center" });
+      element.focus();
+
+      // Contenteditable: select all, delete, then insert
+      if (element.isContentEditable) {
+        const sel = window.getSelection();
+        if (sel) {
+          sel.selectAllChildren(element);
+          sel.deleteFromDocument();
+        }
+        document.execCommand("insertText", false, text);
+        return { success: true, filled: text, method: "contenteditable" };
+      }
+
+      // Standard form inputs
+      if (element.value !== undefined) {
+        element.value = text;
+        element.dispatchEvent(new InputEvent("input", { data: text, bubbles: true }));
+        element.dispatchEvent(new Event("change", { bubbles: true }));
+        return { success: true, filled: text, method: "value" };
+      }
+
+      return {
+        success: false,
+        error: "Element is not editable (no value property, not contentEditable)",
+      };
+    },
+    args: [nodeInfo, text],
+  });
+
+  return results[0]?.result || { success: false, error: "Fill operation failed" };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GENERATE PDF - Print page to PDF via chrome.debugger
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Generate a PDF of the current page using Chrome DevTools Protocol.
+ *
+ * @param {number} tabId - Tab ID
+ * @returns {Promise<Object>} - Result with base64 PDF data
+ */
+async function generatePdf(tabId) {
+  if (typeof logWithTimestamp === "function") {
+    logWithTimestamp("info", `📄 Generating PDF for tab ${tabId}`);
+  }
+
+  const target = { tabId };
+  try {
+    await chrome.debugger.attach(target, "1.3");
+  } catch (e) {
+    if (!e.message.includes("Already attached")) {
+      return { success: false, error: `Debugger attach failed: ${e.message}` };
+    }
+  }
+
+  try {
+    const result = await chrome.debugger.sendCommand(target, "Page.printToPDF", {
+      printBackground: true,
+      preferCSSPageSize: true,
+    });
+
+    return {
+      success: true,
+      data: result.data,
+      format: "pdf",
+    };
+  } catch (e) {
+    return { success: false, error: `PDF generation failed: ${e.message}` };
+  } finally {
+    try {
+      await chrome.debugger.detach(target);
+    } catch (_) {}
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UPLOAD FILE - Set files on <input type="file"> via chrome.debugger
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Upload a file to an <input type="file"> element via DevTools Protocol.
+ *
+ * @param {number} tabId - Tab ID
+ * @param {number} nodeId - Node ID from snapshot
+ * @param {string} filePath - Local filesystem path to the file
+ * @returns {Promise<Object>} - Result object
+ */
+async function uploadFile(tabId, nodeId, filePath) {
+  const nodeIdMappings = globalThis.nodeIdMappings || new Map();
+  const tabMapping = nodeIdMappings.get(tabId);
+  if (!tabMapping) {
+    return { success: false, error: "No snapshot data for this tab", needsSnapshot: true };
+  }
+
+  const nodeInfo = tabMapping.get(nodeId);
+  if (!nodeInfo) {
+    return { success: false, error: `Node ID ${nodeId} not found`, needsSnapshot: true };
+  }
+
+  if (typeof logWithTimestamp === "function") {
+    logWithTimestamp("info", `📎 UPLOAD: nodeId=${nodeId} file="${filePath}"`);
+  }
+
+  const target = { tabId };
+  try {
+    await chrome.debugger.attach(target, "1.3");
+  } catch (e) {
+    if (!e.message.includes("Already attached")) {
+      return { success: false, error: `Debugger attach failed: ${e.message}` };
+    }
+  }
+
+  try {
+    await chrome.debugger.sendCommand(target, "DOM.enable", {});
+
+    // Resolve the DOM node. Try direct selector if htmlId is available,
+    // otherwise use the element's position from the snapshot.
+    let backendNodeId;
+
+    if (nodeInfo.htmlId) {
+      const doc = await chrome.debugger.sendCommand(target, "DOM.getDocument", {});
+      const result = await chrome.debugger.sendCommand(target, "DOM.querySelector", {
+        nodeId: doc.root.nodeId,
+        selector: `#${CSS.escape(nodeInfo.htmlId)}`,
+      });
+      if (result.nodeId) {
+        const desc = await chrome.debugger.sendCommand(target, "DOM.describeNode", {
+          nodeId: result.nodeId,
+        });
+        backendNodeId = desc.node.backendNodeId;
+      }
+    }
+
+    if (!backendNodeId) {
+      // Fallback: use coordinates to find the element
+      if (nodeInfo.bounds) {
+        const x = nodeInfo.bounds.x + nodeInfo.bounds.width / 2;
+        const y = nodeInfo.bounds.y + nodeInfo.bounds.height / 2;
+        const nodeAtPoint = await chrome.debugger.sendCommand(target, "DOM.getNodeForLocation", {
+          x: Math.round(x),
+          y: Math.round(y),
+        });
+        backendNodeId = nodeAtPoint.backendNodeId;
+      }
+    }
+
+    if (!backendNodeId) {
+      return {
+        success: false,
+        error: "Could not resolve element for file upload",
+        needsSnapshot: true,
+      };
+    }
+
+    await chrome.debugger.sendCommand(target, "DOM.setFileInputFiles", {
+      files: [filePath],
+      backendNodeId,
+    });
+
+    return { success: true, uploaded: filePath };
+  } catch (e) {
+    return { success: false, error: `File upload failed: ${e.message}` };
+  } finally {
+    try {
+      await chrome.debugger.sendCommand(target, "DOM.disable", {});
+      await chrome.debugger.detach(target);
+    } catch (_) {}
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // CLICK BY STABLE HASH - More reliable than nodeId
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -896,7 +1331,12 @@ if (typeof globalThis !== "undefined") {
   globalThis.typeText = typeText;
   globalThis.typeIntoNode = typeIntoNode;
   globalThis.hoverElement = hoverElement;
+  globalThis.hoverNode = hoverNode;
   globalThis.scrollElement = scrollElement;
+  globalThis.selectOption = selectOption;
+  globalThis.fillNode = fillNode;
+  globalThis.generatePdf = generatePdf;
+  globalThis.uploadFile = uploadFile;
 
   // Additional interaction methods
   globalThis.pasteText = pasteText;

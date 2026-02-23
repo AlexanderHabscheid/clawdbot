@@ -92,6 +92,15 @@ export async function sendExtensionCommand(
   data: Record<string, unknown> = {},
   timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS,
 ): Promise<unknown> {
+  return sendExtensionCommandInner(type, data, timeoutMs, true);
+}
+
+async function sendExtensionCommandInner(
+  type: string,
+  data: Record<string, unknown>,
+  timeoutMs: number,
+  allowRetry: boolean,
+): Promise<unknown> {
   // If extension is temporarily disconnected (MV3 suspension), wait up to 10s for reconnect
   if (!extensionWs || extensionWs.readyState !== extensionWs.OPEN) {
     logInfo(`[centris-ext-bridge] extension not connected, waiting up to 10s for reconnect...`);
@@ -108,16 +117,37 @@ export async function sendExtensionCommand(
   const id = `cmd-${nextId++}`;
   const message = { type, id, data };
 
-  ws.send(JSON.stringify(message));
+  try {
+    ws.send(JSON.stringify(message));
+  } catch (sendErr) {
+    // WebSocket died between the readyState check and send — retry once
+    if (allowRetry) {
+      logWarn(`[centris-ext-bridge] send failed for ${type}, retrying after reconnect`);
+      return sendExtensionCommandInner(type, data, timeoutMs, false);
+    }
+    throw sendErr;
+  }
   logDebug(`[centris-ext-bridge] sent command: ${type} (${id})`);
 
-  return new Promise<unknown>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      reject(new Error(`Extension command timed out after ${timeoutMs}ms: ${type}`));
-    }, timeoutMs);
-    pending.set(id, { resolve, reject, timer });
-  });
+  try {
+    return await new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`Extension command timed out after ${timeoutMs}ms: ${type}`));
+      }, timeoutMs);
+      pending.set(id, { resolve, reject, timer });
+    });
+  } catch (err) {
+    // If rejected because "extension disconnected" and retry is allowed, wait and retry once
+    if (allowRetry && err instanceof Error && err.message.includes("disconnected")) {
+      logWarn(`[centris-ext-bridge] command ${type} failed (disconnect), retrying after reconnect`);
+      const reconnected = await waitForExtension(10_000);
+      if (reconnected) {
+        return sendExtensionCommandInner(type, data, timeoutMs, false);
+      }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -208,7 +238,7 @@ export function handleCentrisExtensionConnection(ws: WebSocket, _req: IncomingMe
     // Only one extension at a time — close the old connection
     logWarn("[centris-ext-bridge] replacing existing extension connection");
     try {
-      extensionWs.close(1000, "replaced by new connection");
+      extensionWs.close(4000, "replaced by new connection");
     } catch {
       // ignore
     }
@@ -240,7 +270,7 @@ export function handleCentrisExtensionConnection(ws: WebSocket, _req: IncomingMe
           `[centris-ext-bridge] extension pong stale (${Math.round(pongAge / 1000)}s), closing`,
         );
         try {
-          extensionWs.close(1000, "pong timeout");
+          extensionWs.close(4001, "pong timeout");
         } catch {
           /* ignore */
         }
@@ -248,6 +278,8 @@ export function handleCentrisExtensionConnection(ws: WebSocket, _req: IncomingMe
       }
       try {
         extensionWs.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
+        // Protocol-level PING keeps Railway/Cloudflare proxies alive
+        extensionWs.ping();
       } catch {
         // ignore — will be caught by close/error handlers
       }
@@ -312,6 +344,10 @@ export function handleCentrisExtensionConnection(ws: WebSocket, _req: IncomingMe
         `[centris-ext-bridge] message parse error: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  });
+
+  ws.on("pong", () => {
+    lastPongAt = Date.now();
   });
 
   ws.on("close", () => {

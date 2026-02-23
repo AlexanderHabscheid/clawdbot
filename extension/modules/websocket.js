@@ -271,13 +271,21 @@ async function connectWebSocket() {
       connectionState.lastDisconnection = closeTime;
       _connectionInProgress = false;
 
+      // Clear URL cache so next reconnect re-validates the gateway
+      if (typeof CONFIG !== "undefined" && CONFIG.clearCache) {
+        CONFIG.clearCache();
+      }
+
       const isChromeCrash = event.code === 1006 && !event.wasClean;
       const isBackendCrash = event.code === 1001;
+      // 4000 = replaced by new connection, 4001 = pong timeout — always reconnect immediately
+      const isServerSideReplace = event.code >= 4000 && event.code <= 4099;
 
       if (typeof logWithTimestamp === "function") {
         logWithTimestamp("info", "🔌 WebSocket connection CLOSED", {
           closeCode: event.code,
           wasClean: event.wasClean,
+          serverReplace: isServerSideReplace,
         });
       }
 
@@ -287,7 +295,7 @@ async function connectWebSocket() {
       stopAllVisionStreams(connectionId);
 
       // Handle reconnection
-      handleReconnection(event, connectionId, isChromeCrash, isBackendCrash);
+      handleReconnection(event, connectionId, isChromeCrash, isBackendCrash, isServerSideReplace);
     };
   } catch (error) {
     _connectionInProgress = false;
@@ -363,17 +371,25 @@ function notifyPopup(connectionId) {
 /**
  * Handle reconnection logic
  */
-function handleReconnection(event, connectionId, isChromeCrash, isBackendCrash) {
-  const shouldReconnect = event.code !== 1000 || isChromeCrash || isBackendCrash;
+function handleReconnection(
+  event,
+  connectionId,
+  isChromeCrash,
+  isBackendCrash,
+  isServerSideReplace,
+) {
+  const shouldReconnect =
+    event.code !== 1000 || isChromeCrash || isBackendCrash || isServerSideReplace;
 
   if (shouldReconnect) {
-    if (isChromeCrash || isBackendCrash) {
+    if (isChromeCrash || isBackendCrash || isServerSideReplace) {
       reconnectAttempts = 0;
     }
 
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       reconnectAttempts++;
-      const delay = Math.min(2000 * reconnectAttempts, 10000);
+      // Server-side replace: reconnect immediately (no backoff)
+      const delay = isServerSideReplace ? 500 : Math.min(2000 * reconnectAttempts, 10000);
 
       if (typeof logWithTimestamp === "function") {
         logWithTimestamp("info", `🔄 Scheduling reconnection`, {

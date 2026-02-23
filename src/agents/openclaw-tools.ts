@@ -7,7 +7,7 @@ import { resolveSessionAgentId } from "./agent-scope.js";
 import { loadConnectorTools } from "./centris-connector-bridge.js";
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
 import { createArchitectPipelineTool } from "./tools/architect-pipeline-tool.js";
-import { createBrowserTool } from "./tools/browser-tool.js";
+// import { createBrowserTool } from "./tools/browser-tool.js";
 import { createCanvasTool } from "./tools/canvas-tool.js";
 import { createCentrisBrowserTool } from "./tools/centris-browser-tool.js";
 import { createCentrisComputerTool } from "./tools/centris-computer-tool.js";
@@ -106,12 +106,11 @@ export function createOpenClawTools(options?: {
   // and returns a clear error if the extension isn't connected. This avoids
   // the race where tools are created before the extension connects.
   const centrisBrowserTool = createCentrisBrowserTool();
-  // Standard Playwright browser tool as fallback for non-centris profiles
-  // or when a sandbox browser bridge is configured.
-  const playwrightBrowserTool = createBrowserTool({
-    sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
-    allowHostControl: options?.allowHostBrowserControl,
-  });
+  // Standard Playwright browser tool — disabled for Centris (DOM-only via extension).
+  // const playwrightBrowserTool = createBrowserTool({
+  //   sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
+  //   allowHostControl: options?.allowHostBrowserControl,
+  // });
   // Centris: desktop control via native Accessibility APIs (macOS/Windows/Linux).
   // Loads gracefully — if the native module isn't compiled, it just won't be available.
   let computerTool: AnyAgentTool | null = null;
@@ -123,7 +122,7 @@ export function createOpenClawTools(options?: {
 
   const tools: AnyAgentTool[] = [
     centrisBrowserTool,
-    playwrightBrowserTool,
+    // playwrightBrowserTool,
     ...(computerTool ? [computerTool] : []),
     createCanvasTool(),
     createNodesTool({

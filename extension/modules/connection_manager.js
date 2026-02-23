@@ -497,37 +497,13 @@ function initializeKeepAlive() {
   }
 }
 
-/**
- * Start periodic reconnection check
- * Checks connection health every 60 seconds
- */
-let _lastPeriodicReconnect = 0;
-function startPeriodicReconnectionCheck() {
-  setInterval(() => {
-    try {
-      if (!chrome.runtime || !chrome.runtime.id) {
-        initializeCommunication();
-        return;
-      }
-    } catch (e) {
-      initializeCommunication();
-      return;
-    }
+// Periodic reconnection via setInterval removed — the chrome.alarms keep_alive
+// handler is the single source of truth for reconnection. setInterval and alarms
+// competed, causing duplicate connections and "replacing existing" churn.
 
-    if (!isConnectionBusy()) {
-      const now = Date.now();
-      if (now - _lastPeriodicReconnect > 10000) {
-        _lastPeriodicReconnect = now;
-        initializeCommunication();
-      }
-    }
-  }, 25000); // Check every 25 seconds (under MV3 30s threshold)
-}
-
-// Initialize keep-alive system when module loads
+// Initialize keep-alive system when module loads (alarm-only — no competing setInterval)
 if (typeof chrome !== "undefined" && chrome.alarms) {
   initializeKeepAlive();
-  startPeriodicReconnectionCheck();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

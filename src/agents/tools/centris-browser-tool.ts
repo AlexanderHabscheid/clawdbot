@@ -2,20 +2,25 @@
  * Centris Browser Tool
  *
  * Controls the user's REAL Chrome browser through the Centris Chrome extension.
- * No Playwright. No screenshots. DOM snapshots only.
- *
  * The extension connects to the gateway via WebSocket (/ws/centris/extension).
  * This tool sends commands to the extension and receives structured results.
  *
- * Available actions:
- *   snapshot    — Get a DOM snapshot of interactive elements (buttons, inputs, links)
- *   click       — Click an element by nodeId from the snapshot
- *   type        — Type text into an element by nodeId
- *   navigate    — Navigate the active tab to a URL
- *   scroll      — Scroll the page (up/down)
- *   press_key   — Press a keyboard key (Enter, Tab, Escape, etc.)
- *   tabs        — List open browser tabs
- *   read_page   — Extract readable text content from the page
+ * 15 actions — anything a user can do in their browser, Centris can do:
+ *   snapshot     — DOM snapshot of interactive elements
+ *   click        — Click element by nodeId (returns post-click state)
+ *   type         — Type text into element (or at cursor if no nodeId)
+ *   navigate     — Go to URL (returns interactive elements)
+ *   scroll       — Scroll page up/down
+ *   press_key    — Press keyboard key with optional modifiers
+ *   tabs         — List open browser tabs
+ *   read_page    — Extract readable text content
+ *   hover        — Hover element to reveal menus/dropdowns/tooltips
+ *   select       — Pick option from <select> dropdown by value or text
+ *   fill         — Clear field and replace with new text
+ *   dialog       — Arm handler for alert/confirm/prompt before triggering action
+ *   execute_js   — Run JavaScript in the page
+ *   pdf          — Generate PDF of current page
+ *   upload       — Upload file to <input type="file">
  */
 
 import { Type } from "@sinclair/typebox";
@@ -41,35 +46,41 @@ const CENTRIS_BROWSER_ACTIONS = [
   "press_key",
   "tabs",
   "read_page",
+  "hover",
+  "select",
+  "fill",
+  "dialog",
+  "execute_js",
+  "pdf",
+  "upload",
 ] as const;
 
 const SCROLL_DIRECTIONS = ["up", "down"] as const;
 
 export const CentrisBrowserToolSchema = Type.Object({
   action: stringEnum(CENTRIS_BROWSER_ACTIONS),
-  // click / type: nodeId from a previous snapshot
   nodeId: Type.Optional(Type.Number()),
-  // type: the text to type
   text: Type.Optional(Type.String()),
-  // navigate: target URL
   url: Type.Optional(Type.String()),
-  // scroll: direction
   direction: optionalStringEnum(SCROLL_DIRECTIONS),
-  // scroll: amount in pixels
   amount: Type.Optional(Type.Number()),
-  // press_key: key name (Enter, Tab, Escape, etc.)
   key: Type.Optional(Type.String()),
-  // press_key: modifier keys
   ctrl: Type.Optional(Type.Boolean()),
   alt: Type.Optional(Type.Boolean()),
   shift: Type.Optional(Type.Boolean()),
   meta: Type.Optional(Type.Boolean()),
-  // snapshot: instruction for keyword-aware filtering
   instruction: Type.Optional(Type.String()),
-  // multi-action: JSON array of sequential actions executed without LLM round-trips between them.
-  // Each element: {"action":"click","nodeId":42} or {"action":"type","text":"hello"} etc.
-  // Only the final page state is returned. Stops on first failure.
   actions: Type.Optional(Type.String()),
+  // select: option value or visible text to match
+  value: Type.Optional(Type.String()),
+  // execute_js: JavaScript code to run in page context
+  code: Type.Optional(Type.String()),
+  // dialog: accept (true) or dismiss (false)
+  accept: Type.Optional(Type.Boolean()),
+  // dialog: text for prompt() responses
+  promptText: Type.Optional(Type.String()),
+  // upload: local filesystem path to the file
+  filePath: Type.Optional(Type.String()),
 });
 
 export function createCentrisBrowserTool(): AnyAgentTool {
@@ -79,18 +90,22 @@ export function createCentrisBrowserTool(): AnyAgentTool {
     description: [
       "Control the user's real Chrome browser.",
       "",
-      "navigate: goes to URL AND returns interactive elements. No separate snapshot needed.",
-      "click: clicks nodeId AND returns post-click elements + page content. No separate snapshot or read_page needed.",
-      "type: with nodeId types into that element. WITHOUT nodeId types at current cursor/focus — batch click+type in one turn.",
-      "snapshot: only if you need to re-examine elements without navigating/clicking.",
-      "read_page: only if you need page text without clicking.",
+      "navigate: go to URL, returns interactive elements.",
+      "click: click nodeId, returns post-click elements + page content.",
+      "type: with nodeId types into element; without nodeId types at cursor.",
+      "snapshot: re-examine elements without navigating/clicking.",
+      "read_page: get page text without clicking.",
+      "hover: hover nodeId to reveal menus/dropdowns/tooltips, returns post-hover snapshot.",
+      "select: pick option from <select> by nodeId + value (text or option value).",
+      "fill: clear field then set new text (nodeId + text). Use instead of type to replace.",
+      "dialog: arm handler BEFORE action that triggers alert/confirm/prompt. Pass accept + promptText.",
+      "execute_js: run JavaScript code in the page. Pass code param.",
+      "pdf: generate PDF of current page.",
+      "upload: upload file to <input type=file>. Pass nodeId + filePath.",
       "",
       "Elements: {id, t, n} — id=nodeId, t=cl/ty/se, n=label.",
-      "BATCH tool calls: click + type(no nodeId) in same turn when click opens an editor.",
-      "",
       "MULTI-ACTION: pass actions (JSON array) to chain steps without LLM round-trips.",
-      'Example: actions=\'[{"action":"click","nodeId":42},{"action":"type","text":"hello"},{"action":"click","nodeId":78}]\'',
-      "Supported: click, type, navigate, scroll, press_key. Returns final page state only.",
+      "Supported in multi-action: click, type, navigate, scroll, press_key, hover, select, fill.",
     ].join("\n"),
     parameters: CentrisBrowserToolSchema,
     execute: async (_toolCallId, args) => {
@@ -501,6 +516,122 @@ export function createCentrisBrowserTool(): AnyAgentTool {
           return jsonResult(result);
         }
 
+        // ─── Hover by nodeId ──────────────────────────────────────────
+        // Reveals dropdown menus, tooltips, sub-navigation. Returns
+        // post-hover snapshot so the LLM can see newly revealed elements.
+        case "hover": {
+          const nodeId = params.nodeId;
+          if (typeof nodeId !== "number") {
+            throw new Error("nodeId (number) is required for hover action.");
+          }
+          const hoverResult = (await sendExtensionCommand("hover_node", {
+            nodeId,
+          })) as Record<string, unknown>;
+
+          // Grab post-hover snapshot — menus/dropdowns may have appeared
+          if (hoverResult.success !== false) {
+            try {
+              const snap = (await sendExtensionCommand("wait_stable_and_snapshot", {
+                stableMs: 200,
+                timeoutMs: 1500,
+                maxChars: 4000,
+              })) as Record<string, unknown>;
+              const nodes = snap?.interactiveNodes;
+              if (Array.isArray(nodes)) {
+                hoverResult.postHoverElements = nodes
+                  .slice(0, 30)
+                  .map((node: Record<string, unknown>) => ({
+                    id: node.id ?? node.nodeId,
+                    t: node.t ?? node.type,
+                    n: typeof node.n === "string" ? node.n.slice(0, 60) : (node.name ?? ""),
+                  }));
+              }
+            } catch {
+              /* snapshot failure shouldn't break hover */
+            }
+          }
+          return jsonResult(hoverResult);
+        }
+
+        // ─── Select option from <select> ────────────────────────────────
+        case "select": {
+          const nodeId = params.nodeId;
+          const value = typeof params.value === "string" ? params.value : "";
+          if (typeof nodeId !== "number") {
+            throw new Error("nodeId (number) is required for select action.");
+          }
+          if (!value) {
+            throw new Error("value is required for select action (option value or visible text).");
+          }
+          const result = await sendExtensionCommand("select_option", { nodeId, value });
+          return jsonResult(result);
+        }
+
+        // ─── Fill (clear + replace) ──────────────────────────────────────
+        case "fill": {
+          const nodeId = params.nodeId;
+          const text = typeof params.text === "string" ? params.text : "";
+          if (typeof nodeId !== "number") {
+            throw new Error("nodeId (number) is required for fill action.");
+          }
+          if (typeof params.text !== "string") {
+            throw new Error("text is required for fill action.");
+          }
+          const result = await sendExtensionCommand("fill_node", { nodeId, text });
+          return jsonResult(result);
+        }
+
+        // ─── Dialog (arm handler before triggering action) ───────────────
+        case "dialog": {
+          const accept = typeof params.accept === "boolean" ? params.accept : true;
+          const promptText = typeof params.promptText === "string" ? params.promptText : undefined;
+          const result = await sendExtensionCommand("arm_dialog", {
+            accept,
+            promptText: promptText ?? "",
+          });
+          return jsonResult(result);
+        }
+
+        // ─── Execute JavaScript ──────────────────────────────────────────
+        case "execute_js": {
+          const code = typeof params.code === "string" ? params.code : "";
+          if (!code) {
+            throw new Error("code is required for execute_js action.");
+          }
+          const result = (await sendExtensionCommand("execute_javascript", {
+            code,
+          })) as Record<string, unknown>;
+          // Cap result to prevent token bloat from large return values
+          if (result.result !== undefined) {
+            const str =
+              typeof result.result === "string" ? result.result : JSON.stringify(result.result);
+            if (str && str.length > 4000) {
+              result.result = str.slice(0, 4000) + "\n...[truncated]";
+            }
+          }
+          return jsonResult(result);
+        }
+
+        // ─── PDF generation ──────────────────────────────────────────────
+        case "pdf": {
+          const result = await sendExtensionCommand("generate_pdf", {});
+          return jsonResult(result);
+        }
+
+        // ─── File upload ─────────────────────────────────────────────────
+        case "upload": {
+          const nodeId = params.nodeId;
+          const filePath = typeof params.filePath === "string" ? params.filePath : "";
+          if (typeof nodeId !== "number") {
+            throw new Error("nodeId (number) is required for upload action.");
+          }
+          if (!filePath) {
+            throw new Error("filePath is required for upload action.");
+          }
+          const result = await sendExtensionCommand("upload_file", { nodeId, filePath });
+          return jsonResult(result);
+        }
+
         default:
           throw new Error(`Unknown centris_browser action: ${action}`);
       }
@@ -574,6 +705,37 @@ async function executeActionSequence(actionsJson: string) {
             shift: Boolean(act.shift),
             meta: Boolean(act.meta),
           },
+        });
+        break;
+      case "hover":
+        if (typeof act.nodeId !== "number") {
+          throw new Error("nodeId (number) required for hover in actions array");
+        }
+        batchCmds.push({ type: "hover_node", data: { nodeId: act.nodeId } });
+        batchCmds.push({ type: "wait_for_dom_stable", data: { stableMs: 200, timeoutMs: 1500 } });
+        break;
+      case "select":
+        if (typeof act.nodeId !== "number") {
+          throw new Error("nodeId (number) required for select in actions array");
+        }
+        if (!act.value) {
+          throw new Error("value required for select in actions array");
+        }
+        batchCmds.push({
+          type: "select_option",
+          data: { nodeId: act.nodeId, value: act.value },
+        });
+        break;
+      case "fill":
+        if (typeof act.nodeId !== "number") {
+          throw new Error("nodeId (number) required for fill in actions array");
+        }
+        if (typeof act.text !== "string") {
+          throw new Error("text required for fill in actions array");
+        }
+        batchCmds.push({
+          type: "fill_node",
+          data: { nodeId: act.nodeId, text: act.text },
         });
         break;
       default:

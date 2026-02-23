@@ -22,7 +22,7 @@ export type CentrisDomain = "browser" | "computer" | "file" | "general";
 
 /** Tools allowed per domain. Tool names are canonical (lowercase). */
 const DOMAIN_TOOLS: Record<CentrisDomain, Set<string>> = {
-  browser: new Set(["centris_browser", "web_search", "web_fetch", "tts"]),
+  browser: new Set(["centris_browser", "tts"]),
   computer: new Set(["centris_computer", "tts"]),
   file: new Set(["read", "write", "edit", "apply_patch", "exec", "tts"]),
   // "general" = full centris profile, no additional filtering

@@ -42,7 +42,7 @@ const CONFIG = {
   // Cache for URL (prevents redundant storage reads + health checks)
   _cachedUrl: null,
   _cacheTime: 0,
-  _cacheTTL: 10000, // 10 second cache
+  _cacheTTL: 120000, // 2 minute cache — avoids expensive health-check rediscovery on every reconnect
 
   /**
    * Get WebSocket URL for browser command channel.
