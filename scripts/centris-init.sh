@@ -34,6 +34,15 @@ check_var DISCORD_BOT_TOKEN
 check_var TELEGRAM_BOT_TOKEN
 echo "[centris-init] (at least one model provider key is required)"
 
+# ── Auto-generate gateway token on cloud platforms if missing ─────────────────
+# Cloud platforms (Railway/Render/Heroku) set $PORT. The entrypoint injects
+# --bind lan, which requires auth. Generate a random token so the gateway can
+# start without manually configuring OPENCLAW_GATEWAY_TOKEN.
+if [ -n "$PORT" ] && [ -z "$OPENCLAW_GATEWAY_TOKEN" ]; then
+  export OPENCLAW_GATEWAY_TOKEN="$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)"
+  echo "[centris-init] Generated ephemeral OPENCLAW_GATEWAY_TOKEN for cloud platform (PORT=$PORT)"
+fi
+
 # ── Write / patch Centris config ──────────────────────────────────────────────
 if [ -f "$CONFIG_FILE" ]; then
   if ! grep -q '"centris"' "$CONFIG_FILE" 2>/dev/null; then
