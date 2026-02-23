@@ -1,3 +1,4 @@
+import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import type { CanvasHostServer } from "../canvas-host/server.js";
 import type { PluginServicesHandle } from "../plugins/services.js";
@@ -177,6 +178,24 @@ export async function startGatewayServer(
     description: "raw stream log path override",
   });
 
+  // Bind a lightweight HTTP server immediately so /health passes while
+  // plugins and the rest of gateway init are still loading (~15-25s).
+  // Closed just before the full gateway HTTP server binds to the same port.
+  const earlyHealthServer = createHttpServer((req, res) => {
+    const p = new URL(req.url ?? "/", "http://localhost").pathname;
+    if ((p === "/health" || p === "/api/health") && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, gateway: "centris", status: "starting" }));
+      return;
+    }
+    res.writeHead(503);
+    res.end();
+  });
+  await new Promise<void>((resolve) => {
+    earlyHealthServer.listen(port, "0.0.0.0", resolve);
+  });
+  log.info(`gateway: early health server listening on 0.0.0.0:${port}`);
+
   let configSnapshot = await readConfigFileSnapshot();
   if (configSnapshot.legacyIssues.length > 0) {
     if (isNixMode) {
@@ -332,6 +351,10 @@ export async function startGatewayServer(
   if (cfgAtStart.gateway?.tls?.enabled && !gatewayTls.enabled) {
     throw new Error(gatewayTls.error ?? "gateway tls: failed to enable");
   }
+  // Release the port so the full gateway HTTP server can bind to it.
+  await new Promise<void>((resolve) => earlyHealthServer.close(() => resolve()));
+  log.info("gateway: early health server closed, handing off to full server");
+
   const {
     canvasHost,
     httpServer,
