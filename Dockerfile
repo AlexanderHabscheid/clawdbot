@@ -42,7 +42,8 @@ COPY . .
 RUN pnpm build
 
 # LanceDB has native bindings that may not be hoisted by pnpm in all configurations.
-RUN pnpm install --filter @openclaw/memory-lancedb --prod --no-frozen-lockfile || true
+# CI=true avoids ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY in non-interactive builds.
+RUN CI=true pnpm install --filter @openclaw/memory-lancedb --prod --no-frozen-lockfile || true
 
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
