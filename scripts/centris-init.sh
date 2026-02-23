@@ -59,6 +59,7 @@ if [ -f "$CONFIG_FILE" ]; then
       if (!c.models.providers) c.models.providers = {};
       if (!c.models.providers.google) c.models.providers.google = {};
       if (!c.models.providers.google.baseUrl) c.models.providers.google.baseUrl = 'https://gateway.ai.cloudflare.com/v1/7cd2b493d94c63bba7fb6b1813984ce0/centris-ai-gateway/google-ai-studio/v1beta';
+      if (!Array.isArray(c.models.providers.google.models)) c.models.providers.google.models = [];
       if (!c.agents) c.agents = {};
       if (!c.agents.defaults) c.agents.defaults = {};
       if (!c.agents.defaults.model) c.agents.defaults.model = {};
@@ -84,7 +85,8 @@ else
   "models": {
     "providers": {
       "google": {
-        "baseUrl": "https://gateway.ai.cloudflare.com/v1/7cd2b493d94c63bba7fb6b1813984ce0/centris-ai-gateway/google-ai-studio/v1beta"
+        "baseUrl": "https://gateway.ai.cloudflare.com/v1/7cd2b493d94c63bba7fb6b1813984ce0/centris-ai-gateway/google-ai-studio/v1beta",
+        "models": []
       }
     }
   },
