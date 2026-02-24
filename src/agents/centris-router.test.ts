@@ -194,9 +194,9 @@ describe("applyCentrisRouting", () => {
     const result = applyCentrisRouting(mockTools, messages, "centris");
     const names = result.map((t) => t.name);
     expect(names).toContain("centris_browser");
-    expect(names).toContain("web_search");
-    expect(names).toContain("web_fetch");
     expect(names).toContain("tts");
+    expect(names).not.toContain("web_search");
+    expect(names).not.toContain("web_fetch");
     // "browser" (playwright fallback) is not in DOMAIN_TOOLS.browser — only centris_browser is
     expect(names).not.toContain("centris_computer");
     expect(names).not.toContain("read");

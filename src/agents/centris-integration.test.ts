@@ -221,21 +221,19 @@ describe("router → tool filtering integration", () => {
     { name: "browser" },
   ];
 
-  it("browser domain: only browser + web tools (saves ~60% of tool schema tokens)", () => {
+  it("browser domain: only extension browser tool + tts (saves ~80% of tool schema tokens)", () => {
     const messages = [{ role: "user", content: "go to youtube" }];
     const filtered = applyCentrisRouting(allTools, messages, "centris");
     const names = new Set(filtered.map((t) => t.name));
 
-    // Should have: centris_browser, web_search, web_fetch, tts
-    expect(names.size).toBe(4);
+    // Extension-first browser policy: no web_search/web_fetch in browser domain.
+    expect(names.size).toBe(2);
     expect(names.has("centris_browser")).toBe(true);
-    expect(names.has("web_search")).toBe(true);
-    expect(names.has("web_fetch")).toBe(true);
     expect(names.has("tts")).toBe(true);
 
-    // Tool schema token savings: 4/13 tools = ~69% reduction
+    // Tool schema token savings: 2/13 tools = ~85% reduction
     const savings = 1 - filtered.length / allTools.length;
-    expect(savings).toBeGreaterThan(0.5);
+    expect(savings).toBeGreaterThan(0.8);
   });
 
   it("computer domain: only computer + tts (saves ~85% of tool schema tokens)", () => {

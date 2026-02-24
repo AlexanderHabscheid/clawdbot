@@ -77,14 +77,9 @@ read_page: ONLY if you need page text without clicking.
 Elements: {id, t, n} — id=nodeId, t=cl/ty/se, n=label. Count sequentially from top.
 
 CRITICAL — batch tool calls to minimize turns:
-- When click opens an editor/input, batch click + type(text=...) in the same turn. type without nodeId types into the focused element.
+- When click opens an editor/input, batch click + type(text=...) in the same turn.
 - Tool calls in the same turn execute sequentially — click finishes before type starts.
-- NEVER call snapshot after navigate or click — they already return elements.
-
-Example — "go to X and post 'hello'":
-Turn 1: navigate(url) → elements including "New post" button (id=42)
-Turn 2: click(nodeId=42) + type(text="hello") → editor opens, text typed, post-click elements show "Submit" (id=78)
-Turn 3: click(nodeId=78) → done`;
+- NEVER call snapshot after navigate or click — they already return elements.`;
 
 const COMPUTER_INSTRUCTIONS = `
 ## Desktop Control

@@ -1580,20 +1580,24 @@ export async function handleActionApiEnvelope(
       const requestPageFingerprintId = asString(params.pageFingerprintId);
       const requestParams = asObject(params.params) ?? {};
 
+      const entryPageFingerprint = entry ? toPageFingerprint(entry.pageFingerprint) : undefined;
+      const entryActionIndex = entry ? toActionIndexEntries(entry.actionIndex) : [];
+      const entryRouteMemory = entry ? toRouteMemory(entry.routeMemory) : undefined;
+
       if (
         entry &&
         entry.confidence >= MEMORY_ROUTE_CONFIDENCE_THRESHOLD &&
-        entry.routeMemory &&
-        (!routeId || entry.routeMemory.routeId === routeId)
+        entryRouteMemory &&
+        (!routeId || entryRouteMemory.routeId === routeId)
       ) {
         if (
           !requestPageFingerprintId ||
-          entry.pageFingerprint?.fingerprintId === requestPageFingerprintId
+          entryPageFingerprint?.fingerprintId === requestPageFingerprintId
         ) {
           try {
             const memoryResult = await runRouteMemory({
-              routeMemory: entry.routeMemory as ActionRouteMemory,
-              actionIndex: entry.actionIndex as ActionIndexEntry[],
+              routeMemory: entryRouteMemory,
+              actionIndex: entryActionIndex,
               url,
             });
             const executeMs = Date.now() - startedAt;
@@ -1609,9 +1613,9 @@ export async function handleActionApiEnvelope(
                 source: "cache",
                 executed: memoryResult.executed,
                 confidence: entry.confidence,
-                ...(entry.pageFingerprint ? { pageFingerprint: entry.pageFingerprint } : {}),
-                actionIndex: entry.actionIndex,
-                ...(entry.routeMemory ? { routeMemory: entry.routeMemory } : {}),
+                ...(entryPageFingerprint ? { pageFingerprint: entryPageFingerprint } : {}),
+                actionIndex: entryActionIndex,
+                ...(entryRouteMemory ? { routeMemory: entryRouteMemory } : {}),
                 details: {
                   strategy: "memory",
                 },
@@ -1630,9 +1634,9 @@ export async function handleActionApiEnvelope(
         const run = await runRouteWithPolicy({
           routeId,
           url,
-          pageFingerprint: entry?.pageFingerprint,
-          actionIndex: entry?.actionIndex,
-          routeMemory: entry?.routeMemory,
+          pageFingerprint: entryPageFingerprint,
+          actionIndex: entryActionIndex,
+          routeMemory: entryRouteMemory,
         });
         liveExecuted = run.executed;
         liveOk = run.ok;

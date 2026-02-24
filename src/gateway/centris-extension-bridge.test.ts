@@ -168,7 +168,7 @@ describe("centris-extension-bridge", () => {
       // Old connection should be closed
       // eslint-disable-next-line @typescript-eslint/unbound-method
       const closeSpy = mock1.ws.close;
-      expect(closeSpy).toHaveBeenCalledWith(1000, "replaced by new connection");
+      expect(closeSpy).toHaveBeenCalledWith(4000, "replaced by new connection");
       // New connection is active
       expect(isCentrisExtensionConnected()).toBe(true);
     });
