@@ -13,6 +13,7 @@ import {
   type ManifestActionStep,
   type ManifestSuccessCheck,
   validateManifest,
+  validateManifestPolicy,
   ManifestStore,
 } from "../../manifest/index.js";
 
@@ -43,7 +44,15 @@ function readManifest(filePath: string): CentrisManifest {
   if (!validated) {
     throw new Error(`Invalid manifest: ${abs}`);
   }
-  return validated;
+  const policy = validateManifestPolicy(validated, { strict: true, targetVersion: "2.0" });
+  if (!policy.ok) {
+    const errors = policy.issues
+      .filter((issue) => issue.level === "error")
+      .map((issue) => issue.message)
+      .join(" | ");
+    throw new Error(`Manifest policy validation failed: ${errors}`);
+  }
+  return policy.normalized;
 }
 
 function writeManifest(filePath: string, manifest: CentrisManifest): void {
@@ -83,6 +92,12 @@ export async function recordRoute(options: RouteRecordOptions, ctx: CLIContext):
     params,
     steps,
     successChecks: checks,
+    safetyLevel:
+      options.safetyLevel === "read" ||
+      options.safetyLevel === "write" ||
+      options.safetyLevel === "destructive"
+        ? options.safetyLevel
+        : undefined,
     confidence:
       typeof options.confidence === "number" && Number.isFinite(options.confidence)
         ? Math.max(0, Math.min(1, options.confidence))
@@ -107,7 +122,16 @@ function resolveRouteForUrl(params: {
   url: string;
   action: string;
 }): ResolvedRoute {
-  const store = new ManifestStore([{ manifest: params.manifest, source: "inline" }]);
+  const store = new ManifestStore([
+    {
+      manifest: params.manifest,
+      source: "inline",
+      sourceKind: "workspace",
+      trusted: true,
+      trustReason: "inline",
+      diagnostics: [],
+    },
+  ]);
   const resolved = store.resolve(params.url);
   if (!resolved) {
     throw new Error(`No manifest route matched URL: ${params.url}`);
@@ -263,7 +287,16 @@ export async function runRoute(options: RouteRunOptions, ctx: CLIContext): Promi
 
   printRoutePlan(ctx, manifest, resolved.routeKey, resolved.actionName);
 
-  const checks = manifest.routes[resolved.routeKey]?.actions?.[resolved.actionName]?.successChecks;
+  const actionDef = manifest.routes[resolved.routeKey]?.actions?.[resolved.actionName];
+  if (!actionDef) {
+    throw new Error(`Action missing after resolve: ${resolved.actionName}`);
+  }
+  if (actionDef.safetyLevel === "destructive" && options.allowDestructive !== true) {
+    throw new Error(
+      `Action ${resolved.routeKey}:${resolved.actionName} is destructive; re-run with --allow-destructive`,
+    );
+  }
+  const checks = actionDef.successChecks;
 
   const result = options.playwright
     ? await executeWithPlaywright({

@@ -18,14 +18,28 @@ import type {
   ResolvedManifest,
   ManifestRoute,
 } from "./types.js";
+import { sourcePriority } from "./policy.js";
 
 // --- Manifest Store ---
 
+export interface ManifestResolveOptions {
+  appOverrides?: Record<string, string>;
+  logger?: {
+    debug?: (msg: string) => void;
+  };
+}
+
 export class ManifestStore {
   private manifests: LoadedManifest[] = [];
-  private urlPatternIndex: Array<{ pattern: RegExp; manifest: CentrisManifest }> = [];
+  private readonly options: ManifestResolveOptions;
+  private urlPatternIndex: Array<{
+    pattern: RegExp;
+    manifest: CentrisManifest;
+    loaded: LoadedManifest;
+  }> = [];
 
-  constructor(loaded?: LoadedManifest[]) {
+  constructor(loaded?: LoadedManifest[], options?: ManifestResolveOptions) {
+    this.options = options ?? {};
     if (loaded) {
       this.addAll(loaded);
     }
@@ -43,6 +57,7 @@ export class ManifestStore {
       this.urlPatternIndex.push({
         pattern: globToRegex(pattern),
         manifest: entry.manifest,
+        loaded: entry,
       });
     }
   }
@@ -56,11 +71,13 @@ export class ManifestStore {
    * Each entry is ~30-50 tokens.
    */
   buildIndex(): ManifestIndexEntry[] {
-    return this.manifests.map(({ manifest }) => ({
+    return this.manifests.map(({ manifest, sourceKind, trusted }) => ({
       app: manifest.app,
       description: manifest.description,
       url_patterns: manifest.url_patterns,
       actions: Object.values(manifest.routes).flatMap((route) => Object.keys(route.actions ?? {})),
+      source: sourceKind,
+      trusted,
     }));
   }
 
@@ -70,8 +87,14 @@ export class ManifestStore {
    */
   resolve(url: string): ResolvedManifest | null {
     const normalizedUrl = normalizeUrl(url);
+    const candidates: Array<{
+      loaded: LoadedManifest;
+      routeKey: string;
+      route: ManifestRoute;
+      specificity: number;
+    }> = [];
 
-    for (const { pattern, manifest } of this.urlPatternIndex) {
+    for (const { pattern, manifest, loaded } of this.urlPatternIndex) {
       if (!pattern.test(normalizedUrl)) {
         continue;
       }
@@ -82,18 +105,60 @@ export class ManifestStore {
       if (!matched) {
         continue;
       }
-
-      return {
-        app: manifest.app,
-        description: manifest.description,
-        url: url,
-        route: matched.routeKey,
-        landmarks: matched.route.landmarks ?? {},
-        actions: matched.route.actions ?? {},
-      };
+      candidates.push({
+        loaded,
+        routeKey: matched.routeKey,
+        route: matched.route,
+        specificity: matched.specificity,
+      });
     }
 
-    return null;
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    candidates.sort((a, b) => {
+      const overrideA = this.options.appOverrides?.[a.loaded.manifest.app];
+      const overrideB = this.options.appOverrides?.[b.loaded.manifest.app];
+      const overrideScoreA = overrideA && overrideA === a.loaded.source ? 1000 : 0;
+      const overrideScoreB = overrideB && overrideB === b.loaded.source ? 1000 : 0;
+      if (overrideScoreA !== overrideScoreB) {
+        return overrideScoreB - overrideScoreA;
+      }
+      if (a.specificity !== b.specificity) {
+        return b.specificity - a.specificity;
+      }
+      const source = sourcePriority(b.loaded.sourceKind) - sourcePriority(a.loaded.sourceKind);
+      if (source !== 0) {
+        return source;
+      }
+      const trusted = Number(b.loaded.trusted) - Number(a.loaded.trusted);
+      if (trusted !== 0) {
+        return trusted;
+      }
+      return b.loaded.source.localeCompare(a.loaded.source);
+    });
+
+    const best = candidates[0]!;
+    this.options.logger?.debug?.(
+      `[manifest-resolver] selected app=${best.loaded.manifest.app} route=${best.routeKey} source=${best.loaded.source} specificity=${best.specificity}`,
+    );
+
+    return {
+      app: best.loaded.manifest.app,
+      description: best.loaded.manifest.description,
+      url: url,
+      route: best.routeKey,
+      landmarks: best.route.landmarks ?? {},
+      actions: best.route.actions ?? {},
+      metadata: {
+        source: best.loaded.source,
+        sourceKind: best.loaded.sourceKind,
+        trusted: best.loaded.trusted,
+        trustReason: best.loaded.trustReason,
+        specificity: best.specificity,
+      },
+    };
   }
 
   /**
@@ -162,7 +227,7 @@ function extractPath(url: string): string {
 function matchRoute(
   urlPath: string,
   routes: Record<string, ManifestRoute>,
-): { routeKey: string; route: ManifestRoute } | null {
+): { routeKey: string; route: ManifestRoute; specificity: number } | null {
   let bestMatch: { routeKey: string; route: ManifestRoute; specificity: number } | null = null;
 
   for (const [routeKey, route] of Object.entries(routes)) {

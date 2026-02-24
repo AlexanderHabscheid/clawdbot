@@ -311,6 +311,16 @@ export interface ManifestValidateOptions extends CLIOptions {
   file?: string;
   /** Require at least one route with landmarks/actions */
   strict?: boolean;
+  /** Target manifest version compatibility (for example 2.0) */
+  targetVersion?: string;
+  /** Allow unsigned non-workspace manifests */
+  allowUnsigned?: boolean;
+  /** Comma-separated publisher allowlist */
+  publishers?: string;
+  /** Path to JSON file mapping keyId -> public key (PEM/base64 spki) */
+  publicKeysFile?: string;
+  /** Fail if destructive actions exist without explicit safety metadata */
+  requireSafetyMetadata?: boolean;
 }
 
 export interface ManifestDoctorOptions extends CLIOptions {
@@ -349,6 +359,7 @@ export interface RouteRecordOptions extends CLIOptions {
   fallbackChains?: string;
   out?: string;
   confidence?: number;
+  safetyLevel?: "read" | "write" | "destructive";
 }
 
 export interface RouteRunOptions extends CLIOptions {
@@ -363,6 +374,7 @@ export interface RouteRunOptions extends CLIOptions {
   playwright?: boolean;
   headful?: boolean;
   slowMo?: number;
+  allowDestructive?: boolean;
 }
 
 export interface RouteTestOptions extends RouteRunOptions {}

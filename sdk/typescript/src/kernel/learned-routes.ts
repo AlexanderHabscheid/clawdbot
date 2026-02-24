@@ -24,6 +24,7 @@ export interface UpdateLearnedRouteOutcomeOptions {
   routeId: string;
   urlPattern: string;
   outcome: "success" | "failure";
+  severity?: "normal" | "clustered";
   baseDir?: string;
   appId?: string;
   now?: Date;
@@ -119,7 +120,7 @@ export function updateLearnedRouteOutcome(
   const decayed = decayConfidence(action.confidence, action.lastVerifiedAt, now);
   route.actions[options.routeId] = {
     ...action,
-    confidence: toConfidence(scoreAfterOutcome(decayed, options.outcome)),
+    confidence: toConfidence(scoreAfterOutcome(decayed, options.outcome, options.severity)),
     lastVerifiedAt: nowIso,
   };
 
@@ -212,11 +213,15 @@ function decayConfidence(
   return clamp(base * factor);
 }
 
-function scoreAfterOutcome(current: number, outcome: "success" | "failure"): number {
+function scoreAfterOutcome(
+  current: number,
+  outcome: "success" | "failure",
+  severity: "normal" | "clustered" = "normal",
+): number {
   if (outcome === "success") {
     return clamp(current + (1 - current) * 0.35);
   }
-  return clamp(current * 0.65);
+  return clamp(current * (severity === "clustered" ? 0.45 : 0.65));
 }
 
 function toConfidence(value: number): number {

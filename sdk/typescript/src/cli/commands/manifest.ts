@@ -15,6 +15,11 @@ import type {
   ManifestValidateOptions,
 } from "../types.js";
 import { validateManifest } from "../../manifest/loader.js";
+import {
+  detectManifestSourceKind,
+  evaluateManifestTrust,
+  validateManifestPolicy,
+} from "../../manifest/policy.js";
 
 function toSlug(input: string): string {
   return input
@@ -107,6 +112,46 @@ export async function validateManifestFile(
     throw new Error(`Invalid Centris manifest structure: ${file}`);
   }
 
+  const sourceKind = detectManifestSourceKind({
+    path: file,
+    workspaceDir: ctx.cwd,
+  });
+  const publisherAllowlist = options.publishers
+    ? options.publishers
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : undefined;
+  const publicKeys =
+    options.publicKeysFile && options.publicKeysFile.trim().length > 0
+      ? (JSON.parse(
+          fs.readFileSync(path.resolve(ctx.cwd, options.publicKeysFile), "utf-8"),
+        ) as Record<string, string>)
+      : undefined;
+  const trust = evaluateManifestTrust({
+    manifest,
+    sourceKind,
+    policy: {
+      allowUnsignedExternal: options.allowUnsigned === true,
+      allowedPublishers: publisherAllowlist,
+      publicKeys,
+    },
+  });
+  const policy = validateManifestPolicy(manifest, {
+    strict: options.strict,
+    targetVersion: options.targetVersion,
+  });
+
+  if (!trust.trusted) {
+    throw new Error(`Manifest trust validation failed: ${trust.reason}`);
+  }
+  if (!policy.ok) {
+    const errors = policy.issues
+      .filter((issue) => issue.level === "error")
+      .map((issue) => issue.message);
+    throw new Error(`Manifest policy validation failed: ${errors.join(" | ")}`);
+  }
+
   if (options.strict) {
     const hasRoutes = Object.keys(manifest.routes).length > 0;
     const hasContent = Object.values(manifest.routes).some(
@@ -122,7 +167,30 @@ export async function validateManifestFile(
     }
   }
 
-  ctx.logger.success(`Manifest is valid: ${file}`);
+  if (options.requireSafetyMetadata) {
+    const missingSafety: string[] = [];
+    for (const [routeKey, route] of Object.entries(manifest.routes)) {
+      for (const [actionName, action] of Object.entries(route.actions ?? {})) {
+        const hasMutationStep = action.steps.some(
+          (step) => "type" in step || ("press" in step && step.press.toLowerCase() === "enter"),
+        );
+        if (hasMutationStep && !action.safetyLevel) {
+          missingSafety.push(`${routeKey}:${actionName}`);
+        }
+      }
+    }
+    if (missingSafety.length > 0) {
+      throw new Error(`Missing explicit safetyLevel for actions: ${missingSafety.join(", ")}`);
+    }
+  }
+
+  const warnings = policy.issues.filter((issue) => issue.level === "warning");
+  for (const warning of warnings) {
+    ctx.logger.warn(`manifest warning: ${warning.message}`);
+  }
+  ctx.logger.success(
+    `Manifest is valid: ${file} (trusted=${trust.trusted ? "yes" : "no"}, source=${sourceKind})`,
+  );
 }
 
 function parseManifestFromFile(filePath: string): CentrisManifest {
@@ -203,6 +271,9 @@ function collectManifestDiagnostics(file: string, manifest: CentrisManifest): Ma
       }
       if (typeof action.confidence !== "number") {
         warnings.push(`Action "${routeKey}:${actionName}" is missing confidence.`);
+      }
+      if (!action.safetyLevel) {
+        warnings.push(`Action "${routeKey}:${actionName}" is missing safetyLevel.`);
       }
     }
 

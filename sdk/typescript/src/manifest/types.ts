@@ -16,6 +16,8 @@
 
 export type SelectorStability = "stable" | "moderate" | "fragile";
 
+export type ManifestActionSafetyLevel = "read" | "write" | "destructive";
+
 /**
  * A selector with a stability hint and fallback chain.
  * The extension tries selectors in order until one matches.
@@ -79,6 +81,7 @@ export interface ManifestAction {
   params?: string[];
   steps: ManifestActionStep[];
   successChecks?: ManifestSuccessCheck[];
+  safetyLevel?: ManifestActionSafetyLevel;
   confidence?: number;
   lastVerifiedAt?: string;
   fallbackChains?: string[][];
@@ -111,6 +114,16 @@ export interface CentrisManifest {
   app: string;
   /** Human-readable description */
   description?: string;
+  /** Optional manifest package version (for pinning/precedence) */
+  version?: string;
+  /** Optional publisher trust metadata (required for non-local manifests under strict trust policy) */
+  trust?: {
+    publisher?: string;
+    keyId?: string;
+    signature?: string;
+    signatureAlgorithm?: "sha256" | "ed25519";
+    signedAt?: string;
+  };
   /** URL patterns this manifest applies to (glob-style) */
   url_patterns: string[];
   /** Page-specific landmarks and actions, keyed by route pattern */
@@ -128,6 +141,8 @@ export interface ManifestIndexEntry {
   description?: string;
   url_patterns: string[];
   actions: string[];
+  source?: "workspace" | "registry" | "global" | "overlay" | "external";
+  trusted?: boolean;
 }
 
 // --- Resolved manifest (full, injected after URL match) ---
@@ -143,4 +158,11 @@ export interface ResolvedManifest {
   route: string;
   landmarks: Record<string, ManifestLandmark>;
   actions: Record<string, ManifestAction>;
+  metadata?: {
+    source: string;
+    sourceKind: "workspace" | "registry" | "global" | "overlay" | "external";
+    trusted: boolean;
+    trustReason?: string;
+    specificity?: number;
+  };
 }

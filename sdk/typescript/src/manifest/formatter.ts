@@ -36,7 +36,12 @@ export function formatManifestIndex(entries: ManifestIndexEntry[]): string {
   for (const entry of entries) {
     const actions = entry.actions.length > 0 ? ` | actions: ${entry.actions.join(", ")}` : "";
     const desc = entry.description ? `  - ${entry.description}` : "";
-    lines.push(`- **${entry.app}**${desc} (${entry.url_patterns.join(", ")}${actions})`);
+    const source = entry.source ? ` source=${entry.source}` : "";
+    const trust =
+      typeof entry.trusted === "boolean" ? ` trusted=${entry.trusted ? "yes" : "no"}` : "";
+    lines.push(
+      `- **${entry.app}**${desc} (${entry.url_patterns.join(", ")}${actions}${source}${trust})`,
+    );
   }
 
   return lines.join("\n");
@@ -52,6 +57,11 @@ export function formatManifestIndex(entries: ManifestIndexEntry[]): string {
 export function formatResolvedManifest(resolved: ResolvedManifest): string {
   const lines: string[] = [];
   lines.push(`[Pre-mapped: ${resolved.app}]`);
+  if (resolved.metadata) {
+    lines.push(
+      `Source: ${resolved.metadata.sourceKind} (${resolved.metadata.source}), trusted=${resolved.metadata.trusted ? "yes" : "no"}`,
+    );
+  }
 
   // Landmarks
   const landmarkEntries = Object.entries(resolved.landmarks);

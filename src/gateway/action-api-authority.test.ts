@@ -109,7 +109,6 @@ describe("handleActionApiEnvelope", () => {
         url: "https://example.com/forms",
       },
     });
-
     expect(result.ok).toBe(true);
     expect(vi.mocked(sendExtensionCommand)).toHaveBeenCalledWith("press_key", {
       key: "Enter",
@@ -371,7 +370,6 @@ describe("handleActionApiEnvelope", () => {
         },
       },
     });
-
     expect(result.ok).toBe(true);
     expect((result.result as { source?: string }).source).toBe("memory");
     expect(vi.mocked(sendExtensionCommand)).toHaveBeenNthCalledWith(1, "click_node", {

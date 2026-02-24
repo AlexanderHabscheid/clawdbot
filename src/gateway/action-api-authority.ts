@@ -135,6 +135,8 @@ let webMemoryExecuteCount = 0;
 const WEB_MEMORY_DEFAULT_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const MEMORY_ROUTE_CONFIDENCE_THRESHOLD = 0.75;
 const MAX_DESKTOP_ELEMENTS_CHARS = 4000;
+const ROUTE_FAILURE_CLUSTER_THRESHOLD = 2;
+const routeFailureStreakByCluster = new Map<string, number>();
 
 function actionError(
   method: string,
@@ -659,6 +661,33 @@ function buildWebMemoryCacheKey(url: string, intent?: string): string {
   return `wm_${digest}`;
 }
 
+function buildFailureClusterKey(params: {
+  routeId: string;
+  url?: string;
+  pageFingerprint?: ActionPageFingerprint;
+}): string {
+  return `${params.routeId}|${toDomain(params.url ?? "")}|${params.pageFingerprint?.fingerprintId ?? ""}`;
+}
+
+function markFailureCluster(params: {
+  routeId: string;
+  url?: string;
+  pageFingerprint?: ActionPageFingerprint;
+}): number {
+  const key = buildFailureClusterKey(params);
+  const next = (routeFailureStreakByCluster.get(key) ?? 0) + 1;
+  routeFailureStreakByCluster.set(key, next);
+  return next;
+}
+
+function clearFailureCluster(params: {
+  routeId: string;
+  url?: string;
+  pageFingerprint?: ActionPageFingerprint;
+}): void {
+  routeFailureStreakByCluster.delete(buildFailureClusterKey(params));
+}
+
 async function persistRecordedRoute(params: {
   routeId: string;
   session: RecordedSession;
@@ -1139,6 +1168,11 @@ async function runRouteWithPolicy(params: {
         url: params.url,
         checks: params.checks,
       });
+      clearFailureCluster({
+        routeId: params.routeId,
+        url: params.url,
+        pageFingerprint: params.pageFingerprint,
+      });
       return { ...memoryResult, source: "memory", confidence };
     } catch {
       // Fallback to manifest/live execution when memory targets drift.
@@ -1147,6 +1181,38 @@ async function runRouteWithPolicy(params: {
 
   try {
     const manifestResult = await runManifestRoute(params.routeId, params.url, params.checks);
+    if (manifestResult.ok) {
+      clearFailureCluster({
+        routeId: params.routeId,
+        url: params.url,
+        pageFingerprint: params.pageFingerprint,
+      });
+    } else {
+      const streak = markFailureCluster({
+        routeId: params.routeId,
+        url: params.url,
+        pageFingerprint: params.pageFingerprint,
+      });
+      if (
+        streak >= ROUTE_FAILURE_CLUSTER_THRESHOLD &&
+        manifestResult.verify &&
+        !manifestResult.verify.ok
+      ) {
+        const urlPattern = deriveUrlPattern(params.url);
+        if (urlPattern) {
+          try {
+            updateLearnedRouteOutcome({
+              routeId: params.routeId,
+              urlPattern,
+              outcome: "failure",
+              severity: "clustered",
+            });
+          } catch {
+            // clustered demotion is best-effort
+          }
+        }
+      }
+    }
     return { ...manifestResult, source: "manifest", confidence };
   } catch {
     if (params.routeMemory && params.routeMemory.routeId === params.routeId) {
@@ -1155,6 +1221,11 @@ async function runRouteWithPolicy(params: {
         actionIndex,
         url: params.url,
         checks: params.checks,
+      });
+      clearFailureCluster({
+        routeId: params.routeId,
+        url: params.url,
+        pageFingerprint: params.pageFingerprint,
       });
       return { ...liveResult, source: "live", confidence };
     }
@@ -1622,6 +1693,7 @@ export async function handleActionApiEnvelope(
               },
             };
           } catch {
+            await store.delete(entry.cacheKey);
             // Drifted memory should degrade to live execution path.
           }
         }

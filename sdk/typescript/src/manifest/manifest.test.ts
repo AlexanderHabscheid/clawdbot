@@ -89,7 +89,14 @@ const GITHUB_MANIFEST: CentrisManifest = {
 };
 
 function loaded(m: CentrisManifest): LoadedManifest {
-  return { manifest: m, source: `/fake/${m.app}/centris.json` };
+  return {
+    manifest: m,
+    source: `/fake/${m.app}/centris.json`,
+    sourceKind: "workspace",
+    trusted: true,
+    trustReason: "test",
+    diagnostics: [],
+  };
 }
 
 // ─── Resolver tests ──────────────────────────────────────────────────────────

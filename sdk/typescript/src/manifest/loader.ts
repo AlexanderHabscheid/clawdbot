@@ -21,10 +21,24 @@ import type {
   ManifestRoute,
   ManifestSuccessCheck,
 } from "./types.js";
+import {
+  detectManifestSourceKind,
+  evaluateManifestTrust,
+  sourcePriority,
+  validateManifestPolicy,
+  type ManifestSourceKind,
+  type ManifestTrustPolicy,
+  type ManifestValidationOptions,
+} from "./policy.js";
 
 export interface ManifestLoaderOptions {
   workspaceDir?: string;
   extraPaths?: string[];
+  trustPolicy?: ManifestTrustPolicy;
+  validation?: ManifestValidationOptions;
+  allowUntrusted?: boolean;
+  preferredSourceKinds?: ManifestSourceKind[];
+  pinnedVersions?: Record<string, string>;
   logger?: {
     debug?: (msg: string) => void;
     info?: (msg: string) => void;
@@ -36,6 +50,10 @@ export interface ManifestLoaderOptions {
 export interface LoadedManifest {
   manifest: CentrisManifest;
   source: string;
+  sourceKind: ManifestSourceKind;
+  trusted: boolean;
+  trustReason?: string;
+  diagnostics: string[];
 }
 
 /**
@@ -66,11 +84,12 @@ export function loadManifests(options?: ManifestLoaderOptions): LoadedManifest[]
   }
 
   for (const dir of searchDirs) {
-    discoverInDirectory(dir, results, seen, log);
+    discoverInDirectory(dir, results, seen, log, options);
   }
 
-  log.info?.(`[manifest-loader] loaded ${results.length} manifest(s)`);
-  return results;
+  const sorted = applyPrecedenceAndPins(results, options);
+  log.info?.(`[manifest-loader] loaded ${sorted.length} manifest(s)`);
+  return sorted;
 }
 
 function discoverInDirectory(
@@ -78,6 +97,7 @@ function discoverInDirectory(
   results: LoadedManifest[],
   seen: Set<string>,
   log: ManifestLoaderOptions["logger"],
+  options?: ManifestLoaderOptions,
 ): void {
   if (!fs.existsSync(dir)) {
     return;
@@ -94,13 +114,13 @@ function discoverInDirectory(
     if (!entry.isDirectory()) {
       // Check if this is a centris.json directly in the dir
       if (entry.name === "centris.json") {
-        loadManifestFile(path.join(dir, entry.name), results, seen, log);
+        loadManifestFile(path.join(dir, entry.name), results, seen, log, options);
       }
       continue;
     }
 
     const manifestPath = path.join(dir, entry.name, "centris.json");
-    loadManifestFile(manifestPath, results, seen, log);
+    loadManifestFile(manifestPath, results, seen, log, options);
   }
 }
 
@@ -109,6 +129,7 @@ function loadManifestFile(
   results: LoadedManifest[],
   seen: Set<string>,
   log: ManifestLoaderOptions["logger"],
+  options?: ManifestLoaderOptions,
 ): void {
   const resolved = path.resolve(filePath);
   if (seen.has(resolved)) {
@@ -130,8 +151,38 @@ function loadManifestFile(
       return;
     }
 
-    results.push({ manifest, source: resolved });
-    log?.debug?.(`[manifest-loader] loaded: ${manifest.app} from ${resolved}`);
+    const sourceKind = detectManifestSourceKind({
+      path: resolved,
+      workspaceDir: options?.workspaceDir ? path.resolve(options.workspaceDir) : undefined,
+    });
+    const trust = evaluateManifestTrust({
+      manifest,
+      sourceKind,
+      policy: options?.trustPolicy,
+    });
+    const policy = validateManifestPolicy(manifest, options?.validation);
+    const diagnostics = policy.issues.map((issue) => `${issue.level}: ${issue.message}`);
+
+    if (!policy.ok) {
+      log?.warn?.(`[manifest-loader] policy validation failed: ${resolved}`);
+      return;
+    }
+    if (!trust.trusted && options?.allowUntrusted !== true) {
+      log?.warn?.(`[manifest-loader] rejected untrusted manifest ${resolved}: ${trust.reason}`);
+      return;
+    }
+
+    results.push({
+      manifest: policy.normalized,
+      source: resolved,
+      sourceKind,
+      trusted: trust.trusted,
+      trustReason: trust.reason,
+      diagnostics,
+    });
+    log?.debug?.(
+      `[manifest-loader] loaded: ${manifest.app} from ${resolved} [${sourceKind}] trusted=${String(trust.trusted)}`,
+    );
   } catch (err) {
     log?.warn?.(`[manifest-loader] failed to load ${resolved}: ${String(err)}`);
   }
@@ -238,6 +289,12 @@ export function validateManifest(data: unknown): CentrisManifest | null {
             : undefined,
           steps: ao.steps as ManifestAction["steps"],
           successChecks,
+          safetyLevel:
+            ao.safetyLevel === "read" ||
+            ao.safetyLevel === "write" ||
+            ao.safetyLevel === "destructive"
+              ? ao.safetyLevel
+              : undefined,
           confidence,
           lastVerifiedAt,
           fallbackChains,
@@ -255,9 +312,88 @@ export function validateManifest(data: unknown): CentrisManifest | null {
     centris: normalizeManifestVersion(obj.centris),
     app: obj.app,
     description: typeof obj.description === "string" ? obj.description : undefined,
+    version: typeof obj.version === "string" ? obj.version : undefined,
+    trust:
+      obj.trust && typeof obj.trust === "object"
+        ? {
+            publisher:
+              typeof (obj.trust as Record<string, unknown>).publisher === "string"
+                ? ((obj.trust as Record<string, unknown>).publisher as string)
+                : undefined,
+            keyId:
+              typeof (obj.trust as Record<string, unknown>).keyId === "string"
+                ? ((obj.trust as Record<string, unknown>).keyId as string)
+                : undefined,
+            signature:
+              typeof (obj.trust as Record<string, unknown>).signature === "string"
+                ? ((obj.trust as Record<string, unknown>).signature as string)
+                : undefined,
+            signatureAlgorithm:
+              (obj.trust as Record<string, unknown>).signatureAlgorithm === "sha256" ||
+              (obj.trust as Record<string, unknown>).signatureAlgorithm === "ed25519"
+                ? ((obj.trust as Record<string, unknown>).signatureAlgorithm as
+                    | "sha256"
+                    | "ed25519")
+                : undefined,
+            signedAt:
+              typeof (obj.trust as Record<string, unknown>).signedAt === "string"
+                ? ((obj.trust as Record<string, unknown>).signedAt as string)
+                : undefined,
+          }
+        : undefined,
     url_patterns: obj.url_patterns as string[],
     routes,
   };
+}
+
+function applyPrecedenceAndPins(
+  loaded: LoadedManifest[],
+  options?: ManifestLoaderOptions,
+): LoadedManifest[] {
+  const preferredKinds = options?.preferredSourceKinds;
+  const preferredWeight = new Map<ManifestSourceKind, number>();
+  if (preferredKinds && preferredKinds.length > 0) {
+    preferredKinds.forEach((kind, index) => {
+      preferredWeight.set(kind, preferredKinds.length - index + 1000);
+    });
+  }
+
+  const pinnedVersions = options?.pinnedVersions ?? {};
+  const dedupedByApp = new Map<string, LoadedManifest[]>();
+  for (const item of loaded) {
+    const list = dedupedByApp.get(item.manifest.app) ?? [];
+    list.push(item);
+    dedupedByApp.set(item.manifest.app, list);
+  }
+
+  const selected: LoadedManifest[] = [];
+  for (const entries of dedupedByApp.values()) {
+    const pinned = pinnedVersions[entries[0]?.manifest.app ?? ""];
+    const pinnedCandidates = pinned
+      ? entries.filter((entry) => entry.manifest.version === pinned)
+      : entries;
+    const pool = pinnedCandidates.length > 0 ? pinnedCandidates : entries;
+    pool.sort((a, b) => {
+      const pwA = preferredWeight.get(a.sourceKind) ?? 0;
+      const pwB = preferredWeight.get(b.sourceKind) ?? 0;
+      if (pwA !== pwB) {
+        return pwB - pwA;
+      }
+      const src = sourcePriority(b.sourceKind) - sourcePriority(a.sourceKind);
+      if (src !== 0) {
+        return src;
+      }
+      const trusted = Number(b.trusted) - Number(a.trusted);
+      if (trusted !== 0) {
+        return trusted;
+      }
+      return b.source.localeCompare(a.source);
+    });
+    selected.push(pool[0]!);
+  }
+
+  selected.sort((a, b) => a.manifest.app.localeCompare(b.manifest.app));
+  return selected;
 }
 
 function normalizeManifestVersion(input: string): string {

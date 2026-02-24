@@ -483,6 +483,17 @@ export function createCLI(): Command {
     .command("validate [file]")
     .description("Validate a centris site manifest")
     .option("-s, --strict", "Require at least one route with landmarks/actions")
+    .option("--target-version <version>", "Require manifest compatibility with this spec version")
+    .option("--allow-unsigned", "Allow unsigned non-workspace manifests")
+    .option(
+      "--publishers <list>",
+      "Comma-separated publisher allowlist for non-workspace manifests",
+    )
+    .option("--public-keys-file <path>", "JSON file with keyId->publicKey mappings")
+    .option(
+      "--require-safety-metadata",
+      "Require explicit safetyLevel on write/destructive actions",
+    )
     .action(async (file, options, cmd) => {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       const ctx = createContext(globalOpts);
@@ -532,6 +543,7 @@ export function createCLI(): Command {
     .option("--checks <json>", "Optional success checks JSON array")
     .option("--fallback-chains <json>", "Optional selector fallback chains JSON array")
     .option("--confidence <num>", "Confidence between 0 and 1")
+    .option("--safety-level <level>", "Action safety level: read|write|destructive")
     .option("--out <path>", "Manifest path")
     .action(async (options, cmd) => {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
@@ -562,6 +574,7 @@ export function createCLI(): Command {
     .option("--playwright", "Execute using Playwright harness")
     .option("--headful", "Run browser in headed mode (when using Playwright)")
     .option("--slow-mo <ms>", "Playwright slowMo")
+    .option("--allow-destructive", "Allow destructive manifest actions")
     .action(async (options, cmd) => {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       const ctx = createContext(globalOpts);
@@ -589,6 +602,7 @@ export function createCLI(): Command {
     .option("--playwright", "Execute using Playwright harness")
     .option("--headful", "Run browser in headed mode")
     .option("--slow-mo <ms>", "Playwright slowMo")
+    .option("--allow-destructive", "Allow destructive manifest actions")
     .action(async (options, cmd) => {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       const ctx = createContext(globalOpts);
