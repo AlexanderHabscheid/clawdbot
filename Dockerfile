@@ -67,6 +67,7 @@ COPY --from=builder --chown=node:node /app/package.json /app/pnpm-workspace.yaml
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/extensions ./extensions
+COPY --from=builder --chown=node:node /app/docs/reference/templates ./docs/reference/templates
 COPY --from=builder --chown=node:node /app/scripts ./scripts
 
 # Centris init script — runs before the gateway starts.
